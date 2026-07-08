@@ -34,10 +34,11 @@ import (
 
 func TestNegotiateDeflate(t *testing.T) {
 	tests := map[string]struct {
-		extensions          string
-		negotiateWindowBits bool
-		wantOK              bool
-		want                extension.DeflateParams
+		extensions           string
+		negotiateWindowBits  bool
+		allowContextTakeover bool
+		wantOK               bool
+		want                 extension.DeflateParams
 	}{
 		"simplest offer": {
 			extensions: "permessage-deflate",
@@ -86,7 +87,7 @@ func TestNegotiateDeflate(t *testing.T) {
 
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
-			got, ok := negotiateDeflate([]byte(tt.extensions), tt.negotiateWindowBits)
+			got, ok := negotiateDeflate([]byte(tt.extensions), tt.negotiateWindowBits, tt.allowContextTakeover)
 			if ok != tt.wantOK {
 				t.Fatalf("ok = %v, want %v (got=%+v)", ok, tt.wantOK, got)
 			}
@@ -224,7 +225,7 @@ func TestNegotiateDeflateWindowBits(t *testing.T) {
 
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
-			got, ok := negotiateDeflate([]byte(tt.extensions), tt.negotiateWindowBits)
+			got, ok := negotiateDeflate([]byte(tt.extensions), tt.negotiateWindowBits, false)
 			if ok != tt.wantOK {
 				t.Fatalf("ok = %v, want %v (got=%+v)", ok, tt.wantOK, got)
 			}

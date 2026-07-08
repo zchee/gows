@@ -17,7 +17,8 @@ package gows
 import "errors"
 
 // Sentinel errors returned by [Upgrader.Upgrade], [Upgrader.UpgradeHTTP],
-// [Dialer.Dial], and [Conn.Close]. Each is comparable with [errors.Is].
+// [Dialer.Dial], [Conn.Close], [Conn.WriteMessage], and [Conn.NextWriter].
+// Each is comparable with [errors.Is].
 // Errors originating from a malformed HTTP request/status line or header
 // block (as opposed to a WebSocket-specific handshake requirement) are
 // propagated from the internal/httpx package instead of being redefined
@@ -79,4 +80,13 @@ var (
 	// putting invalid UTF-8 on the wire would make this package the
 	// non-conformant peer.
 	ErrInvalidCloseReason = errors.New("gows: close reason is not valid UTF-8")
+	// ErrWriterBusy is returned by [Conn.WriteMessage] and
+	// [Conn.NextWriter] when a previous [Conn.NextWriter] stream is
+	// still open (its writer has not been Closed). A Conn allows at
+	// most one writer at a time: a streaming message owns the
+	// connection's outbound data-frame stream until it is Closed, so
+	// another data message cannot be started meanwhile. Control replies
+	// (Pong, Close) are exempt and may still interleave between
+	// fragments.
+	ErrWriterBusy = errors.New("gows: a NextWriter message is already open")
 )

@@ -46,9 +46,7 @@ const minDeflateWindowBits = 8
 // value (RFC 7692 §5) for the first permessage-deflate offer this server
 // can actually honor, applying RFC 7692 §7's "first structurally valid
 // offer, otherwise fall back to the next" rule alongside this server's
-// own policy: server_no_context_takeover and client_no_context_takeover
-// are always forced on in the response (this phase never offers context
-// takeover). client_max_window_bits, bare or valued, never causes a
+// own policy. client_max_window_bits, bare or valued, never causes a
 // decline: it only bounds the client's own compressor, which this
 // server's decompressor (always a full 32KB window, regardless of
 // backend) can always handle.
@@ -66,11 +64,24 @@ const minDeflateWindowBits = 8
 // below 15 -- using less window than the offer's ceiling allows is
 // always RFC-compliant.
 //
+// allowContextTakeover governs server_no_context_takeover/
+// client_no_context_takeover in the response: when false (this
+// package's original behavior), both are always forced on, declining
+// context takeover for both directions regardless of what the offer
+// asked for. When true, the response instead echoes the offer's own
+// server_no_context_takeover (binding per RFC 7692 §7.1.1 -- the client
+// has final say for its own receiving direction) and
+// client_no_context_takeover (the offer's non-binding hint for its own
+// direction; honoring it rather than overriding it is this server's own
+// policy when opted in) -- this naturally produces all four possible
+// per-direction combinations purely from what a given offer contains,
+// with no separate switch needed for each direction.
+//
 // It reports ok=false if extensions contains no acceptable
 // permessage-deflate offer at all; per RFC 7692 §7 the caller should
 // then omit permessage-deflate from its response entirely -- this is
 // never itself a handshake failure.
-func negotiateDeflate(extensions []byte, negotiateWindowBits bool) (extension.DeflateParams, bool) {
+func negotiateDeflate(extensions []byte, negotiateWindowBits, allowContextTakeover bool) (extension.DeflateParams, bool) {
 	activeBits := deflateWindowBits
 	if negotiateWindowBits {
 		activeBits = currentDeflateWindowBits()
@@ -92,12 +103,28 @@ func negotiateDeflate(extensions []byte, negotiateWindowBits bool) (extension.De
 			ServerNoContextTakeover: true,
 			ClientNoContextTakeover: true,
 		}
+		if allowContextTakeover {
+			agreed.ServerNoContextTakeover = params.ServerNoContextTakeover
+			agreed.ClientNoContextTakeover = params.ClientNoContextTakeover
+		}
 		if activeBits < deflateWindowBits {
 			agreed.ServerMaxWindowBits = activeBits
 		}
 		return agreed, true
 	}
 	return extension.DeflateParams{}, false
+}
+
+// compressionParamsFromDeflate translates an internal/extension
+// [extension.DeflateParams] (the negotiation-layer representation, which
+// this package cannot expose directly in a public API -- see
+// [Handshake.CompressionParams]'s doc) into the exported
+// [CompressionParams] a caller passes to [WithCompressionParams].
+func compressionParamsFromDeflate(p extension.DeflateParams) CompressionParams {
+	return CompressionParams{
+		ServerContextTakeover: !p.ServerNoContextTakeover,
+		ClientContextTakeover: !p.ClientNoContextTakeover,
+	}
 }
 
 // doubleCRLF marks the end of an HTTP request or response header block.
@@ -217,7 +244,7 @@ func (u *Upgrader) Upgrade(c net.Conn) (Handshake, error) {
 	var deflateParams extension.DeflateParams
 	var deflateOK bool
 	if u.EnableCompression && extensions != nil {
-		deflateParams, deflateOK = negotiateDeflate(extensions, u.NegotiateWindowBits)
+		deflateParams, deflateOK = negotiateDeflate(extensions, u.NegotiateWindowBits, u.AllowContextTakeover)
 	}
 
 	resp := appendSwitchingProtocolsResponse(pool.Get(160+len(selected)), key, selected, deflateParams, deflateOK)
@@ -229,6 +256,9 @@ func (u *Upgrader) Upgrade(c net.Conn) (Handshake, error) {
 	}
 
 	h := Handshake{Subprotocol: selected, Compressed: deflateOK}
+	if deflateOK {
+		h.CompressionParams = compressionParamsFromDeflate(deflateParams)
+	}
 	if idx+4 < filled {
 		h.Buffered = append([]byte(nil), data[idx+4:filled]...)
 	}

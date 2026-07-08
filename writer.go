@@ -15,7 +15,6 @@
 package gows
 
 import (
-	"errors"
 	"fmt"
 	"io"
 	"math/rand/v2"
@@ -64,7 +63,7 @@ func (c *Conn) WriteMessage(op Opcode, p []byte) error {
 	payload := p
 	var rsv byte
 	if c.compression && op.IsData() && len(p) >= defaultCompressMinSize {
-		compressed, err := compressPayload(c.wcomp[:0], p)
+		compressed, err := c.compressMessage(c.wcomp[:0], p)
 		if err != nil {
 			return err
 		}
@@ -172,14 +171,6 @@ func (c *Conn) writev(a, b []byte) error {
 func maskingKey() uint32 {
 	return rand.Uint32()
 }
-
-// ErrWriterBusy is returned by [Conn.WriteMessage] and [Conn.NextWriter] when
-// a previous [Conn.NextWriter] stream is still open (its writer has not been
-// Closed). A Conn allows at most one writer at a time: a streaming message
-// owns the connection's outbound data-frame stream until it is Closed, so
-// another data message cannot be started meanwhile. Control replies (Pong,
-// Close) are exempt and may still interleave between fragments.
-var ErrWriterBusy = errors.New("gows: a NextWriter message is already open")
 
 // errWriterClosed is returned by a streaming writer's Write after its Close.
 var errWriterClosed = fmt.Errorf("gows: write on a closed message writer: %w", net.ErrClosed)

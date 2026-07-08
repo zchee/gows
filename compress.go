@@ -211,6 +211,115 @@ func DefaultDeflateBackend() *DeflateBackend {
 	return defaultDeflateBackend
 }
 
+// deflateState holds a Conn's per-connection permessage-deflate (RFC 7692)
+// context-takeover state: allocated only by [newDeflateState] when
+// [WithCompressionParams] negotiates context takeover for at least one
+// direction, nil otherwise, in which case compress.go's original pooled,
+// no-context-takeover compressPayload/decompressMessage path applies with
+// no per-Conn cost at all -- see [WithCompressionParams] for the real
+// memory cost once this is non-nil.
+//
+// A deflateState pins the backend, level, and window bits it was built
+// against at construction time (see newDeflateState); a later
+// [SetDeflateBackend] call changes what newly constructed Conns use but
+// never reaches back into an already-built deflateState, since its
+// persistent compressor already exists and cannot be transplanted onto a
+// different backend mid-life, and its sliding-window dictionary's
+// capacity is fixed to the window bits negotiated for this connection.
+type deflateState struct {
+	windowBits int
+
+	// outgoing is non-nil only when this Conn's own outgoing direction
+	// negotiated context takeover: a persistent [DeflateWriter]
+	// constructed once, here, and never Reset again for the Conn's life
+	// -- only outgoingDst's target buffer is swapped per message (see
+	// [Conn.compressMessage]), preserving the compressor's LZ77 window
+	// across messages.
+	outgoing    DeflateWriter
+	outgoingDst *sliceWriter
+
+	// incomingDict is non-nil only when this Conn's incoming direction
+	// (the peer's own outgoing direction) negotiated context takeover: a
+	// sliding window of up to 2^windowBits bytes of the most recently
+	// decompressed plaintext, grown and capped by [Conn.decompressMessage]
+	// after each message and passed as [DeflateReader.Reset]'s preset
+	// dictionary -- see decompressMessage's doc for why this needs no
+	// persistent reader object, unlike outgoing.
+	incomingDict []byte
+}
+
+// newDeflateState builds the deflateState a Conn with the given role and
+// negotiated [CompressionParams] needs, or returns nil if neither
+// direction negotiated context takeover (in which case the caller must
+// leave Conn.deflate nil, preserving this package's original,
+// zero-per-Conn-state behavior exactly). It pins the process's currently
+// active backend/level/window bits ([SetDeflateBackend]) for this Conn's
+// entire lifetime -- seeing this Conn's own direction(s) is the one and
+// only time a context-takeover Conn ever consults SetDeflateBackend's
+// active configuration.
+func newDeflateState(client bool, p CompressionParams) *deflateState {
+	// Direction mapping (RFC 7692 §7.1.1): server_no_context_takeover
+	// governs the server's own outgoing compression and, symmetrically,
+	// the client's incoming decompression; client_no_context_takeover is
+	// the mirror image. CompressionParams stores the inverted
+	// (*ContextTakeover, true meaning takeover applies) sense.
+	var outgoingTakeover, incomingTakeover bool
+	if client {
+		outgoingTakeover, incomingTakeover = p.ClientContextTakeover, p.ServerContextTakeover
+	} else {
+		outgoingTakeover, incomingTakeover = p.ServerContextTakeover, p.ClientContextTakeover
+	}
+	if !outgoingTakeover && !incomingTakeover {
+		return nil
+	}
+
+	cfg := activeDeflate.Load()
+	ds := &deflateState{windowBits: cfg.windowBits}
+	if outgoingTakeover {
+		w, err := cfg.backend.NewWriter(cfg.level, cfg.windowBits)
+		if err != nil {
+			// cfg is the process's already-validated active configuration
+			// (SetDeflateBackend checked level/windowBits against this
+			// exact backend's advertised range before it became active),
+			// so a backend whose NewWriter still errors here is violating
+			// its own advertised capability -- see newDeflateConfig's
+			// identical panic for the same reasoning.
+			panic("gows: DeflateBackend " + cfg.backend.Name + ".NewWriter: " + err.Error())
+		}
+		ds.outgoingDst = &sliceWriter{}
+		// One-time Reset: establishes the persistent destination adapter
+		// and a fresh window, correct for a brand-new connection that has
+		// sent nothing yet. Never called again for this writer -- see
+		// Conn.compressMessage.
+		w.Reset(ds.outgoingDst)
+		ds.outgoing = w
+	}
+	if incomingTakeover {
+		ds.incomingDict = make([]byte, 0, 1<<cfg.windowBits)
+	}
+	return ds
+}
+
+// slideWindow appends add to dict, keeping only the trailing max bytes
+// (dropping the oldest content first when that would exceed max) -- the
+// sliding LZ77 history a context-takeover decompressor's next
+// [DeflateReader.Reset] dict argument needs to resolve back-references
+// into any message received so far, not just the most recent one. dict
+// must have been allocated with cap(dict) == max (see newDeflateState),
+// so appending never reallocates.
+func slideWindow(dict, add []byte, max int) []byte {
+	if len(add) >= max {
+		return append(dict[:0], add[len(add)-max:]...)
+	}
+	total := len(dict) + len(add)
+	if total <= max {
+		return append(dict, add...)
+	}
+	drop := total - max
+	n := copy(dict, dict[drop:])
+	return append(dict[:n], add...)
+}
+
 // errDecompressedTooLarge is compress.go's internal bomb-defense
 // sentinel: [Conn.decompressMessage] returns it once inflating a
 // message's compressed bytes would produce more than c.readLimit bytes
@@ -264,14 +373,55 @@ func (r *tailReader) Read(p []byte) (int, error) {
 // [SetDeflateBackend]) reset onto a fresh, empty LZ77 window
 // (no-context-takeover), appends the result to dst[:0] (reusing its
 // storage), strips the trailing 4-byte sync-flush marker Flush always
-// emits, and returns the extended slice.
+// emits, and returns the extended slice. It is compress.go's original,
+// always-no-context-takeover entry point: [NewPreparedMessage] calls it
+// directly (never [Conn.compressMessage]'s context-takeover branch),
+// since a message precompressed once for broadcast to many connections
+// must be compressed as if no-context-takeover were in effect regardless
+// of any individual target connection's own negotiated context takeover
+// -- a back-reference into one connection's private LZ77 window would be
+// meaningless (or wrong) to a different connection's decompressor (see
+// .omc/research/compress-design.md §6).
 func compressPayload(dst, p []byte) ([]byte, error) {
 	cfg := activeDeflate.Load()
 	w := cfg.writers.Get().(DeflateWriter)
 	defer cfg.writers.Put(w)
 
-	sw := sliceWriter{b: dst[:0]}
-	w.Reset(&sw)
+	sw := &sliceWriter{b: dst[:0]}
+	w.Reset(sw)
+	return writeAndFlush(w, sw, p)
+}
+
+// compressMessage is compressPayload's per-Conn counterpart, used by
+// [Conn.WriteMessage]/writeFrameLocked instead of compressPayload
+// directly. When c's own outgoing direction did not negotiate context
+// takeover (c.deflate == nil or c.deflate.outgoing == nil -- this
+// package's original, zero-per-Conn-state path and overwhelmingly the
+// common case), it is identical to compressPayload: a pooled compressor,
+// fresh window, no per-Conn cost. Otherwise it reuses c.deflate's
+// persistent compressor instead, preserving the LZ77 window across
+// messages exactly as RFC 7692 §7.2.3.2's worked example demonstrates
+// (verified directly: compressing "Hello" twice through the same,
+// never-Reset *compress/flate.Writer produces a strictly shorter second
+// encoding than compressing it twice through two independent, freshly
+// Reset writers, which produce identical-length output both times).
+func (c *Conn) compressMessage(dst, p []byte) ([]byte, error) {
+	if c.deflate == nil || c.deflate.outgoing == nil {
+		return compressPayload(dst, p)
+	}
+	sw := c.deflate.outgoingDst
+	sw.b = dst[:0]
+	return writeAndFlush(c.deflate.outgoing, sw, p)
+}
+
+// writeAndFlush writes p to w, flushes the RFC 7692 §7.2.1 sync-flush
+// marker, and returns sw's accumulated bytes with that trailing 4-byte
+// marker stripped. Shared by compressPayload (pooled, freshly Reset onto
+// sw immediately before this call) and compressMessage's
+// context-takeover branch (persistent w, sw merely repointed at dst) --
+// both need the identical Write+Flush+strip sequence once w and sw are
+// ready; only how they got that way differs between the two callers.
+func writeAndFlush(w DeflateWriter, sw *sliceWriter, p []byte) ([]byte, error) {
 	if _, err := w.Write(p); err != nil {
 		return nil, fmt.Errorf("gows: compress message: %w", err)
 	}
@@ -299,13 +449,41 @@ func compressPayload(dst, p []byte) ([]byte, error) {
 // c.msgBuf). Decompressed output is bounded by c.readLimit; exceeding it
 // returns [errDecompressedTooLarge] instead of continuing to inflate an
 // unbounded decompression bomb.
+//
+// When c's incoming direction negotiated context takeover, the reader is
+// still borrowed from the shared pool exactly as in the no-context-takeover
+// case -- unlike compressMessage's outgoing side, no persistent per-Conn
+// [DeflateReader] is needed. Instead, Reset's dict parameter is given
+// c.deflate.incomingDict, a sliding window of the most recently
+// decompressed plaintext: per DEFLATE's own preset-dictionary mechanism,
+// resetting a fresh decompressor with the correct preceding bytes as dict
+// is exactly equivalent to a decompressor that stayed alive and never
+// reset, for the purpose of resolving cross-message back-references --
+// which pooled object services the request stops mattering once dict
+// alone determines the effective window contents. (Verified against a
+// live github.com/coder/websocket -- an Autobahn-tested implementation --
+// whose own context-takeover decompressor takes exactly this shape:
+// resetFlate's getFlateReader(r, dict) call, dict coming from a per-Conn
+// slidingWindow, never a persistent reader object.) On a successful
+// decode, decompressMessage grows incomingDict with this message's newly
+// decompressed bytes, capped at the negotiated window size, for the next
+// call to draw on.
 func (c *Conn) decompressMessage(compressed []byte) ([]byte, error) {
 	cfg := activeDeflate.Load()
 	r := cfg.readers.Get().(DeflateReader)
 	defer cfg.readers.Put(r)
 
+	var ds *deflateState
+	if c.deflate != nil && c.deflate.incomingDict != nil {
+		ds = c.deflate
+	}
+	var dict []byte
+	if ds != nil {
+		dict = ds.incomingDict
+	}
+
 	tr := tailReader{b: compressed}
-	if err := r.Reset(&tr, nil); err != nil {
+	if err := r.Reset(&tr, dict); err != nil {
 		return nil, fmt.Errorf("gows: reset decompressor: %w", err)
 	}
 	if c.inflateScratch == nil {
@@ -327,6 +505,9 @@ func (c *Conn) decompressMessage(compressed []byte) ([]byte, error) {
 		if err != nil {
 			c.inflateBuf = out
 			if errors.Is(err, io.EOF) {
+				if ds != nil {
+					ds.incomingDict = slideWindow(ds.incomingDict, out, 1<<ds.windowBits)
+				}
 				return out, nil
 			}
 			return nil, fmt.Errorf("gows: decompress message: %w", err)

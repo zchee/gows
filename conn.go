@@ -85,7 +85,8 @@ type Conn struct {
 	msgWriter *messageWriter // open NextWriter stream, if any (guarded by wmu); nil on the WriteMessage-only hot path
 
 	// --- extensions ---
-	compression bool // permessage-deflate negotiated (RFC 7692); see WithCompression
+	compression bool          // permessage-deflate negotiated (RFC 7692); see WithCompression
+	deflate     *deflateState // non-nil only when context takeover is negotiated for at least one direction; see WithCompressionParams
 
 	// --- shared / teardown ---
 	closeRcvd    atomic.Bool
@@ -100,12 +101,13 @@ type ConnOption func(*connConfig)
 
 // connConfig accumulates option values before a Conn is built.
 type connConfig struct {
-	readBufSize  int
-	readLimit    int64
-	skipUTF8     bool
-	buffered     []byte
-	closeTimeout time.Duration
-	compression  bool
+	readBufSize       int
+	readLimit         int64
+	skipUTF8          bool
+	buffered          []byte
+	closeTimeout      time.Duration
+	compression       bool
+	compressionParams CompressionParams
 }
 
 // WithReadBufferSize sets the size of the connection read buffer, which bounds
@@ -171,9 +173,67 @@ func WithCloseTimeout(d time.Duration) ConnOption {
 // Pass [Handshake.Compressed], not a hardcoded value -- constructing a Conn
 // with compression enabled when the peer never agreed to it produces frames
 // the peer will reject with a protocol error, and vice versa.
+//
+// A Conn built with WithCompression alone always uses no-context-takeover
+// for both directions (this package's original behavior), regardless of
+// what was actually negotiated; use [WithCompressionParams] instead to
+// honor a negotiated context takeover.
 func WithCompression(enabled bool) ConnOption {
 	return func(c *connConfig) {
 		c.compression = enabled
+	}
+}
+
+// WithCompressionParams enables permessage-deflate exactly like
+// [WithCompression](true), but additionally configures context takeover
+// (RFC 7692 §7.1.1) per params for whichever direction(s) it reports --
+// pass [Handshake.CompressionParams], not a hardcoded value, for the same
+// reason [WithCompression] warns against a hardcoded bool: a Conn that
+// disagrees with what the peer actually agreed to produces frames (or
+// expects decompression behavior) the peer will reject or fail to
+// decode. The zero [CompressionParams] value (both fields false) is
+// identical to calling only WithCompression(true).
+//
+// # Memory cost
+//
+// No-context-takeover compression/decompression (the default) borrows
+// short-lived values from compress.go's shared pool -- no fixed
+// per-Conn cost. Context takeover requires this Conn to instead keep
+// state alive for the Conn's entire lifetime, one instance per
+// direction it applies to:
+//
+//   - Outgoing (this Conn's own compression) needs a persistent
+//     [DeflateWriter], not shared with any other Conn. Measured directly
+//     against this package's active backend at [SetDeflateBackend]'s
+//     default (stdlib compress/flate): level 1 (this package's default)
+//     costs ~1.15 MB; levels 5-9 cost ~0.79 MB each -- level 1 is not the
+//     cheapest here, perhaps counterintuitively, because stdlib flate's
+//     fast-path encoder (levels 1-6) allocates a larger hash table than
+//     its levels 7-9 path (see .omc/research/deflate-study.md for this
+//     study's separate finding that pooled Reset cost is the more
+//     consequential level/backend tradeoff for the no-context-takeover
+//     path).
+//   - Incoming (decompressing the peer's messages) is much cheaper: only
+//     a growing/sliding dictionary buffer, capped at 2^(negotiated
+//     window bits) bytes (32 KB at the RFC 7692 default) of the most
+//     recently decompressed plaintext -- not a persistent decompressor
+//     (see decompressMessage's doc for why one isn't needed).
+//
+// A server or client handling many concurrent context-takeover
+// connections should budget roughly 1 MB (compress/flate's default
+// level) to 32 KB per negotiated direction per connection accordingly;
+// [Upgrader.NegotiateWindowBits]/[Dialer.WindowBits] combined with a
+// smaller-window backend (e.g. github.com/zchee/gows/flatekp) reduces
+// the incoming side's cost proportionally, but not the outgoing side's
+// (a smaller window does not shrink compress/flate's own internal
+// tables, which are sized independently of the window actually
+// negotiated). For high connection counts, prefer leaving context
+// takeover off (the default) and accepting the lower compression ratio
+// of a fresh window per message.
+func WithCompressionParams(params CompressionParams) ConnOption {
+	return func(c *connConfig) {
+		c.compression = true
+		c.compressionParams = params
 	}
 }
 
@@ -199,6 +259,9 @@ func newConn(nc net.Conn, client bool, opts []ConnOption) *Conn {
 		skipUTF8:     cfg.skipUTF8,
 		closeTimeout: cfg.closeTimeout,
 		compression:  cfg.compression,
+	}
+	if cfg.compression {
+		c.deflate = newDeflateState(client, cfg.compressionParams)
 	}
 	if n := len(cfg.buffered); n > 0 {
 		copy(c.rbuf, cfg.buffered)
@@ -335,6 +398,21 @@ func (c *Conn) teardown() {
 			c.inflateScratch = nil
 		}
 		c.r0, c.r1 = 0, 0
+		// c.deflate's outgoing half (persistent DeflateWriter and its
+		// destination adapter) is only ever touched under wmu (by
+		// compressMessage, itself only reachable while WriteMessage holds
+		// wmu) -- unlike the read-side buffers above, an in-flight
+		// WriteMessage CAN run concurrently with this Close/teardown (only
+		// ReadMessage is documented as mutually exclusive with Close), so
+		// clearing it must take wmu too. There is nothing to release back
+		// to any pool here (see deflateState's doc): a context-takeover
+		// compressor/decompressor is owned solely by this Conn, never
+		// shared, so dropping the references is the entire cleanup.
+		if c.deflate != nil {
+			c.wmu.Lock()
+			c.deflate = nil
+			c.wmu.Unlock()
+		}
 		c.tornDown.Store(true)
 	})
 }

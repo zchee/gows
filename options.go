@@ -121,6 +121,34 @@ type DeflateBackend struct {
 	MinWindowBits, MaxWindowBits int
 }
 
+// CompressionParams describes one negotiated permessage-deflate (RFC 7692)
+// configuration's context-takeover settings: whether the server's own
+// outgoing compression, and separately the client's own outgoing
+// compression, may reuse their LZ77 sliding window across messages
+// instead of starting fresh each time (RFC 7692 §7.1.1's
+// server_no_context_takeover/client_no_context_takeover, inverted for a
+// more direct name -- "true" here means takeover is in effect, matching
+// how [WithCompressionParams] and [Upgrader.AllowContextTakeover]/
+// [Dialer.AllowContextTakeover] are phrased).
+//
+// [Handshake.CompressionParams] reports what a completed handshake
+// actually agreed; pass it to [WithCompressionParams] when constructing
+// a [Conn] that should honor context takeover for whichever direction(s)
+// were negotiated. The zero value (both false) describes this package's
+// original permessage-deflate behavior: no-context-takeover in both
+// directions, identical to a [Conn] built with only [WithCompression]
+// and no [WithCompressionParams] call at all.
+type CompressionParams struct {
+	// ServerContextTakeover reports whether the server's own outgoing
+	// (server-to-client) compression reuses its LZ77 window across
+	// messages.
+	ServerContextTakeover bool
+	// ClientContextTakeover reports whether the client's own outgoing
+	// (client-to-server) compression reuses its LZ77 window across
+	// messages.
+	ClientContextTakeover bool
+}
+
 // defaultDeflateLevel is the compression level compress.go's default
 // (stdlib compress/flate) backend uses. The bench/ deflate study
 // (bench/results/deflate-baseline-*.txt) measured stdlib level 6's
@@ -209,6 +237,29 @@ type Upgrader struct {
 	// falling back to the client's next offer, regardless of what
 	// backend is process-wide active.
 	NegotiateWindowBits bool
+
+	// AllowContextTakeover, when true (and EnableCompression is also
+	// true), lets [Upgrader.Upgrade] and [Upgrader.UpgradeHTTP] agree to
+	// permessage-deflate context takeover (RFC 7692 §7.1.1) for either
+	// direction the client's offer allows: the response's
+	// server_no_context_takeover exactly echoes whether the offer
+	// required it (binding per RFC 7692 §7.1.1 -- the client has final
+	// say for its own receiving direction), and client_no_context_takeover
+	// echoes the offer's own hint for its direction (the server's own
+	// policy choice this package makes when opted in: honor the
+	// client's stated intent rather than second-guessing it). A [Conn]
+	// built from this handshake via [WithCompressionParams] (not
+	// [WithCompression]) then keeps a persistent per-direction LZ77
+	// window alive across messages for whichever direction(s) were
+	// actually agreed -- see [WithCompressionParams] for the real,
+	// non-trivial memory cost of doing so, which is why this defaults to
+	// off.
+	//
+	// The zero value (false) preserves this package's original behavior
+	// exactly: the response always sets both server_no_context_takeover
+	// and client_no_context_takeover, regardless of what the client's
+	// offer contained.
+	AllowContextTakeover bool
 }
 
 // Dialer performs the client side of a WebSocket opening handshake
@@ -257,6 +308,22 @@ type Dialer struct {
 	// The zero value adds no window-bits restriction to the offer,
 	// matching this package's original behavior exactly.
 	WindowBits int
+
+	// AllowContextTakeover, when true (and EnableCompression is also
+	// true), makes [Dialer.Dial]'s offer omit server_no_context_takeover
+	// and client_no_context_takeover entirely, letting the server decide
+	// context takeover for either or both directions (RFC 7692 §7.1.1)
+	// instead of requiring no-context-takeover on both. [Handshake.CompressionParams]
+	// reports what the server's response actually agreed to; pass it to
+	// [WithCompressionParams] (not [WithCompression]) when constructing
+	// a [Conn] that should honor it -- see [WithCompressionParams] for
+	// the real, non-trivial memory cost of a persistent per-direction
+	// LZ77 window, which is why this defaults to off.
+	//
+	// The zero value (false) preserves this package's original
+	// behavior exactly: the offer always requests no-context-takeover on
+	// both directions.
+	AllowContextTakeover bool
 }
 
 // Handshake describes a completed WebSocket opening handshake, returned
@@ -294,6 +361,18 @@ type Handshake struct {
 	// a hardcoded value instead of this field risks a Conn that
 	// disagrees with what the peer actually agreed to.
 	Compressed bool
+
+	// CompressionParams reports the negotiated context-takeover
+	// configuration when Compressed is true (the zero value -- both
+	// directions no-context-takeover -- when Compressed is false, or
+	// when true but neither [Upgrader.AllowContextTakeover] nor
+	// [Dialer.AllowContextTakeover] was set). Pass it to
+	// [WithCompressionParams] instead of [WithCompression] when
+	// constructing a [Conn] that should honor context takeover;
+	// constructing with only WithCompression(hs.Compressed) always
+	// selects no-context-takeover for both directions regardless of what
+	// this field reports.
+	CompressionParams CompressionParams
 
 	// buf, if non-nil, is the pooled read buffer backing rawPath and
 	// rawQuery (only ever set by [Upgrader.Upgrade] with

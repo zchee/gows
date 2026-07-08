@@ -98,7 +98,7 @@ func (u *Upgrader) UpgradeHTTP(w http.ResponseWriter, r *http.Request) (net.Conn
 	var deflateOK bool
 	if u.EnableCompression {
 		if extValue := r.Header.Get("Sec-WebSocket-Extensions"); extValue != "" {
-			deflateParams, deflateOK = negotiateDeflate([]byte(extValue), u.NegotiateWindowBits)
+			deflateParams, deflateOK = negotiateDeflate([]byte(extValue), u.NegotiateWindowBits, u.AllowContextTakeover)
 		}
 	}
 
@@ -120,11 +120,15 @@ func (u *Upgrader) UpgradeHTTP(w http.ResponseWriter, r *http.Request) (net.Conn
 		return nil, Handshake{}, werr
 	}
 
-	return conn, Handshake{
+	hs := Handshake{
 		Path:        r.URL.Path,
 		Query:       r.URL.RawQuery,
 		Subprotocol: selected,
 		Buffered:    buffered,
 		Compressed:  deflateOK,
-	}, nil
+	}
+	if deflateOK {
+		hs.CompressionParams = compressionParamsFromDeflate(deflateParams)
+	}
+	return conn, hs, nil
 }
