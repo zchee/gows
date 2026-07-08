@@ -1,0 +1,1007 @@
+goos: linux
+goarch: amd64
+pkg: github.com/zchee/gows/bench
+cpu: Intel(R) Xeon(R) Platinum 8481C CPU @ 2.70GHz
+BenchmarkDeflateEncode/stdlib/level1/jsonlike/256B-2         	  176874	      6762 ns/op	  37.86 MB/s	         0.5391 ratio	       0 B/op	       0 allocs/op
+BenchmarkDeflateEncode/stdlib/level1/jsonlike/256B-2         	  176895	      6772 ns/op	  37.80 MB/s	         0.5391 ratio	       0 B/op	       0 allocs/op
+BenchmarkDeflateEncode/stdlib/level1/jsonlike/256B-2         	  177303	      6767 ns/op	  37.83 MB/s	         0.5391 ratio	       0 B/op	       0 allocs/op
+BenchmarkDeflateEncode/stdlib/level1/jsonlike/256B-2         	  177462	      6754 ns/op	  37.90 MB/s	         0.5391 ratio	       0 B/op	       0 allocs/op
+BenchmarkDeflateEncode/stdlib/level1/jsonlike/256B-2         	  175872	      6803 ns/op	  37.63 MB/s	         0.5391 ratio	       0 B/op	       0 allocs/op
+BenchmarkDeflateEncode/stdlib/level1/jsonlike/256B-2         	  177196	      6768 ns/op	  37.83 MB/s	         0.5391 ratio	       0 B/op	       0 allocs/op
+BenchmarkDeflateEncode/stdlib/level1/jsonlike/256B-2         	  177505	      6758 ns/op	  37.88 MB/s	         0.5391 ratio	       0 B/op	       0 allocs/op
+BenchmarkDeflateEncode/stdlib/level1/jsonlike/256B-2         	  176880	      6786 ns/op	  37.73 MB/s	         0.5391 ratio	       0 B/op	       0 allocs/op
+BenchmarkDeflateEncode/stdlib/level1/jsonlike/256B-2         	  177070	      6754 ns/op	  37.90 MB/s	         0.5391 ratio	       0 B/op	       0 allocs/op
+BenchmarkDeflateEncode/stdlib/level1/jsonlike/256B-2         	  177394	      6760 ns/op	  37.87 MB/s	         0.5391 ratio	       0 B/op	       0 allocs/op
+BenchmarkDeflateEncode/stdlib/level1/jsonlike/1KB-2          	  124446	      9611 ns/op	 106.55 MB/s	         0.2676 ratio	       0 B/op	       0 allocs/op
+BenchmarkDeflateEncode/stdlib/level1/jsonlike/1KB-2          	  124761	      9620 ns/op	 106.45 MB/s	         0.2676 ratio	       0 B/op	       0 allocs/op
+BenchmarkDeflateEncode/stdlib/level1/jsonlike/1KB-2          	  124766	      9621 ns/op	 106.44 MB/s	         0.2676 ratio	       0 B/op	       0 allocs/op
+BenchmarkDeflateEncode/stdlib/level1/jsonlike/1KB-2          	  124688	      9623 ns/op	 106.41 MB/s	         0.2676 ratio	       0 B/op	       0 allocs/op
+BenchmarkDeflateEncode/stdlib/level1/jsonlike/1KB-2          	  124524	      9610 ns/op	 106.55 MB/s	         0.2676 ratio	       0 B/op	       0 allocs/op
+BenchmarkDeflateEncode/stdlib/level1/jsonlike/1KB-2          	  124797	      9612 ns/op	 106.53 MB/s	         0.2676 ratio	       0 B/op	       0 allocs/op
+BenchmarkDeflateEncode/stdlib/level1/jsonlike/1KB-2          	  124740	      9629 ns/op	 106.35 MB/s	         0.2676 ratio	       0 B/op	       0 allocs/op
+BenchmarkDeflateEncode/stdlib/level1/jsonlike/1KB-2          	  124609	      9623 ns/op	 106.41 MB/s	         0.2676 ratio	       0 B/op	       0 allocs/op
+BenchmarkDeflateEncode/stdlib/level1/jsonlike/1KB-2          	  124887	      9647 ns/op	 106.15 MB/s	         0.2676 ratio	       0 B/op	       0 allocs/op
+BenchmarkDeflateEncode/stdlib/level1/jsonlike/1KB-2          	  124581	      9654 ns/op	 106.07 MB/s	         0.2676 ratio	       0 B/op	       0 allocs/op
+BenchmarkDeflateEncode/stdlib/level1/jsonlike/4KB-2          	   69694	     17204 ns/op	 238.08 MB/s	         0.1980 ratio	       0 B/op	       0 allocs/op
+BenchmarkDeflateEncode/stdlib/level1/jsonlike/4KB-2          	   69682	     17219 ns/op	 237.88 MB/s	         0.1980 ratio	       0 B/op	       0 allocs/op
+BenchmarkDeflateEncode/stdlib/level1/jsonlike/4KB-2          	   69608	     17201 ns/op	 238.13 MB/s	         0.1980 ratio	       0 B/op	       0 allocs/op
+BenchmarkDeflateEncode/stdlib/level1/jsonlike/4KB-2          	   69776	     17241 ns/op	 237.57 MB/s	         0.1980 ratio	       0 B/op	       0 allocs/op
+BenchmarkDeflateEncode/stdlib/level1/jsonlike/4KB-2          	   69549	     17226 ns/op	 237.78 MB/s	         0.1980 ratio	       0 B/op	       0 allocs/op
+BenchmarkDeflateEncode/stdlib/level1/jsonlike/4KB-2          	   69692	     17213 ns/op	 237.96 MB/s	         0.1980 ratio	       0 B/op	       0 allocs/op
+BenchmarkDeflateEncode/stdlib/level1/jsonlike/4KB-2          	   69582	     17209 ns/op	 238.01 MB/s	         0.1980 ratio	       0 B/op	       0 allocs/op
+BenchmarkDeflateEncode/stdlib/level1/jsonlike/4KB-2          	   69667	     17212 ns/op	 237.98 MB/s	         0.1980 ratio	       0 B/op	       0 allocs/op
+BenchmarkDeflateEncode/stdlib/level1/jsonlike/4KB-2          	   69595	     17205 ns/op	 238.07 MB/s	         0.1980 ratio	       0 B/op	       0 allocs/op
+BenchmarkDeflateEncode/stdlib/level1/jsonlike/4KB-2          	   69733	     17230 ns/op	 237.73 MB/s	         0.1980 ratio	       0 B/op	       0 allocs/op
+BenchmarkDeflateEncode/stdlib/level1/jsonlike/16KB-2         	   21330	     56246 ns/op	 291.29 MB/s	         0.1768 ratio	       0 B/op	       0 allocs/op
+BenchmarkDeflateEncode/stdlib/level1/jsonlike/16KB-2         	   21228	     56377 ns/op	 290.62 MB/s	         0.1768 ratio	       0 B/op	       0 allocs/op
+BenchmarkDeflateEncode/stdlib/level1/jsonlike/16KB-2         	   21337	     56191 ns/op	 291.58 MB/s	         0.1768 ratio	       0 B/op	       0 allocs/op
+BenchmarkDeflateEncode/stdlib/level1/jsonlike/16KB-2         	   21327	     56276 ns/op	 291.14 MB/s	         0.1768 ratio	       0 B/op	       0 allocs/op
+BenchmarkDeflateEncode/stdlib/level1/jsonlike/16KB-2         	   21400	     56243 ns/op	 291.31 MB/s	         0.1768 ratio	       0 B/op	       0 allocs/op
+BenchmarkDeflateEncode/stdlib/level1/jsonlike/16KB-2         	   21307	     56137 ns/op	 291.86 MB/s	         0.1768 ratio	       0 B/op	       0 allocs/op
+BenchmarkDeflateEncode/stdlib/level1/jsonlike/16KB-2         	   21272	     56364 ns/op	 290.68 MB/s	         0.1768 ratio	       0 B/op	       0 allocs/op
+BenchmarkDeflateEncode/stdlib/level1/jsonlike/16KB-2         	   21334	     56237 ns/op	 291.34 MB/s	         0.1768 ratio	       0 B/op	       0 allocs/op
+BenchmarkDeflateEncode/stdlib/level1/jsonlike/16KB-2         	   21326	     56111 ns/op	 291.99 MB/s	         0.1768 ratio	       0 B/op	       0 allocs/op
+BenchmarkDeflateEncode/stdlib/level1/jsonlike/16KB-2         	   21318	     56251 ns/op	 291.26 MB/s	         0.1768 ratio	       0 B/op	       0 allocs/op
+BenchmarkDeflateEncode/stdlib/level1/random/256B-2           	   58080	     20630 ns/op	  12.41 MB/s	         1.023 ratio	       0 B/op	       0 allocs/op
+BenchmarkDeflateEncode/stdlib/level1/random/256B-2           	   58287	     20635 ns/op	  12.41 MB/s	         1.023 ratio	       0 B/op	       0 allocs/op
+BenchmarkDeflateEncode/stdlib/level1/random/256B-2           	   57968	     20648 ns/op	  12.40 MB/s	         1.023 ratio	       0 B/op	       0 allocs/op
+BenchmarkDeflateEncode/stdlib/level1/random/256B-2           	   58102	     20636 ns/op	  12.41 MB/s	         1.023 ratio	       0 B/op	       0 allocs/op
+BenchmarkDeflateEncode/stdlib/level1/random/256B-2           	   58222	     20629 ns/op	  12.41 MB/s	         1.023 ratio	       0 B/op	       0 allocs/op
+BenchmarkDeflateEncode/stdlib/level1/random/256B-2           	   58170	     20629 ns/op	  12.41 MB/s	         1.023 ratio	       0 B/op	       0 allocs/op
+BenchmarkDeflateEncode/stdlib/level1/random/256B-2           	   58219	     20621 ns/op	  12.41 MB/s	         1.023 ratio	       0 B/op	       0 allocs/op
+BenchmarkDeflateEncode/stdlib/level1/random/256B-2           	   58077	     20655 ns/op	  12.39 MB/s	         1.023 ratio	       0 B/op	       0 allocs/op
+BenchmarkDeflateEncode/stdlib/level1/random/256B-2           	   58118	     20656 ns/op	  12.39 MB/s	         1.023 ratio	       0 B/op	       0 allocs/op
+BenchmarkDeflateEncode/stdlib/level1/random/256B-2           	   58215	     20648 ns/op	  12.40 MB/s	         1.023 ratio	       0 B/op	       0 allocs/op
+BenchmarkDeflateEncode/stdlib/level1/random/1KB-2            	   32653	     36746 ns/op	  27.87 MB/s	         1.006 ratio	       0 B/op	       0 allocs/op
+BenchmarkDeflateEncode/stdlib/level1/random/1KB-2            	   32629	     36745 ns/op	  27.87 MB/s	         1.006 ratio	       0 B/op	       0 allocs/op
+BenchmarkDeflateEncode/stdlib/level1/random/1KB-2            	   32642	     36782 ns/op	  27.84 MB/s	         1.006 ratio	       0 B/op	       0 allocs/op
+BenchmarkDeflateEncode/stdlib/level1/random/1KB-2            	   32642	     36756 ns/op	  27.86 MB/s	         1.006 ratio	       0 B/op	       0 allocs/op
+BenchmarkDeflateEncode/stdlib/level1/random/1KB-2            	   32629	     36756 ns/op	  27.86 MB/s	         1.006 ratio	       0 B/op	       0 allocs/op
+BenchmarkDeflateEncode/stdlib/level1/random/1KB-2            	   32672	     36732 ns/op	  27.88 MB/s	         1.006 ratio	       0 B/op	       0 allocs/op
+BenchmarkDeflateEncode/stdlib/level1/random/1KB-2            	   32653	     36723 ns/op	  27.88 MB/s	         1.006 ratio	       0 B/op	       0 allocs/op
+BenchmarkDeflateEncode/stdlib/level1/random/1KB-2            	   32635	     36757 ns/op	  27.86 MB/s	         1.006 ratio	       0 B/op	       0 allocs/op
+BenchmarkDeflateEncode/stdlib/level1/random/1KB-2            	   32629	     36787 ns/op	  27.84 MB/s	         1.006 ratio	       0 B/op	       0 allocs/op
+BenchmarkDeflateEncode/stdlib/level1/random/1KB-2            	   32667	     36773 ns/op	  27.85 MB/s	         1.006 ratio	       0 B/op	       0 allocs/op
+BenchmarkDeflateEncode/stdlib/level1/random/4KB-2            	   29036	     41265 ns/op	  99.26 MB/s	         1.001 ratio	       0 B/op	       0 allocs/op
+BenchmarkDeflateEncode/stdlib/level1/random/4KB-2            	   29133	     41231 ns/op	  99.34 MB/s	         1.001 ratio	       0 B/op	       0 allocs/op
+BenchmarkDeflateEncode/stdlib/level1/random/4KB-2            	   29076	     41263 ns/op	  99.26 MB/s	         1.001 ratio	       0 B/op	       0 allocs/op
+BenchmarkDeflateEncode/stdlib/level1/random/4KB-2            	   29054	     41147 ns/op	  99.55 MB/s	         1.001 ratio	       0 B/op	       0 allocs/op
+BenchmarkDeflateEncode/stdlib/level1/random/4KB-2            	   29029	     41349 ns/op	  99.06 MB/s	         1.001 ratio	       0 B/op	       0 allocs/op
+BenchmarkDeflateEncode/stdlib/level1/random/4KB-2            	   29043	     41266 ns/op	  99.26 MB/s	         1.001 ratio	       0 B/op	       0 allocs/op
+BenchmarkDeflateEncode/stdlib/level1/random/4KB-2            	   29004	     41334 ns/op	  99.10 MB/s	         1.001 ratio	       0 B/op	       0 allocs/op
+BenchmarkDeflateEncode/stdlib/level1/random/4KB-2            	   29017	     41335 ns/op	  99.09 MB/s	         1.001 ratio	       0 B/op	       0 allocs/op
+BenchmarkDeflateEncode/stdlib/level1/random/4KB-2            	   29056	     41240 ns/op	  99.32 MB/s	         1.001 ratio	       0 B/op	       0 allocs/op
+BenchmarkDeflateEncode/stdlib/level1/random/4KB-2            	   29070	     41251 ns/op	  99.29 MB/s	         1.001 ratio	       0 B/op	       0 allocs/op
+BenchmarkDeflateEncode/stdlib/level1/random/16KB-2           	   21740	     55121 ns/op	 297.24 MB/s	         1.000 ratio	       1 B/op	       0 allocs/op
+BenchmarkDeflateEncode/stdlib/level1/random/16KB-2           	   22353	     53530 ns/op	 306.07 MB/s	         1.000 ratio	       1 B/op	       0 allocs/op
+BenchmarkDeflateEncode/stdlib/level1/random/16KB-2           	   22293	     53890 ns/op	 304.03 MB/s	         1.000 ratio	       1 B/op	       0 allocs/op
+BenchmarkDeflateEncode/stdlib/level1/random/16KB-2           	   22470	     53155 ns/op	 308.23 MB/s	         1.000 ratio	       1 B/op	       0 allocs/op
+BenchmarkDeflateEncode/stdlib/level1/random/16KB-2           	   22488	     53117 ns/op	 308.45 MB/s	         1.000 ratio	       1 B/op	       0 allocs/op
+BenchmarkDeflateEncode/stdlib/level1/random/16KB-2           	   21879	     54907 ns/op	 298.39 MB/s	         1.000 ratio	       1 B/op	       0 allocs/op
+BenchmarkDeflateEncode/stdlib/level1/random/16KB-2           	   22070	     54581 ns/op	 300.18 MB/s	         1.000 ratio	       1 B/op	       0 allocs/op
+BenchmarkDeflateEncode/stdlib/level1/random/16KB-2           	   22183	     54123 ns/op	 302.72 MB/s	         1.000 ratio	       1 B/op	       0 allocs/op
+BenchmarkDeflateEncode/stdlib/level1/random/16KB-2           	   22242	     54025 ns/op	 303.27 MB/s	         1.000 ratio	       1 B/op	       0 allocs/op
+BenchmarkDeflateEncode/stdlib/level1/random/16KB-2           	   22402	     54293 ns/op	 301.77 MB/s	         1.000 ratio	       1 B/op	       0 allocs/op
+BenchmarkDeflateEncode/stdlib/level1/repetitive/256B-2       	  270752	      4441 ns/op	  57.64 MB/s	         0.2188 ratio	       0 B/op	       0 allocs/op
+BenchmarkDeflateEncode/stdlib/level1/repetitive/256B-2       	  269668	      4425 ns/op	  57.86 MB/s	         0.2188 ratio	       0 B/op	       0 allocs/op
+BenchmarkDeflateEncode/stdlib/level1/repetitive/256B-2       	  271867	      4411 ns/op	  58.04 MB/s	         0.2188 ratio	       0 B/op	       0 allocs/op
+BenchmarkDeflateEncode/stdlib/level1/repetitive/256B-2       	  270960	      4421 ns/op	  57.90 MB/s	         0.2188 ratio	       0 B/op	       0 allocs/op
+BenchmarkDeflateEncode/stdlib/level1/repetitive/256B-2       	  271269	      4425 ns/op	  57.85 MB/s	         0.2188 ratio	       0 B/op	       0 allocs/op
+BenchmarkDeflateEncode/stdlib/level1/repetitive/256B-2       	  271753	      4425 ns/op	  57.86 MB/s	         0.2188 ratio	       0 B/op	       0 allocs/op
+BenchmarkDeflateEncode/stdlib/level1/repetitive/256B-2       	  272316	      4410 ns/op	  58.05 MB/s	         0.2188 ratio	       0 B/op	       0 allocs/op
+BenchmarkDeflateEncode/stdlib/level1/repetitive/256B-2       	  272008	      4414 ns/op	  57.99 MB/s	         0.2188 ratio	       0 B/op	       0 allocs/op
+BenchmarkDeflateEncode/stdlib/level1/repetitive/256B-2       	  271364	      4413 ns/op	  58.01 MB/s	         0.2188 ratio	       0 B/op	       0 allocs/op
+BenchmarkDeflateEncode/stdlib/level1/repetitive/256B-2       	  271687	      4429 ns/op	  57.80 MB/s	         0.2188 ratio	       0 B/op	       0 allocs/op
+BenchmarkDeflateEncode/stdlib/level1/repetitive/1KB-2        	  238802	      5010 ns/op	 204.40 MB/s	         0.06348 ratio	       0 B/op	       0 allocs/op
+BenchmarkDeflateEncode/stdlib/level1/repetitive/1KB-2        	  239320	      5006 ns/op	 204.57 MB/s	         0.06348 ratio	       0 B/op	       0 allocs/op
+BenchmarkDeflateEncode/stdlib/level1/repetitive/1KB-2        	  239848	      5007 ns/op	 204.51 MB/s	         0.06348 ratio	       0 B/op	       0 allocs/op
+BenchmarkDeflateEncode/stdlib/level1/repetitive/1KB-2        	  240231	      4996 ns/op	 204.96 MB/s	         0.06348 ratio	       0 B/op	       0 allocs/op
+BenchmarkDeflateEncode/stdlib/level1/repetitive/1KB-2        	  239605	      4997 ns/op	 204.91 MB/s	         0.06348 ratio	       0 B/op	       0 allocs/op
+BenchmarkDeflateEncode/stdlib/level1/repetitive/1KB-2        	  240312	      5004 ns/op	 204.64 MB/s	         0.06348 ratio	       0 B/op	       0 allocs/op
+BenchmarkDeflateEncode/stdlib/level1/repetitive/1KB-2        	  239235	      5003 ns/op	 204.67 MB/s	         0.06348 ratio	       0 B/op	       0 allocs/op
+BenchmarkDeflateEncode/stdlib/level1/repetitive/1KB-2        	  240783	      4996 ns/op	 204.96 MB/s	         0.06348 ratio	       0 B/op	       0 allocs/op
+BenchmarkDeflateEncode/stdlib/level1/repetitive/1KB-2        	  240703	      4992 ns/op	 205.13 MB/s	         0.06348 ratio	       0 B/op	       0 allocs/op
+BenchmarkDeflateEncode/stdlib/level1/repetitive/1KB-2        	  239959	      4996 ns/op	 204.95 MB/s	         0.06348 ratio	       0 B/op	       0 allocs/op
+BenchmarkDeflateEncode/stdlib/level1/repetitive/4KB-2        	  170443	      6801 ns/op	 602.26 MB/s	         0.02295 ratio	       0 B/op	       0 allocs/op
+BenchmarkDeflateEncode/stdlib/level1/repetitive/4KB-2        	  177192	      6783 ns/op	 603.85 MB/s	         0.02295 ratio	       0 B/op	       0 allocs/op
+BenchmarkDeflateEncode/stdlib/level1/repetitive/4KB-2        	  177061	      6773 ns/op	 604.73 MB/s	         0.02295 ratio	       0 B/op	       0 allocs/op
+BenchmarkDeflateEncode/stdlib/level1/repetitive/4KB-2        	  177313	      6777 ns/op	 604.42 MB/s	         0.02295 ratio	       0 B/op	       0 allocs/op
+BenchmarkDeflateEncode/stdlib/level1/repetitive/4KB-2        	  176944	      6772 ns/op	 604.86 MB/s	         0.02295 ratio	       0 B/op	       0 allocs/op
+BenchmarkDeflateEncode/stdlib/level1/repetitive/4KB-2        	  176940	      6783 ns/op	 603.82 MB/s	         0.02295 ratio	       0 B/op	       0 allocs/op
+BenchmarkDeflateEncode/stdlib/level1/repetitive/4KB-2        	  176805	      6776 ns/op	 604.44 MB/s	         0.02295 ratio	       0 B/op	       0 allocs/op
+BenchmarkDeflateEncode/stdlib/level1/repetitive/4KB-2        	  176982	      6773 ns/op	 604.78 MB/s	         0.02295 ratio	       0 B/op	       0 allocs/op
+BenchmarkDeflateEncode/stdlib/level1/repetitive/4KB-2        	  176778	      6783 ns/op	 603.82 MB/s	         0.02295 ratio	       0 B/op	       0 allocs/op
+BenchmarkDeflateEncode/stdlib/level1/repetitive/4KB-2        	  176931	      6783 ns/op	 603.88 MB/s	         0.02295 ratio	       0 B/op	       0 allocs/op
+BenchmarkDeflateEncode/stdlib/level1/repetitive/16KB-2       	   73321	     16381 ns/op	1000.18 MB/s	         0.01147 ratio	       0 B/op	       0 allocs/op
+BenchmarkDeflateEncode/stdlib/level1/repetitive/16KB-2       	   73238	     16391 ns/op	 999.57 MB/s	         0.01147 ratio	       0 B/op	       0 allocs/op
+BenchmarkDeflateEncode/stdlib/level1/repetitive/16KB-2       	   73180	     16375 ns/op	1000.56 MB/s	         0.01147 ratio	       0 B/op	       0 allocs/op
+BenchmarkDeflateEncode/stdlib/level1/repetitive/16KB-2       	   73417	     16367 ns/op	1001.04 MB/s	         0.01147 ratio	       0 B/op	       0 allocs/op
+BenchmarkDeflateEncode/stdlib/level1/repetitive/16KB-2       	   73454	     16364 ns/op	1001.23 MB/s	         0.01147 ratio	       0 B/op	       0 allocs/op
+BenchmarkDeflateEncode/stdlib/level1/repetitive/16KB-2       	   73102	     16396 ns/op	 999.25 MB/s	         0.01147 ratio	       0 B/op	       0 allocs/op
+BenchmarkDeflateEncode/stdlib/level1/repetitive/16KB-2       	   73050	     16375 ns/op	1000.55 MB/s	         0.01147 ratio	       0 B/op	       0 allocs/op
+BenchmarkDeflateEncode/stdlib/level1/repetitive/16KB-2       	   73262	     16384 ns/op	 999.98 MB/s	         0.01147 ratio	       0 B/op	       0 allocs/op
+BenchmarkDeflateEncode/stdlib/level1/repetitive/16KB-2       	   73179	     16394 ns/op	 999.37 MB/s	         0.01147 ratio	       0 B/op	       0 allocs/op
+BenchmarkDeflateEncode/stdlib/level1/repetitive/16KB-2       	   73198	     16364 ns/op	1001.22 MB/s	         0.01147 ratio	       0 B/op	       0 allocs/op
+BenchmarkDeflateEncode/stdlib/level6/jsonlike/256B-2         	   56812	     21128 ns/op	  12.12 MB/s	         0.5312 ratio	       0 B/op	       0 allocs/op
+BenchmarkDeflateEncode/stdlib/level6/jsonlike/256B-2         	   56742	     21142 ns/op	  12.11 MB/s	         0.5312 ratio	       0 B/op	       0 allocs/op
+BenchmarkDeflateEncode/stdlib/level6/jsonlike/256B-2         	   56796	     21121 ns/op	  12.12 MB/s	         0.5312 ratio	       0 B/op	       0 allocs/op
+BenchmarkDeflateEncode/stdlib/level6/jsonlike/256B-2         	   56835	     21112 ns/op	  12.13 MB/s	         0.5312 ratio	       0 B/op	       0 allocs/op
+BenchmarkDeflateEncode/stdlib/level6/jsonlike/256B-2         	   56840	     21140 ns/op	  12.11 MB/s	         0.5312 ratio	       0 B/op	       0 allocs/op
+BenchmarkDeflateEncode/stdlib/level6/jsonlike/256B-2         	   56792	     21117 ns/op	  12.12 MB/s	         0.5312 ratio	       0 B/op	       0 allocs/op
+BenchmarkDeflateEncode/stdlib/level6/jsonlike/256B-2         	   56781	     21117 ns/op	  12.12 MB/s	         0.5312 ratio	       0 B/op	       0 allocs/op
+BenchmarkDeflateEncode/stdlib/level6/jsonlike/256B-2         	   56752	     21127 ns/op	  12.12 MB/s	         0.5312 ratio	       0 B/op	       0 allocs/op
+BenchmarkDeflateEncode/stdlib/level6/jsonlike/256B-2         	   56721	     21118 ns/op	  12.12 MB/s	         0.5312 ratio	       0 B/op	       0 allocs/op
+BenchmarkDeflateEncode/stdlib/level6/jsonlike/256B-2         	   56992	     21065 ns/op	  12.15 MB/s	         0.5312 ratio	       0 B/op	       0 allocs/op
+BenchmarkDeflateEncode/stdlib/level6/jsonlike/1KB-2          	   46963	     25548 ns/op	  40.08 MB/s	         0.2559 ratio	       0 B/op	       0 allocs/op
+BenchmarkDeflateEncode/stdlib/level6/jsonlike/1KB-2          	   46956	     25559 ns/op	  40.06 MB/s	         0.2559 ratio	       0 B/op	       0 allocs/op
+BenchmarkDeflateEncode/stdlib/level6/jsonlike/1KB-2          	   47020	     25532 ns/op	  40.11 MB/s	         0.2559 ratio	       0 B/op	       0 allocs/op
+BenchmarkDeflateEncode/stdlib/level6/jsonlike/1KB-2          	   46976	     25535 ns/op	  40.10 MB/s	         0.2559 ratio	       0 B/op	       0 allocs/op
+BenchmarkDeflateEncode/stdlib/level6/jsonlike/1KB-2          	   47056	     25522 ns/op	  40.12 MB/s	         0.2559 ratio	       0 B/op	       0 allocs/op
+BenchmarkDeflateEncode/stdlib/level6/jsonlike/1KB-2          	   46946	     25546 ns/op	  40.08 MB/s	         0.2559 ratio	       0 B/op	       0 allocs/op
+BenchmarkDeflateEncode/stdlib/level6/jsonlike/1KB-2          	   46993	     25534 ns/op	  40.10 MB/s	         0.2559 ratio	       0 B/op	       0 allocs/op
+BenchmarkDeflateEncode/stdlib/level6/jsonlike/1KB-2          	   46968	     25572 ns/op	  40.04 MB/s	         0.2559 ratio	       0 B/op	       0 allocs/op
+BenchmarkDeflateEncode/stdlib/level6/jsonlike/1KB-2          	   46915	     25555 ns/op	  40.07 MB/s	         0.2559 ratio	       0 B/op	       0 allocs/op
+BenchmarkDeflateEncode/stdlib/level6/jsonlike/1KB-2          	   46912	     25572 ns/op	  40.04 MB/s	         0.2559 ratio	       0 B/op	       0 allocs/op
+BenchmarkDeflateEncode/stdlib/level6/jsonlike/4KB-2          	   28063	     42633 ns/op	  96.08 MB/s	         0.1748 ratio	       0 B/op	       0 allocs/op
+BenchmarkDeflateEncode/stdlib/level6/jsonlike/4KB-2          	   28146	     42612 ns/op	  96.12 MB/s	         0.1748 ratio	       0 B/op	       0 allocs/op
+BenchmarkDeflateEncode/stdlib/level6/jsonlike/4KB-2          	   28143	     42576 ns/op	  96.20 MB/s	         0.1748 ratio	       0 B/op	       0 allocs/op
+BenchmarkDeflateEncode/stdlib/level6/jsonlike/4KB-2          	   28136	     42618 ns/op	  96.11 MB/s	         0.1748 ratio	       0 B/op	       0 allocs/op
+BenchmarkDeflateEncode/stdlib/level6/jsonlike/4KB-2          	   28182	     42564 ns/op	  96.23 MB/s	         0.1748 ratio	       0 B/op	       0 allocs/op
+BenchmarkDeflateEncode/stdlib/level6/jsonlike/4KB-2          	   28206	     42553 ns/op	  96.26 MB/s	         0.1748 ratio	       0 B/op	       0 allocs/op
+BenchmarkDeflateEncode/stdlib/level6/jsonlike/4KB-2          	   28202	     42473 ns/op	  96.44 MB/s	         0.1748 ratio	       0 B/op	       0 allocs/op
+BenchmarkDeflateEncode/stdlib/level6/jsonlike/4KB-2          	   28147	     42570 ns/op	  96.22 MB/s	         0.1748 ratio	       0 B/op	       0 allocs/op
+BenchmarkDeflateEncode/stdlib/level6/jsonlike/4KB-2          	   28136	     42573 ns/op	  96.21 MB/s	         0.1748 ratio	       0 B/op	       0 allocs/op
+BenchmarkDeflateEncode/stdlib/level6/jsonlike/4KB-2          	   28153	     42580 ns/op	  96.20 MB/s	         0.1748 ratio	       0 B/op	       0 allocs/op
+BenchmarkDeflateEncode/stdlib/level6/jsonlike/16KB-2         	    5622	    210591 ns/op	  77.80 MB/s	         0.1487 ratio	       2 B/op	       0 allocs/op
+BenchmarkDeflateEncode/stdlib/level6/jsonlike/16KB-2         	    5653	    210556 ns/op	  77.81 MB/s	         0.1487 ratio	       2 B/op	       0 allocs/op
+BenchmarkDeflateEncode/stdlib/level6/jsonlike/16KB-2         	    5625	    210600 ns/op	  77.80 MB/s	         0.1487 ratio	       2 B/op	       0 allocs/op
+BenchmarkDeflateEncode/stdlib/level6/jsonlike/16KB-2         	    5559	    210418 ns/op	  77.86 MB/s	         0.1487 ratio	       2 B/op	       0 allocs/op
+BenchmarkDeflateEncode/stdlib/level6/jsonlike/16KB-2         	    5618	    210289 ns/op	  77.91 MB/s	         0.1487 ratio	       2 B/op	       0 allocs/op
+BenchmarkDeflateEncode/stdlib/level6/jsonlike/16KB-2         	    5648	    210333 ns/op	  77.90 MB/s	         0.1487 ratio	       2 B/op	       0 allocs/op
+BenchmarkDeflateEncode/stdlib/level6/jsonlike/16KB-2         	    5647	    210410 ns/op	  77.87 MB/s	         0.1487 ratio	       2 B/op	       0 allocs/op
+BenchmarkDeflateEncode/stdlib/level6/jsonlike/16KB-2         	    5637	    210403 ns/op	  77.87 MB/s	         0.1487 ratio	       2 B/op	       0 allocs/op
+BenchmarkDeflateEncode/stdlib/level6/jsonlike/16KB-2         	    5634	    210531 ns/op	  77.82 MB/s	         0.1487 ratio	       2 B/op	       0 allocs/op
+BenchmarkDeflateEncode/stdlib/level6/jsonlike/16KB-2         	    5624	    210668 ns/op	  77.77 MB/s	         0.1487 ratio	       2 B/op	       0 allocs/op
+BenchmarkDeflateEncode/stdlib/level6/random/256B-2           	   33853	     35448 ns/op	   7.22 MB/s	         1.023 ratio	       0 B/op	       0 allocs/op
+BenchmarkDeflateEncode/stdlib/level6/random/256B-2           	   33872	     35431 ns/op	   7.23 MB/s	         1.023 ratio	       0 B/op	       0 allocs/op
+BenchmarkDeflateEncode/stdlib/level6/random/256B-2           	   33872	     35438 ns/op	   7.22 MB/s	         1.023 ratio	       0 B/op	       0 allocs/op
+BenchmarkDeflateEncode/stdlib/level6/random/256B-2           	   33865	     35433 ns/op	   7.22 MB/s	         1.023 ratio	       0 B/op	       0 allocs/op
+BenchmarkDeflateEncode/stdlib/level6/random/256B-2           	   33871	     35434 ns/op	   7.22 MB/s	         1.023 ratio	       0 B/op	       0 allocs/op
+BenchmarkDeflateEncode/stdlib/level6/random/256B-2           	   33860	     35442 ns/op	   7.22 MB/s	         1.023 ratio	       0 B/op	       0 allocs/op
+BenchmarkDeflateEncode/stdlib/level6/random/256B-2           	   33831	     35443 ns/op	   7.22 MB/s	         1.023 ratio	       0 B/op	       0 allocs/op
+BenchmarkDeflateEncode/stdlib/level6/random/256B-2           	   33913	     35371 ns/op	   7.24 MB/s	         1.023 ratio	       0 B/op	       0 allocs/op
+BenchmarkDeflateEncode/stdlib/level6/random/256B-2           	   33922	     35368 ns/op	   7.24 MB/s	         1.023 ratio	       0 B/op	       0 allocs/op
+BenchmarkDeflateEncode/stdlib/level6/random/256B-2           	   33936	     35354 ns/op	   7.24 MB/s	         1.023 ratio	       0 B/op	       0 allocs/op
+BenchmarkDeflateEncode/stdlib/level6/random/1KB-2            	   21882	     54813 ns/op	  18.68 MB/s	         1.006 ratio	       0 B/op	       0 allocs/op
+BenchmarkDeflateEncode/stdlib/level6/random/1KB-2            	   21886	     54853 ns/op	  18.67 MB/s	         1.006 ratio	       0 B/op	       0 allocs/op
+BenchmarkDeflateEncode/stdlib/level6/random/1KB-2            	   21894	     54839 ns/op	  18.67 MB/s	         1.006 ratio	       0 B/op	       0 allocs/op
+BenchmarkDeflateEncode/stdlib/level6/random/1KB-2            	   21894	     54831 ns/op	  18.68 MB/s	         1.006 ratio	       0 B/op	       0 allocs/op
+BenchmarkDeflateEncode/stdlib/level6/random/1KB-2            	   21872	     54854 ns/op	  18.67 MB/s	         1.006 ratio	       0 B/op	       0 allocs/op
+BenchmarkDeflateEncode/stdlib/level6/random/1KB-2            	   21866	     54875 ns/op	  18.66 MB/s	         1.006 ratio	       0 B/op	       0 allocs/op
+BenchmarkDeflateEncode/stdlib/level6/random/1KB-2            	   21889	     54807 ns/op	  18.68 MB/s	         1.006 ratio	       0 B/op	       0 allocs/op
+BenchmarkDeflateEncode/stdlib/level6/random/1KB-2            	   21877	     54841 ns/op	  18.67 MB/s	         1.006 ratio	       0 B/op	       0 allocs/op
+BenchmarkDeflateEncode/stdlib/level6/random/1KB-2            	   21908	     54792 ns/op	  18.69 MB/s	         1.006 ratio	       0 B/op	       0 allocs/op
+BenchmarkDeflateEncode/stdlib/level6/random/1KB-2            	   21890	     54803 ns/op	  18.69 MB/s	         1.006 ratio	       0 B/op	       0 allocs/op
+BenchmarkDeflateEncode/stdlib/level6/random/4KB-2            	   16413	     73106 ns/op	  56.03 MB/s	         1.001 ratio	       0 B/op	       0 allocs/op
+BenchmarkDeflateEncode/stdlib/level6/random/4KB-2            	   16476	     72832 ns/op	  56.24 MB/s	         1.001 ratio	       0 B/op	       0 allocs/op
+BenchmarkDeflateEncode/stdlib/level6/random/4KB-2            	   16479	     72769 ns/op	  56.29 MB/s	         1.001 ratio	       0 B/op	       0 allocs/op
+BenchmarkDeflateEncode/stdlib/level6/random/4KB-2            	   16486	     72763 ns/op	  56.29 MB/s	         1.001 ratio	       0 B/op	       0 allocs/op
+BenchmarkDeflateEncode/stdlib/level6/random/4KB-2            	   16497	     72691 ns/op	  56.35 MB/s	         1.001 ratio	       0 B/op	       0 allocs/op
+BenchmarkDeflateEncode/stdlib/level6/random/4KB-2            	   16465	     72891 ns/op	  56.19 MB/s	         1.001 ratio	       0 B/op	       0 allocs/op
+BenchmarkDeflateEncode/stdlib/level6/random/4KB-2            	   16476	     72824 ns/op	  56.24 MB/s	         1.001 ratio	       0 B/op	       0 allocs/op
+BenchmarkDeflateEncode/stdlib/level6/random/4KB-2            	   16484	     72825 ns/op	  56.24 MB/s	         1.001 ratio	       0 B/op	       0 allocs/op
+BenchmarkDeflateEncode/stdlib/level6/random/4KB-2            	   16482	     72813 ns/op	  56.25 MB/s	         1.001 ratio	       0 B/op	       0 allocs/op
+BenchmarkDeflateEncode/stdlib/level6/random/4KB-2            	   16456	     72864 ns/op	  56.21 MB/s	         1.001 ratio	       0 B/op	       0 allocs/op
+BenchmarkDeflateEncode/stdlib/level6/random/16KB-2           	    7653	    154056 ns/op	 106.35 MB/s	         1.000 ratio	       3 B/op	       0 allocs/op
+BenchmarkDeflateEncode/stdlib/level6/random/16KB-2           	    7741	    154183 ns/op	 106.26 MB/s	         1.000 ratio	       3 B/op	       0 allocs/op
+BenchmarkDeflateEncode/stdlib/level6/random/16KB-2           	    7753	    153643 ns/op	 106.64 MB/s	         1.000 ratio	       3 B/op	       0 allocs/op
+BenchmarkDeflateEncode/stdlib/level6/random/16KB-2           	    7736	    153926 ns/op	 106.44 MB/s	         1.000 ratio	       3 B/op	       0 allocs/op
+BenchmarkDeflateEncode/stdlib/level6/random/16KB-2           	    7674	    153841 ns/op	 106.50 MB/s	         1.000 ratio	       3 B/op	       0 allocs/op
+BenchmarkDeflateEncode/stdlib/level6/random/16KB-2           	    7735	    154001 ns/op	 106.39 MB/s	         1.000 ratio	       3 B/op	       0 allocs/op
+BenchmarkDeflateEncode/stdlib/level6/random/16KB-2           	    7748	    153975 ns/op	 106.41 MB/s	         1.000 ratio	       3 B/op	       0 allocs/op
+BenchmarkDeflateEncode/stdlib/level6/random/16KB-2           	    7666	    153825 ns/op	 106.51 MB/s	         1.000 ratio	       3 B/op	       0 allocs/op
+BenchmarkDeflateEncode/stdlib/level6/random/16KB-2           	    7729	    153961 ns/op	 106.42 MB/s	         1.000 ratio	       3 B/op	       0 allocs/op
+BenchmarkDeflateEncode/stdlib/level6/random/16KB-2           	    7657	    154123 ns/op	 106.30 MB/s	         1.000 ratio	       3 B/op	       0 allocs/op
+BenchmarkDeflateEncode/stdlib/level6/repetitive/256B-2       	   65986	     18184 ns/op	  14.08 MB/s	         0.1875 ratio	       0 B/op	       0 allocs/op
+BenchmarkDeflateEncode/stdlib/level6/repetitive/256B-2       	   66007	     18181 ns/op	  14.08 MB/s	         0.1875 ratio	       0 B/op	       0 allocs/op
+BenchmarkDeflateEncode/stdlib/level6/repetitive/256B-2       	   65925	     18185 ns/op	  14.08 MB/s	         0.1875 ratio	       0 B/op	       0 allocs/op
+BenchmarkDeflateEncode/stdlib/level6/repetitive/256B-2       	   65985	     18179 ns/op	  14.08 MB/s	         0.1875 ratio	       0 B/op	       0 allocs/op
+BenchmarkDeflateEncode/stdlib/level6/repetitive/256B-2       	   65996	     18163 ns/op	  14.09 MB/s	         0.1875 ratio	       0 B/op	       0 allocs/op
+BenchmarkDeflateEncode/stdlib/level6/repetitive/256B-2       	   65995	     18179 ns/op	  14.08 MB/s	         0.1875 ratio	       0 B/op	       0 allocs/op
+BenchmarkDeflateEncode/stdlib/level6/repetitive/256B-2       	   65974	     18186 ns/op	  14.08 MB/s	         0.1875 ratio	       0 B/op	       0 allocs/op
+BenchmarkDeflateEncode/stdlib/level6/repetitive/256B-2       	   65994	     18180 ns/op	  14.08 MB/s	         0.1875 ratio	       0 B/op	       0 allocs/op
+BenchmarkDeflateEncode/stdlib/level6/repetitive/256B-2       	   65946	     18180 ns/op	  14.08 MB/s	         0.1875 ratio	       0 B/op	       0 allocs/op
+BenchmarkDeflateEncode/stdlib/level6/repetitive/256B-2       	   65932	     18186 ns/op	  14.08 MB/s	         0.1875 ratio	       0 B/op	       0 allocs/op
+BenchmarkDeflateEncode/stdlib/level6/repetitive/1KB-2        	   60496	     19844 ns/op	  51.60 MB/s	         0.05273 ratio	       0 B/op	       0 allocs/op
+BenchmarkDeflateEncode/stdlib/level6/repetitive/1KB-2        	   60480	     19826 ns/op	  51.65 MB/s	         0.05273 ratio	       0 B/op	       0 allocs/op
+BenchmarkDeflateEncode/stdlib/level6/repetitive/1KB-2        	   60460	     19831 ns/op	  51.64 MB/s	         0.05273 ratio	       0 B/op	       0 allocs/op
+BenchmarkDeflateEncode/stdlib/level6/repetitive/1KB-2        	   60441	     19845 ns/op	  51.60 MB/s	         0.05273 ratio	       0 B/op	       0 allocs/op
+BenchmarkDeflateEncode/stdlib/level6/repetitive/1KB-2        	   60544	     19820 ns/op	  51.66 MB/s	         0.05273 ratio	       0 B/op	       0 allocs/op
+BenchmarkDeflateEncode/stdlib/level6/repetitive/1KB-2        	   60534	     19823 ns/op	  51.66 MB/s	         0.05273 ratio	       0 B/op	       0 allocs/op
+BenchmarkDeflateEncode/stdlib/level6/repetitive/1KB-2        	   60531	     19821 ns/op	  51.66 MB/s	         0.05273 ratio	       0 B/op	       0 allocs/op
+BenchmarkDeflateEncode/stdlib/level6/repetitive/1KB-2        	   60510	     19827 ns/op	  51.65 MB/s	         0.05273 ratio	       0 B/op	       0 allocs/op
+BenchmarkDeflateEncode/stdlib/level6/repetitive/1KB-2        	   60548	     19810 ns/op	  51.69 MB/s	         0.05273 ratio	       0 B/op	       0 allocs/op
+BenchmarkDeflateEncode/stdlib/level6/repetitive/1KB-2        	   60466	     19832 ns/op	  51.63 MB/s	         0.05273 ratio	       0 B/op	       0 allocs/op
+BenchmarkDeflateEncode/stdlib/level6/repetitive/4KB-2        	   45826	     26183 ns/op	 156.44 MB/s	         0.01685 ratio	       0 B/op	       0 allocs/op
+BenchmarkDeflateEncode/stdlib/level6/repetitive/4KB-2        	   46010	     26060 ns/op	 157.18 MB/s	         0.01685 ratio	       0 B/op	       0 allocs/op
+BenchmarkDeflateEncode/stdlib/level6/repetitive/4KB-2        	   46003	     26071 ns/op	 157.11 MB/s	         0.01685 ratio	       0 B/op	       0 allocs/op
+BenchmarkDeflateEncode/stdlib/level6/repetitive/4KB-2        	   45813	     26185 ns/op	 156.43 MB/s	         0.01685 ratio	       0 B/op	       0 allocs/op
+BenchmarkDeflateEncode/stdlib/level6/repetitive/4KB-2        	   46002	     26074 ns/op	 157.09 MB/s	         0.01685 ratio	       0 B/op	       0 allocs/op
+BenchmarkDeflateEncode/stdlib/level6/repetitive/4KB-2        	   45993	     26079 ns/op	 157.06 MB/s	         0.01685 ratio	       0 B/op	       0 allocs/op
+BenchmarkDeflateEncode/stdlib/level6/repetitive/4KB-2        	   46003	     26090 ns/op	 157.00 MB/s	         0.01685 ratio	       0 B/op	       0 allocs/op
+BenchmarkDeflateEncode/stdlib/level6/repetitive/4KB-2        	   46003	     26074 ns/op	 157.09 MB/s	         0.01685 ratio	       0 B/op	       0 allocs/op
+BenchmarkDeflateEncode/stdlib/level6/repetitive/4KB-2        	   46029	     26065 ns/op	 157.14 MB/s	         0.01685 ratio	       0 B/op	       0 allocs/op
+BenchmarkDeflateEncode/stdlib/level6/repetitive/4KB-2        	   46011	     26074 ns/op	 157.09 MB/s	         0.01685 ratio	       0 B/op	       0 allocs/op
+BenchmarkDeflateEncode/stdlib/level6/repetitive/16KB-2       	   22674	     52929 ns/op	 309.55 MB/s	         0.006531 ratio	       0 B/op	       0 allocs/op
+BenchmarkDeflateEncode/stdlib/level6/repetitive/16KB-2       	   22690	     52911 ns/op	 309.65 MB/s	         0.006531 ratio	       0 B/op	       0 allocs/op
+BenchmarkDeflateEncode/stdlib/level6/repetitive/16KB-2       	   22542	     53211 ns/op	 307.90 MB/s	         0.006531 ratio	       0 B/op	       0 allocs/op
+BenchmarkDeflateEncode/stdlib/level6/repetitive/16KB-2       	   22684	     52897 ns/op	 309.74 MB/s	         0.006531 ratio	       0 B/op	       0 allocs/op
+BenchmarkDeflateEncode/stdlib/level6/repetitive/16KB-2       	   22618	     52964 ns/op	 309.34 MB/s	         0.006531 ratio	       0 B/op	       0 allocs/op
+BenchmarkDeflateEncode/stdlib/level6/repetitive/16KB-2       	   22677	     52906 ns/op	 309.68 MB/s	         0.006531 ratio	       0 B/op	       0 allocs/op
+BenchmarkDeflateEncode/stdlib/level6/repetitive/16KB-2       	   22560	     53207 ns/op	 307.93 MB/s	         0.006531 ratio	       0 B/op	       0 allocs/op
+BenchmarkDeflateEncode/stdlib/level6/repetitive/16KB-2       	   22648	     52978 ns/op	 309.26 MB/s	         0.006531 ratio	       0 B/op	       0 allocs/op
+BenchmarkDeflateEncode/stdlib/level6/repetitive/16KB-2       	   22686	     52888 ns/op	 309.79 MB/s	         0.006531 ratio	       0 B/op	       0 allocs/op
+BenchmarkDeflateEncode/stdlib/level6/repetitive/16KB-2       	   22692	     52885 ns/op	 309.80 MB/s	         0.006531 ratio	       0 B/op	       0 allocs/op
+BenchmarkDeflateEncode/klauspost/level1/jsonlike/256B-2      	  204463	      5854 ns/op	  43.73 MB/s	         0.5430 ratio	       1 B/op	       0 allocs/op
+BenchmarkDeflateEncode/klauspost/level1/jsonlike/256B-2      	  204560	      5863 ns/op	  43.66 MB/s	         0.5430 ratio	       1 B/op	       0 allocs/op
+BenchmarkDeflateEncode/klauspost/level1/jsonlike/256B-2      	  204727	      5864 ns/op	  43.66 MB/s	         0.5430 ratio	       1 B/op	       0 allocs/op
+BenchmarkDeflateEncode/klauspost/level1/jsonlike/256B-2      	  204496	      5855 ns/op	  43.72 MB/s	         0.5430 ratio	       1 B/op	       0 allocs/op
+BenchmarkDeflateEncode/klauspost/level1/jsonlike/256B-2      	  205117	      5856 ns/op	  43.72 MB/s	         0.5430 ratio	       1 B/op	       0 allocs/op
+BenchmarkDeflateEncode/klauspost/level1/jsonlike/256B-2      	  204844	      5865 ns/op	  43.65 MB/s	         0.5430 ratio	       1 B/op	       0 allocs/op
+BenchmarkDeflateEncode/klauspost/level1/jsonlike/256B-2      	  204126	      5876 ns/op	  43.57 MB/s	         0.5430 ratio	       1 B/op	       0 allocs/op
+BenchmarkDeflateEncode/klauspost/level1/jsonlike/256B-2      	  204196	      5876 ns/op	  43.57 MB/s	         0.5430 ratio	       1 B/op	       0 allocs/op
+BenchmarkDeflateEncode/klauspost/level1/jsonlike/256B-2      	  203113	      5885 ns/op	  43.50 MB/s	         0.5430 ratio	       1 B/op	       0 allocs/op
+BenchmarkDeflateEncode/klauspost/level1/jsonlike/256B-2      	  204063	      5881 ns/op	  43.53 MB/s	         0.5430 ratio	       1 B/op	       0 allocs/op
+BenchmarkDeflateEncode/klauspost/level1/jsonlike/1KB-2       	  169426	      7083 ns/op	 144.57 MB/s	         0.2637 ratio	       1 B/op	       0 allocs/op
+BenchmarkDeflateEncode/klauspost/level1/jsonlike/1KB-2       	  168718	      7125 ns/op	 143.72 MB/s	         0.2637 ratio	       1 B/op	       0 allocs/op
+BenchmarkDeflateEncode/klauspost/level1/jsonlike/1KB-2       	  167998	      7109 ns/op	 144.04 MB/s	         0.2637 ratio	       1 B/op	       0 allocs/op
+BenchmarkDeflateEncode/klauspost/level1/jsonlike/1KB-2       	  168090	      7118 ns/op	 143.86 MB/s	         0.2637 ratio	       1 B/op	       0 allocs/op
+BenchmarkDeflateEncode/klauspost/level1/jsonlike/1KB-2       	  168500	      7124 ns/op	 143.73 MB/s	         0.2637 ratio	       1 B/op	       0 allocs/op
+BenchmarkDeflateEncode/klauspost/level1/jsonlike/1KB-2       	  169609	      7081 ns/op	 144.62 MB/s	         0.2637 ratio	       1 B/op	       0 allocs/op
+BenchmarkDeflateEncode/klauspost/level1/jsonlike/1KB-2       	  168649	      7119 ns/op	 143.84 MB/s	         0.2637 ratio	       1 B/op	       0 allocs/op
+BenchmarkDeflateEncode/klauspost/level1/jsonlike/1KB-2       	  169058	      7115 ns/op	 143.92 MB/s	         0.2637 ratio	       1 B/op	       0 allocs/op
+BenchmarkDeflateEncode/klauspost/level1/jsonlike/1KB-2       	  168046	      7126 ns/op	 143.69 MB/s	         0.2637 ratio	       1 B/op	       0 allocs/op
+BenchmarkDeflateEncode/klauspost/level1/jsonlike/1KB-2       	  167984	      7150 ns/op	 143.21 MB/s	         0.2637 ratio	       1 B/op	       0 allocs/op
+BenchmarkDeflateEncode/klauspost/level1/jsonlike/4KB-2       	  104572	     11497 ns/op	 356.27 MB/s	         0.1833 ratio	       3 B/op	       0 allocs/op
+BenchmarkDeflateEncode/klauspost/level1/jsonlike/4KB-2       	  104470	     11508 ns/op	 355.91 MB/s	         0.1833 ratio	       3 B/op	       0 allocs/op
+BenchmarkDeflateEncode/klauspost/level1/jsonlike/4KB-2       	  104562	     11540 ns/op	 354.95 MB/s	         0.1833 ratio	       3 B/op	       0 allocs/op
+BenchmarkDeflateEncode/klauspost/level1/jsonlike/4KB-2       	  104236	     11547 ns/op	 354.71 MB/s	         0.1833 ratio	       3 B/op	       0 allocs/op
+BenchmarkDeflateEncode/klauspost/level1/jsonlike/4KB-2       	  103786	     11516 ns/op	 355.67 MB/s	         0.1833 ratio	       3 B/op	       0 allocs/op
+BenchmarkDeflateEncode/klauspost/level1/jsonlike/4KB-2       	  104679	     11518 ns/op	 355.62 MB/s	         0.1833 ratio	       3 B/op	       0 allocs/op
+BenchmarkDeflateEncode/klauspost/level1/jsonlike/4KB-2       	  104529	     11502 ns/op	 356.12 MB/s	         0.1833 ratio	       3 B/op	       0 allocs/op
+BenchmarkDeflateEncode/klauspost/level1/jsonlike/4KB-2       	  104743	     11464 ns/op	 357.29 MB/s	         0.1833 ratio	       3 B/op	       0 allocs/op
+BenchmarkDeflateEncode/klauspost/level1/jsonlike/4KB-2       	  104686	     11468 ns/op	 357.17 MB/s	         0.1833 ratio	       3 B/op	       0 allocs/op
+BenchmarkDeflateEncode/klauspost/level1/jsonlike/4KB-2       	  104593	     11502 ns/op	 356.11 MB/s	         0.1833 ratio	       3 B/op	       0 allocs/op
+BenchmarkDeflateEncode/klauspost/level1/jsonlike/16KB-2      	   42091	     28450 ns/op	 575.89 MB/s	         0.1617 ratio	       7 B/op	       0 allocs/op
+BenchmarkDeflateEncode/klauspost/level1/jsonlike/16KB-2      	   42495	     28148 ns/op	 582.07 MB/s	         0.1617 ratio	       7 B/op	       0 allocs/op
+BenchmarkDeflateEncode/klauspost/level1/jsonlike/16KB-2      	   42714	     28148 ns/op	 582.07 MB/s	         0.1617 ratio	       7 B/op	       0 allocs/op
+BenchmarkDeflateEncode/klauspost/level1/jsonlike/16KB-2      	   42729	     28186 ns/op	 581.28 MB/s	         0.1617 ratio	       7 B/op	       0 allocs/op
+BenchmarkDeflateEncode/klauspost/level1/jsonlike/16KB-2      	   42624	     28241 ns/op	 580.14 MB/s	         0.1617 ratio	       7 B/op	       0 allocs/op
+BenchmarkDeflateEncode/klauspost/level1/jsonlike/16KB-2      	   42624	     28162 ns/op	 581.78 MB/s	         0.1617 ratio	       7 B/op	       0 allocs/op
+BenchmarkDeflateEncode/klauspost/level1/jsonlike/16KB-2      	   42428	     28196 ns/op	 581.07 MB/s	         0.1617 ratio	       7 B/op	       0 allocs/op
+BenchmarkDeflateEncode/klauspost/level1/jsonlike/16KB-2      	   42604	     28119 ns/op	 582.67 MB/s	         0.1617 ratio	       7 B/op	       0 allocs/op
+BenchmarkDeflateEncode/klauspost/level1/jsonlike/16KB-2      	   42560	     28198 ns/op	 581.04 MB/s	         0.1617 ratio	       7 B/op	       0 allocs/op
+BenchmarkDeflateEncode/klauspost/level1/jsonlike/16KB-2      	   42500	     28230 ns/op	 580.39 MB/s	         0.1617 ratio	       7 B/op	       0 allocs/op
+BenchmarkDeflateEncode/klauspost/level1/random/256B-2        	 5291140	       226.4 ns/op	1130.63 MB/s	         1.023 ratio	       0 B/op	       0 allocs/op
+BenchmarkDeflateEncode/klauspost/level1/random/256B-2        	 5304999	       226.6 ns/op	1129.86 MB/s	         1.023 ratio	       0 B/op	       0 allocs/op
+BenchmarkDeflateEncode/klauspost/level1/random/256B-2        	 5292885	       226.9 ns/op	1128.32 MB/s	         1.023 ratio	       0 B/op	       0 allocs/op
+BenchmarkDeflateEncode/klauspost/level1/random/256B-2        	 5290080	       226.5 ns/op	1130.10 MB/s	         1.023 ratio	       0 B/op	       0 allocs/op
+BenchmarkDeflateEncode/klauspost/level1/random/256B-2        	 5300637	       226.7 ns/op	1129.23 MB/s	         1.023 ratio	       0 B/op	       0 allocs/op
+BenchmarkDeflateEncode/klauspost/level1/random/256B-2        	 5282089	       227.4 ns/op	1125.77 MB/s	         1.023 ratio	       0 B/op	       0 allocs/op
+BenchmarkDeflateEncode/klauspost/level1/random/256B-2        	 5291586	       226.7 ns/op	1129.41 MB/s	         1.023 ratio	       0 B/op	       0 allocs/op
+BenchmarkDeflateEncode/klauspost/level1/random/256B-2        	 5284236	       227.1 ns/op	1127.42 MB/s	         1.023 ratio	       0 B/op	       0 allocs/op
+BenchmarkDeflateEncode/klauspost/level1/random/256B-2        	 5285175	       227.0 ns/op	1127.81 MB/s	         1.023 ratio	       0 B/op	       0 allocs/op
+BenchmarkDeflateEncode/klauspost/level1/random/256B-2        	 5301146	       226.4 ns/op	1130.54 MB/s	         1.023 ratio	       0 B/op	       0 allocs/op
+BenchmarkDeflateEncode/klauspost/level1/random/1KB-2         	 3178212	       377.2 ns/op	2714.90 MB/s	         1.006 ratio	       0 B/op	       0 allocs/op
+BenchmarkDeflateEncode/klauspost/level1/random/1KB-2         	 3184880	       377.0 ns/op	2716.44 MB/s	         1.006 ratio	       0 B/op	       0 allocs/op
+BenchmarkDeflateEncode/klauspost/level1/random/1KB-2         	 3178550	       377.2 ns/op	2714.94 MB/s	         1.006 ratio	       0 B/op	       0 allocs/op
+BenchmarkDeflateEncode/klauspost/level1/random/1KB-2         	 3188166	       376.3 ns/op	2720.94 MB/s	         1.006 ratio	       0 B/op	       0 allocs/op
+BenchmarkDeflateEncode/klauspost/level1/random/1KB-2         	 3182797	       377.5 ns/op	2712.81 MB/s	         1.006 ratio	       0 B/op	       0 allocs/op
+BenchmarkDeflateEncode/klauspost/level1/random/1KB-2         	 3184158	       376.6 ns/op	2718.80 MB/s	         1.006 ratio	       0 B/op	       0 allocs/op
+BenchmarkDeflateEncode/klauspost/level1/random/1KB-2         	 3181635	       377.1 ns/op	2715.43 MB/s	         1.006 ratio	       0 B/op	       0 allocs/op
+BenchmarkDeflateEncode/klauspost/level1/random/1KB-2         	 3188257	       376.6 ns/op	2719.21 MB/s	         1.006 ratio	       0 B/op	       0 allocs/op
+BenchmarkDeflateEncode/klauspost/level1/random/1KB-2         	 3183343	       376.7 ns/op	2718.02 MB/s	         1.006 ratio	       0 B/op	       0 allocs/op
+BenchmarkDeflateEncode/klauspost/level1/random/1KB-2         	 3186900	       376.6 ns/op	2719.11 MB/s	         1.006 ratio	       0 B/op	       0 allocs/op
+BenchmarkDeflateEncode/klauspost/level1/random/4KB-2         	 2062207	       582.0 ns/op	7037.93 MB/s	         1.001 ratio	       0 B/op	       0 allocs/op
+BenchmarkDeflateEncode/klauspost/level1/random/4KB-2         	 2079780	       576.9 ns/op	7100.26 MB/s	         1.001 ratio	       0 B/op	       0 allocs/op
+BenchmarkDeflateEncode/klauspost/level1/random/4KB-2         	 2080876	       576.7 ns/op	7102.92 MB/s	         1.001 ratio	       0 B/op	       0 allocs/op
+BenchmarkDeflateEncode/klauspost/level1/random/4KB-2         	 2080966	       576.7 ns/op	7102.20 MB/s	         1.001 ratio	       0 B/op	       0 allocs/op
+BenchmarkDeflateEncode/klauspost/level1/random/4KB-2         	 2080550	       576.4 ns/op	7105.59 MB/s	         1.001 ratio	       0 B/op	       0 allocs/op
+BenchmarkDeflateEncode/klauspost/level1/random/4KB-2         	 2079363	       577.1 ns/op	7097.06 MB/s	         1.001 ratio	       0 B/op	       0 allocs/op
+BenchmarkDeflateEncode/klauspost/level1/random/4KB-2         	 2079884	       576.9 ns/op	7099.77 MB/s	         1.001 ratio	       0 B/op	       0 allocs/op
+BenchmarkDeflateEncode/klauspost/level1/random/4KB-2         	 2078766	       577.2 ns/op	7096.81 MB/s	         1.001 ratio	       0 B/op	       0 allocs/op
+BenchmarkDeflateEncode/klauspost/level1/random/4KB-2         	 2077687	       577.2 ns/op	7096.13 MB/s	         1.001 ratio	       0 B/op	       0 allocs/op
+BenchmarkDeflateEncode/klauspost/level1/random/4KB-2         	 2079217	       577.0 ns/op	7098.20 MB/s	         1.001 ratio	       0 B/op	       0 allocs/op
+BenchmarkDeflateEncode/klauspost/level1/random/16KB-2        	  659437	      1816 ns/op	9020.71 MB/s	         1.000 ratio	       0 B/op	       0 allocs/op
+BenchmarkDeflateEncode/klauspost/level1/random/16KB-2        	  661840	      1806 ns/op	9072.85 MB/s	         1.000 ratio	       0 B/op	       0 allocs/op
+BenchmarkDeflateEncode/klauspost/level1/random/16KB-2        	  659756	      1819 ns/op	9006.37 MB/s	         1.000 ratio	       0 B/op	       0 allocs/op
+BenchmarkDeflateEncode/klauspost/level1/random/16KB-2        	  662610	      1805 ns/op	9078.17 MB/s	         1.000 ratio	       0 B/op	       0 allocs/op
+BenchmarkDeflateEncode/klauspost/level1/random/16KB-2        	  659998	      1815 ns/op	9027.81 MB/s	         1.000 ratio	       0 B/op	       0 allocs/op
+BenchmarkDeflateEncode/klauspost/level1/random/16KB-2        	  658434	      1818 ns/op	9013.65 MB/s	         1.000 ratio	       0 B/op	       0 allocs/op
+BenchmarkDeflateEncode/klauspost/level1/random/16KB-2        	  659169	      1817 ns/op	9017.08 MB/s	         1.000 ratio	       0 B/op	       0 allocs/op
+BenchmarkDeflateEncode/klauspost/level1/random/16KB-2        	  658768	      1817 ns/op	9015.57 MB/s	         1.000 ratio	       0 B/op	       0 allocs/op
+BenchmarkDeflateEncode/klauspost/level1/random/16KB-2        	  660968	      1814 ns/op	9030.44 MB/s	         1.000 ratio	       0 B/op	       0 allocs/op
+BenchmarkDeflateEncode/klauspost/level1/random/16KB-2        	  659707	      1815 ns/op	9027.31 MB/s	         1.000 ratio	       0 B/op	       0 allocs/op
+BenchmarkDeflateEncode/klauspost/level1/repetitive/256B-2    	  322340	      3722 ns/op	  68.79 MB/s	         0.1992 ratio	       1 B/op	       0 allocs/op
+BenchmarkDeflateEncode/klauspost/level1/repetitive/256B-2    	  321310	      3732 ns/op	  68.60 MB/s	         0.1992 ratio	       1 B/op	       0 allocs/op
+BenchmarkDeflateEncode/klauspost/level1/repetitive/256B-2    	  321009	      3739 ns/op	  68.46 MB/s	         0.1992 ratio	       1 B/op	       0 allocs/op
+BenchmarkDeflateEncode/klauspost/level1/repetitive/256B-2    	  322215	      3729 ns/op	  68.65 MB/s	         0.1992 ratio	       1 B/op	       0 allocs/op
+BenchmarkDeflateEncode/klauspost/level1/repetitive/256B-2    	  322212	      3725 ns/op	  68.73 MB/s	         0.1992 ratio	       1 B/op	       0 allocs/op
+BenchmarkDeflateEncode/klauspost/level1/repetitive/256B-2    	  321622	      3739 ns/op	  68.47 MB/s	         0.1992 ratio	       1 B/op	       0 allocs/op
+BenchmarkDeflateEncode/klauspost/level1/repetitive/256B-2    	  319926	      3740 ns/op	  68.46 MB/s	         0.1992 ratio	       1 B/op	       0 allocs/op
+BenchmarkDeflateEncode/klauspost/level1/repetitive/256B-2    	  319908	      3735 ns/op	  68.53 MB/s	         0.1992 ratio	       1 B/op	       0 allocs/op
+BenchmarkDeflateEncode/klauspost/level1/repetitive/256B-2    	  318888	      3746 ns/op	  68.34 MB/s	         0.1992 ratio	       1 B/op	       0 allocs/op
+BenchmarkDeflateEncode/klauspost/level1/repetitive/256B-2    	  319346	      3736 ns/op	  68.52 MB/s	         0.1992 ratio	       1 B/op	       0 allocs/op
+BenchmarkDeflateEncode/klauspost/level1/repetitive/1KB-2     	  303736	      3933 ns/op	 260.35 MB/s	         0.05566 ratio	       1 B/op	       0 allocs/op
+BenchmarkDeflateEncode/klauspost/level1/repetitive/1KB-2     	  303662	      3951 ns/op	 259.20 MB/s	         0.05566 ratio	       1 B/op	       0 allocs/op
+BenchmarkDeflateEncode/klauspost/level1/repetitive/1KB-2     	  302343	      3951 ns/op	 259.20 MB/s	         0.05566 ratio	       1 B/op	       0 allocs/op
+BenchmarkDeflateEncode/klauspost/level1/repetitive/1KB-2     	  300748	      3955 ns/op	 258.92 MB/s	         0.05566 ratio	       1 B/op	       0 allocs/op
+BenchmarkDeflateEncode/klauspost/level1/repetitive/1KB-2     	  303996	      3946 ns/op	 259.51 MB/s	         0.05566 ratio	       1 B/op	       0 allocs/op
+BenchmarkDeflateEncode/klauspost/level1/repetitive/1KB-2     	  304426	      3952 ns/op	 259.09 MB/s	         0.05566 ratio	       1 B/op	       0 allocs/op
+BenchmarkDeflateEncode/klauspost/level1/repetitive/1KB-2     	  303424	      3952 ns/op	 259.10 MB/s	         0.05566 ratio	       1 B/op	       0 allocs/op
+BenchmarkDeflateEncode/klauspost/level1/repetitive/1KB-2     	  304260	      3939 ns/op	 259.97 MB/s	         0.05566 ratio	       1 B/op	       0 allocs/op
+BenchmarkDeflateEncode/klauspost/level1/repetitive/1KB-2     	  304358	      3943 ns/op	 259.68 MB/s	         0.05566 ratio	       1 B/op	       0 allocs/op
+BenchmarkDeflateEncode/klauspost/level1/repetitive/1KB-2     	  303050	      3951 ns/op	 259.16 MB/s	         0.05566 ratio	       1 B/op	       0 allocs/op
+BenchmarkDeflateEncode/klauspost/level1/repetitive/4KB-2     	  261754	      4556 ns/op	 899.08 MB/s	         0.01782 ratio	       1 B/op	       0 allocs/op
+BenchmarkDeflateEncode/klauspost/level1/repetitive/4KB-2     	  263810	      4538 ns/op	 902.58 MB/s	         0.01782 ratio	       1 B/op	       0 allocs/op
+BenchmarkDeflateEncode/klauspost/level1/repetitive/4KB-2     	  264561	      4550 ns/op	 900.15 MB/s	         0.01782 ratio	       1 B/op	       0 allocs/op
+BenchmarkDeflateEncode/klauspost/level1/repetitive/4KB-2     	  265443	      4542 ns/op	 901.83 MB/s	         0.01782 ratio	       1 B/op	       0 allocs/op
+BenchmarkDeflateEncode/klauspost/level1/repetitive/4KB-2     	  263097	      4541 ns/op	 901.93 MB/s	         0.01782 ratio	       1 B/op	       0 allocs/op
+BenchmarkDeflateEncode/klauspost/level1/repetitive/4KB-2     	  262839	      4543 ns/op	 901.62 MB/s	         0.01782 ratio	       1 B/op	       0 allocs/op
+BenchmarkDeflateEncode/klauspost/level1/repetitive/4KB-2     	  264193	      4545 ns/op	 901.24 MB/s	         0.01782 ratio	       1 B/op	       0 allocs/op
+BenchmarkDeflateEncode/klauspost/level1/repetitive/4KB-2     	  263391	      4549 ns/op	 900.41 MB/s	         0.01782 ratio	       1 B/op	       0 allocs/op
+BenchmarkDeflateEncode/klauspost/level1/repetitive/4KB-2     	  262734	      4559 ns/op	 898.46 MB/s	         0.01782 ratio	       1 B/op	       0 allocs/op
+BenchmarkDeflateEncode/klauspost/level1/repetitive/4KB-2     	  262776	      4548 ns/op	 900.70 MB/s	         0.01782 ratio	       1 B/op	       0 allocs/op
+BenchmarkDeflateEncode/klauspost/level1/repetitive/16KB-2    	  144390	      8313 ns/op	1970.99 MB/s	         0.006775 ratio	       2 B/op	       0 allocs/op
+BenchmarkDeflateEncode/klauspost/level1/repetitive/16KB-2    	  143842	      8322 ns/op	1968.69 MB/s	         0.006775 ratio	       2 B/op	       0 allocs/op
+BenchmarkDeflateEncode/klauspost/level1/repetitive/16KB-2    	  144164	      8303 ns/op	1973.20 MB/s	         0.006775 ratio	       2 B/op	       0 allocs/op
+BenchmarkDeflateEncode/klauspost/level1/repetitive/16KB-2    	  144400	      8313 ns/op	1970.94 MB/s	         0.006775 ratio	       2 B/op	       0 allocs/op
+BenchmarkDeflateEncode/klauspost/level1/repetitive/16KB-2    	  144727	      8279 ns/op	1979.10 MB/s	         0.006775 ratio	       2 B/op	       0 allocs/op
+BenchmarkDeflateEncode/klauspost/level1/repetitive/16KB-2    	  144852	      8278 ns/op	1979.29 MB/s	         0.006775 ratio	       2 B/op	       0 allocs/op
+BenchmarkDeflateEncode/klauspost/level1/repetitive/16KB-2    	  144567	      8298 ns/op	1974.42 MB/s	         0.006775 ratio	       2 B/op	       0 allocs/op
+BenchmarkDeflateEncode/klauspost/level1/repetitive/16KB-2    	  144270	      8289 ns/op	1976.66 MB/s	         0.006775 ratio	       2 B/op	       0 allocs/op
+BenchmarkDeflateEncode/klauspost/level1/repetitive/16KB-2    	  144378	      8284 ns/op	1977.76 MB/s	         0.006775 ratio	       2 B/op	       0 allocs/op
+BenchmarkDeflateEncode/klauspost/level1/repetitive/16KB-2    	  144471	      8288 ns/op	1976.82 MB/s	         0.006775 ratio	       2 B/op	       0 allocs/op
+BenchmarkDeflateEncode/klauspost/level6/jsonlike/256B-2      	  195684	      6130 ns/op	  41.76 MB/s	         0.5312 ratio	       1 B/op	       0 allocs/op
+BenchmarkDeflateEncode/klauspost/level6/jsonlike/256B-2      	  196022	      6119 ns/op	  41.84 MB/s	         0.5312 ratio	       1 B/op	       0 allocs/op
+BenchmarkDeflateEncode/klauspost/level6/jsonlike/256B-2      	  194514	      6133 ns/op	  41.74 MB/s	         0.5312 ratio	       1 B/op	       0 allocs/op
+BenchmarkDeflateEncode/klauspost/level6/jsonlike/256B-2      	  195384	      6138 ns/op	  41.71 MB/s	         0.5312 ratio	       1 B/op	       0 allocs/op
+BenchmarkDeflateEncode/klauspost/level6/jsonlike/256B-2      	  194833	      6137 ns/op	  41.71 MB/s	         0.5312 ratio	       1 B/op	       0 allocs/op
+BenchmarkDeflateEncode/klauspost/level6/jsonlike/256B-2      	  196341	      6122 ns/op	  41.81 MB/s	         0.5312 ratio	       1 B/op	       0 allocs/op
+BenchmarkDeflateEncode/klauspost/level6/jsonlike/256B-2      	  195295	      6135 ns/op	  41.73 MB/s	         0.5312 ratio	       1 B/op	       0 allocs/op
+BenchmarkDeflateEncode/klauspost/level6/jsonlike/256B-2      	  195567	      6142 ns/op	  41.68 MB/s	         0.5312 ratio	       1 B/op	       0 allocs/op
+BenchmarkDeflateEncode/klauspost/level6/jsonlike/256B-2      	  195604	      6130 ns/op	  41.76 MB/s	         0.5312 ratio	       1 B/op	       0 allocs/op
+BenchmarkDeflateEncode/klauspost/level6/jsonlike/256B-2      	  195445	      6137 ns/op	  41.71 MB/s	         0.5312 ratio	       1 B/op	       0 allocs/op
+BenchmarkDeflateEncode/klauspost/level6/jsonlike/1KB-2       	  137493	      8746 ns/op	 117.08 MB/s	         0.2559 ratio	       2 B/op	       0 allocs/op
+BenchmarkDeflateEncode/klauspost/level6/jsonlike/1KB-2       	  137220	      8746 ns/op	 117.08 MB/s	         0.2559 ratio	       2 B/op	       0 allocs/op
+BenchmarkDeflateEncode/klauspost/level6/jsonlike/1KB-2       	  137060	      8757 ns/op	 116.94 MB/s	         0.2559 ratio	       2 B/op	       0 allocs/op
+BenchmarkDeflateEncode/klauspost/level6/jsonlike/1KB-2       	  137096	      8751 ns/op	 117.02 MB/s	         0.2559 ratio	       2 B/op	       0 allocs/op
+BenchmarkDeflateEncode/klauspost/level6/jsonlike/1KB-2       	  136684	      8750 ns/op	 117.03 MB/s	         0.2559 ratio	       2 B/op	       0 allocs/op
+BenchmarkDeflateEncode/klauspost/level6/jsonlike/1KB-2       	  137151	      8745 ns/op	 117.09 MB/s	         0.2559 ratio	       2 B/op	       0 allocs/op
+BenchmarkDeflateEncode/klauspost/level6/jsonlike/1KB-2       	  137514	      8736 ns/op	 117.21 MB/s	         0.2559 ratio	       2 B/op	       0 allocs/op
+BenchmarkDeflateEncode/klauspost/level6/jsonlike/1KB-2       	  137562	      8726 ns/op	 117.36 MB/s	         0.2559 ratio	       2 B/op	       0 allocs/op
+BenchmarkDeflateEncode/klauspost/level6/jsonlike/1KB-2       	  137487	      8726 ns/op	 117.36 MB/s	         0.2559 ratio	       2 B/op	       0 allocs/op
+BenchmarkDeflateEncode/klauspost/level6/jsonlike/1KB-2       	  137247	      8756 ns/op	 116.95 MB/s	         0.2559 ratio	       2 B/op	       0 allocs/op
+BenchmarkDeflateEncode/klauspost/level6/jsonlike/4KB-2       	   67408	     17781 ns/op	 230.36 MB/s	         0.1748 ratio	       4 B/op	       0 allocs/op
+BenchmarkDeflateEncode/klauspost/level6/jsonlike/4KB-2       	   67430	     17775 ns/op	 230.44 MB/s	         0.1748 ratio	       4 B/op	       0 allocs/op
+BenchmarkDeflateEncode/klauspost/level6/jsonlike/4KB-2       	   67695	     17734 ns/op	 230.97 MB/s	         0.1748 ratio	       4 B/op	       0 allocs/op
+BenchmarkDeflateEncode/klauspost/level6/jsonlike/4KB-2       	   67549	     17766 ns/op	 230.55 MB/s	         0.1748 ratio	       4 B/op	       0 allocs/op
+BenchmarkDeflateEncode/klauspost/level6/jsonlike/4KB-2       	   67509	     17774 ns/op	 230.44 MB/s	         0.1748 ratio	       4 B/op	       0 allocs/op
+BenchmarkDeflateEncode/klauspost/level6/jsonlike/4KB-2       	   67381	     17792 ns/op	 230.22 MB/s	         0.1748 ratio	       4 B/op	       0 allocs/op
+BenchmarkDeflateEncode/klauspost/level6/jsonlike/4KB-2       	   67335	     17832 ns/op	 229.70 MB/s	         0.1748 ratio	       4 B/op	       0 allocs/op
+BenchmarkDeflateEncode/klauspost/level6/jsonlike/4KB-2       	   67742	     17761 ns/op	 230.62 MB/s	         0.1748 ratio	       4 B/op	       0 allocs/op
+BenchmarkDeflateEncode/klauspost/level6/jsonlike/4KB-2       	   67562	     17711 ns/op	 231.27 MB/s	         0.1748 ratio	       4 B/op	       0 allocs/op
+BenchmarkDeflateEncode/klauspost/level6/jsonlike/4KB-2       	   68648	     17493 ns/op	 234.15 MB/s	         0.1748 ratio	       4 B/op	       0 allocs/op
+BenchmarkDeflateEncode/klauspost/level6/jsonlike/16KB-2      	   23517	     51083 ns/op	 320.73 MB/s	         0.1520 ratio	      14 B/op	       0 allocs/op
+BenchmarkDeflateEncode/klauspost/level6/jsonlike/16KB-2      	   23460	     51024 ns/op	 321.10 MB/s	         0.1520 ratio	      14 B/op	       0 allocs/op
+BenchmarkDeflateEncode/klauspost/level6/jsonlike/16KB-2      	   22977	     52230 ns/op	 313.69 MB/s	         0.1520 ratio	      14 B/op	       0 allocs/op
+BenchmarkDeflateEncode/klauspost/level6/jsonlike/16KB-2      	   23000	     52117 ns/op	 314.37 MB/s	         0.1520 ratio	      14 B/op	       0 allocs/op
+BenchmarkDeflateEncode/klauspost/level6/jsonlike/16KB-2      	   22916	     52293 ns/op	 313.31 MB/s	         0.1520 ratio	      14 B/op	       0 allocs/op
+BenchmarkDeflateEncode/klauspost/level6/jsonlike/16KB-2      	   22904	     52196 ns/op	 313.89 MB/s	         0.1520 ratio	      14 B/op	       0 allocs/op
+BenchmarkDeflateEncode/klauspost/level6/jsonlike/16KB-2      	   22915	     52247 ns/op	 313.59 MB/s	         0.1520 ratio	      14 B/op	       0 allocs/op
+BenchmarkDeflateEncode/klauspost/level6/jsonlike/16KB-2      	   22881	     52300 ns/op	 313.27 MB/s	         0.1520 ratio	      14 B/op	       0 allocs/op
+BenchmarkDeflateEncode/klauspost/level6/jsonlike/16KB-2      	   22876	     52318 ns/op	 313.16 MB/s	         0.1520 ratio	      14 B/op	       0 allocs/op
+BenchmarkDeflateEncode/klauspost/level6/jsonlike/16KB-2      	   22927	     52176 ns/op	 314.01 MB/s	         0.1520 ratio	      14 B/op	       0 allocs/op
+BenchmarkDeflateEncode/klauspost/level6/random/256B-2        	 1633131	       734.7 ns/op	 348.42 MB/s	         1.023 ratio	       0 B/op	       0 allocs/op
+BenchmarkDeflateEncode/klauspost/level6/random/256B-2        	 1633305	       734.6 ns/op	 348.48 MB/s	         1.023 ratio	       0 B/op	       0 allocs/op
+BenchmarkDeflateEncode/klauspost/level6/random/256B-2        	 1635266	       734.0 ns/op	 348.78 MB/s	         1.023 ratio	       0 B/op	       0 allocs/op
+BenchmarkDeflateEncode/klauspost/level6/random/256B-2        	 1635752	       733.9 ns/op	 348.83 MB/s	         1.023 ratio	       0 B/op	       0 allocs/op
+BenchmarkDeflateEncode/klauspost/level6/random/256B-2        	 1634690	       734.0 ns/op	 348.80 MB/s	         1.023 ratio	       0 B/op	       0 allocs/op
+BenchmarkDeflateEncode/klauspost/level6/random/256B-2        	 1635152	       734.0 ns/op	 348.79 MB/s	         1.023 ratio	       0 B/op	       0 allocs/op
+BenchmarkDeflateEncode/klauspost/level6/random/256B-2        	 1635518	       733.7 ns/op	 348.90 MB/s	         1.023 ratio	       0 B/op	       0 allocs/op
+BenchmarkDeflateEncode/klauspost/level6/random/256B-2        	 1635116	       734.0 ns/op	 348.79 MB/s	         1.023 ratio	       0 B/op	       0 allocs/op
+BenchmarkDeflateEncode/klauspost/level6/random/256B-2        	 1634421	       734.1 ns/op	 348.71 MB/s	         1.023 ratio	       0 B/op	       0 allocs/op
+BenchmarkDeflateEncode/klauspost/level6/random/256B-2        	 1635930	       733.6 ns/op	 348.99 MB/s	         1.023 ratio	       0 B/op	       0 allocs/op
+BenchmarkDeflateEncode/klauspost/level6/random/1KB-2         	  888271	      1345 ns/op	 761.34 MB/s	         1.006 ratio	       0 B/op	       0 allocs/op
+BenchmarkDeflateEncode/klauspost/level6/random/1KB-2         	  890865	      1346 ns/op	 760.85 MB/s	         1.006 ratio	       0 B/op	       0 allocs/op
+BenchmarkDeflateEncode/klauspost/level6/random/1KB-2         	  890248	      1345 ns/op	 761.10 MB/s	         1.006 ratio	       0 B/op	       0 allocs/op
+BenchmarkDeflateEncode/klauspost/level6/random/1KB-2         	  885974	      1345 ns/op	 761.07 MB/s	         1.006 ratio	       0 B/op	       0 allocs/op
+BenchmarkDeflateEncode/klauspost/level6/random/1KB-2         	  889032	      1346 ns/op	 760.66 MB/s	         1.006 ratio	       0 B/op	       0 allocs/op
+BenchmarkDeflateEncode/klauspost/level6/random/1KB-2         	  887995	      1346 ns/op	 761.05 MB/s	         1.006 ratio	       0 B/op	       0 allocs/op
+BenchmarkDeflateEncode/klauspost/level6/random/1KB-2         	  889360	      1345 ns/op	 761.25 MB/s	         1.006 ratio	       0 B/op	       0 allocs/op
+BenchmarkDeflateEncode/klauspost/level6/random/1KB-2         	  889836	      1345 ns/op	 761.28 MB/s	         1.006 ratio	       0 B/op	       0 allocs/op
+BenchmarkDeflateEncode/klauspost/level6/random/1KB-2         	  891784	      1345 ns/op	 761.26 MB/s	         1.006 ratio	       0 B/op	       0 allocs/op
+BenchmarkDeflateEncode/klauspost/level6/random/1KB-2         	  889388	      1346 ns/op	 760.92 MB/s	         1.006 ratio	       0 B/op	       0 allocs/op
+BenchmarkDeflateEncode/klauspost/level6/random/4KB-2         	  533953	      2240 ns/op	1828.61 MB/s	         1.001 ratio	       0 B/op	       0 allocs/op
+BenchmarkDeflateEncode/klauspost/level6/random/4KB-2         	  534141	      2239 ns/op	1829.28 MB/s	         1.001 ratio	       0 B/op	       0 allocs/op
+BenchmarkDeflateEncode/klauspost/level6/random/4KB-2         	  534516	      2239 ns/op	1829.00 MB/s	         1.001 ratio	       0 B/op	       0 allocs/op
+BenchmarkDeflateEncode/klauspost/level6/random/4KB-2         	  534762	      2240 ns/op	1828.86 MB/s	         1.001 ratio	       0 B/op	       0 allocs/op
+BenchmarkDeflateEncode/klauspost/level6/random/4KB-2         	  533704	      2242 ns/op	1826.63 MB/s	         1.001 ratio	       0 B/op	       0 allocs/op
+BenchmarkDeflateEncode/klauspost/level6/random/4KB-2         	  534016	      2240 ns/op	1828.29 MB/s	         1.001 ratio	       0 B/op	       0 allocs/op
+BenchmarkDeflateEncode/klauspost/level6/random/4KB-2         	  534765	      2243 ns/op	1826.43 MB/s	         1.001 ratio	       0 B/op	       0 allocs/op
+BenchmarkDeflateEncode/klauspost/level6/random/4KB-2         	  534694	      2241 ns/op	1827.92 MB/s	         1.001 ratio	       0 B/op	       0 allocs/op
+BenchmarkDeflateEncode/klauspost/level6/random/4KB-2         	  533773	      2242 ns/op	1827.18 MB/s	         1.001 ratio	       0 B/op	       0 allocs/op
+BenchmarkDeflateEncode/klauspost/level6/random/4KB-2         	  533773	      2241 ns/op	1828.02 MB/s	         1.001 ratio	       0 B/op	       0 allocs/op
+BenchmarkDeflateEncode/klauspost/level6/random/16KB-2        	  319230	      3759 ns/op	4358.40 MB/s	         1.000 ratio	       1 B/op	       0 allocs/op
+BenchmarkDeflateEncode/klauspost/level6/random/16KB-2        	  318724	      3761 ns/op	4356.39 MB/s	         1.000 ratio	       1 B/op	       0 allocs/op
+BenchmarkDeflateEncode/klauspost/level6/random/16KB-2        	  318680	      3762 ns/op	4355.12 MB/s	         1.000 ratio	       1 B/op	       0 allocs/op
+BenchmarkDeflateEncode/klauspost/level6/random/16KB-2        	  318760	      3761 ns/op	4356.69 MB/s	         1.000 ratio	       1 B/op	       0 allocs/op
+BenchmarkDeflateEncode/klauspost/level6/random/16KB-2        	  318614	      3759 ns/op	4358.25 MB/s	         1.000 ratio	       1 B/op	       0 allocs/op
+BenchmarkDeflateEncode/klauspost/level6/random/16KB-2        	  318330	      3761 ns/op	4356.54 MB/s	         1.000 ratio	       1 B/op	       0 allocs/op
+BenchmarkDeflateEncode/klauspost/level6/random/16KB-2        	  318807	      3761 ns/op	4356.12 MB/s	         1.000 ratio	       1 B/op	       0 allocs/op
+BenchmarkDeflateEncode/klauspost/level6/random/16KB-2        	  318727	      3761 ns/op	4355.79 MB/s	         1.000 ratio	       1 B/op	       0 allocs/op
+BenchmarkDeflateEncode/klauspost/level6/random/16KB-2        	  318598	      3762 ns/op	4355.63 MB/s	         1.000 ratio	       1 B/op	       0 allocs/op
+BenchmarkDeflateEncode/klauspost/level6/random/16KB-2        	  318819	      3769 ns/op	4346.97 MB/s	         1.000 ratio	       1 B/op	       0 allocs/op
+BenchmarkDeflateEncode/klauspost/level6/repetitive/256B-2    	  302985	      3959 ns/op	  64.66 MB/s	         0.1875 ratio	       1 B/op	       0 allocs/op
+BenchmarkDeflateEncode/klauspost/level6/repetitive/256B-2    	  303740	      3963 ns/op	  64.59 MB/s	         0.1875 ratio	       1 B/op	       0 allocs/op
+BenchmarkDeflateEncode/klauspost/level6/repetitive/256B-2    	  302416	      3952 ns/op	  64.78 MB/s	         0.1875 ratio	       1 B/op	       0 allocs/op
+BenchmarkDeflateEncode/klauspost/level6/repetitive/256B-2    	  301224	      3964 ns/op	  64.58 MB/s	         0.1875 ratio	       1 B/op	       0 allocs/op
+BenchmarkDeflateEncode/klauspost/level6/repetitive/256B-2    	  299756	      3968 ns/op	  64.52 MB/s	         0.1875 ratio	       1 B/op	       0 allocs/op
+BenchmarkDeflateEncode/klauspost/level6/repetitive/256B-2    	  300800	      3977 ns/op	  64.38 MB/s	         0.1875 ratio	       1 B/op	       0 allocs/op
+BenchmarkDeflateEncode/klauspost/level6/repetitive/256B-2    	  301069	      3968 ns/op	  64.52 MB/s	         0.1875 ratio	       1 B/op	       0 allocs/op
+BenchmarkDeflateEncode/klauspost/level6/repetitive/256B-2    	  303384	      3961 ns/op	  64.63 MB/s	         0.1875 ratio	       1 B/op	       0 allocs/op
+BenchmarkDeflateEncode/klauspost/level6/repetitive/256B-2    	  302022	      3969 ns/op	  64.50 MB/s	         0.1875 ratio	       1 B/op	       0 allocs/op
+BenchmarkDeflateEncode/klauspost/level6/repetitive/256B-2    	  301756	      3966 ns/op	  64.56 MB/s	         0.1875 ratio	       1 B/op	       0 allocs/op
+BenchmarkDeflateEncode/klauspost/level6/repetitive/1KB-2     	  254019	      4741 ns/op	 215.99 MB/s	         0.05273 ratio	       1 B/op	       0 allocs/op
+BenchmarkDeflateEncode/klauspost/level6/repetitive/1KB-2     	  252054	      4742 ns/op	 215.94 MB/s	         0.05273 ratio	       1 B/op	       0 allocs/op
+BenchmarkDeflateEncode/klauspost/level6/repetitive/1KB-2     	  252790	      4745 ns/op	 215.79 MB/s	         0.05273 ratio	       1 B/op	       0 allocs/op
+BenchmarkDeflateEncode/klauspost/level6/repetitive/1KB-2     	  252274	      4735 ns/op	 216.26 MB/s	         0.05273 ratio	       1 B/op	       0 allocs/op
+BenchmarkDeflateEncode/klauspost/level6/repetitive/1KB-2     	  253207	      4734 ns/op	 216.30 MB/s	         0.05273 ratio	       1 B/op	       0 allocs/op
+BenchmarkDeflateEncode/klauspost/level6/repetitive/1KB-2     	  252240	      4760 ns/op	 215.15 MB/s	         0.05273 ratio	       1 B/op	       0 allocs/op
+BenchmarkDeflateEncode/klauspost/level6/repetitive/1KB-2     	  250443	      4751 ns/op	 215.53 MB/s	         0.05273 ratio	       1 B/op	       0 allocs/op
+BenchmarkDeflateEncode/klauspost/level6/repetitive/1KB-2     	  252004	      4748 ns/op	 215.65 MB/s	         0.05273 ratio	       1 B/op	       0 allocs/op
+BenchmarkDeflateEncode/klauspost/level6/repetitive/1KB-2     	  251870	      4743 ns/op	 215.89 MB/s	         0.05273 ratio	       1 B/op	       0 allocs/op
+BenchmarkDeflateEncode/klauspost/level6/repetitive/1KB-2     	  252735	      4750 ns/op	 215.59 MB/s	         0.05273 ratio	       1 B/op	       0 allocs/op
+BenchmarkDeflateEncode/klauspost/level6/repetitive/4KB-2     	  162975	      7362 ns/op	 556.35 MB/s	         0.01685 ratio	       2 B/op	       0 allocs/op
+BenchmarkDeflateEncode/klauspost/level6/repetitive/4KB-2     	  162817	      7358 ns/op	 556.67 MB/s	         0.01685 ratio	       2 B/op	       0 allocs/op
+BenchmarkDeflateEncode/klauspost/level6/repetitive/4KB-2     	  163024	      7366 ns/op	 556.08 MB/s	         0.01685 ratio	       2 B/op	       0 allocs/op
+BenchmarkDeflateEncode/klauspost/level6/repetitive/4KB-2     	  163203	      7355 ns/op	 556.87 MB/s	         0.01685 ratio	       2 B/op	       0 allocs/op
+BenchmarkDeflateEncode/klauspost/level6/repetitive/4KB-2     	  162885	      7358 ns/op	 556.67 MB/s	         0.01685 ratio	       2 B/op	       0 allocs/op
+BenchmarkDeflateEncode/klauspost/level6/repetitive/4KB-2     	  162802	      7362 ns/op	 556.34 MB/s	         0.01685 ratio	       2 B/op	       0 allocs/op
+BenchmarkDeflateEncode/klauspost/level6/repetitive/4KB-2     	  162912	      7366 ns/op	 556.10 MB/s	         0.01685 ratio	       2 B/op	       0 allocs/op
+BenchmarkDeflateEncode/klauspost/level6/repetitive/4KB-2     	  162831	      7364 ns/op	 556.22 MB/s	         0.01685 ratio	       2 B/op	       0 allocs/op
+BenchmarkDeflateEncode/klauspost/level6/repetitive/4KB-2     	  163056	      7371 ns/op	 555.66 MB/s	         0.01685 ratio	       2 B/op	       0 allocs/op
+BenchmarkDeflateEncode/klauspost/level6/repetitive/4KB-2     	  163119	      7343 ns/op	 557.77 MB/s	         0.01685 ratio	       2 B/op	       0 allocs/op
+BenchmarkDeflateEncode/klauspost/level6/repetitive/16KB-2    	   61099	     19611 ns/op	 835.45 MB/s	         0.006531 ratio	       5 B/op	       0 allocs/op
+BenchmarkDeflateEncode/klauspost/level6/repetitive/16KB-2    	   61125	     19615 ns/op	 835.30 MB/s	         0.006531 ratio	       5 B/op	       0 allocs/op
+BenchmarkDeflateEncode/klauspost/level6/repetitive/16KB-2    	   61114	     19612 ns/op	 835.40 MB/s	         0.006531 ratio	       5 B/op	       0 allocs/op
+BenchmarkDeflateEncode/klauspost/level6/repetitive/16KB-2    	   61105	     19639 ns/op	 834.26 MB/s	         0.006531 ratio	       5 B/op	       0 allocs/op
+BenchmarkDeflateEncode/klauspost/level6/repetitive/16KB-2    	   61087	     19621 ns/op	 835.03 MB/s	         0.006531 ratio	       5 B/op	       0 allocs/op
+BenchmarkDeflateEncode/klauspost/level6/repetitive/16KB-2    	   61107	     19603 ns/op	 835.79 MB/s	         0.006531 ratio	       5 B/op	       0 allocs/op
+BenchmarkDeflateEncode/klauspost/level6/repetitive/16KB-2    	   61252	     19599 ns/op	 835.97 MB/s	         0.006531 ratio	       5 B/op	       0 allocs/op
+BenchmarkDeflateEncode/klauspost/level6/repetitive/16KB-2    	   61201	     19598 ns/op	 835.99 MB/s	         0.006531 ratio	       5 B/op	       0 allocs/op
+BenchmarkDeflateEncode/klauspost/level6/repetitive/16KB-2    	   61182	     19595 ns/op	 836.13 MB/s	         0.006531 ratio	       5 B/op	       0 allocs/op
+BenchmarkDeflateEncode/klauspost/level6/repetitive/16KB-2    	   61096	     19617 ns/op	 835.18 MB/s	         0.006531 ratio	       5 B/op	       0 allocs/op
+BenchmarkDeflateDecode/stdlib/level1/jsonlike/256B-2         	  360958	      3291 ns/op	  77.79 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/stdlib/level1/jsonlike/256B-2         	  364164	      3295 ns/op	  77.69 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/stdlib/level1/jsonlike/256B-2         	  363798	      3290 ns/op	  77.81 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/stdlib/level1/jsonlike/256B-2         	  363886	      3297 ns/op	  77.65 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/stdlib/level1/jsonlike/256B-2         	  363272	      3290 ns/op	  77.81 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/stdlib/level1/jsonlike/256B-2         	  363139	      3288 ns/op	  77.87 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/stdlib/level1/jsonlike/256B-2         	  362806	      3293 ns/op	  77.74 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/stdlib/level1/jsonlike/256B-2         	  361393	      3319 ns/op	  77.14 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/stdlib/level1/jsonlike/256B-2         	  365082	      3290 ns/op	  77.81 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/stdlib/level1/jsonlike/256B-2         	  362358	      3293 ns/op	  77.74 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/stdlib/level1/jsonlike/1KB-2          	  247268	      4815 ns/op	 212.68 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/stdlib/level1/jsonlike/1KB-2          	  250387	      4817 ns/op	 212.57 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/stdlib/level1/jsonlike/1KB-2          	  247742	      4816 ns/op	 212.63 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/stdlib/level1/jsonlike/1KB-2          	  249182	      4810 ns/op	 212.89 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/stdlib/level1/jsonlike/1KB-2          	  247203	      4853 ns/op	 211.01 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/stdlib/level1/jsonlike/1KB-2          	  247641	      4838 ns/op	 211.68 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/stdlib/level1/jsonlike/1KB-2          	  248185	      4819 ns/op	 212.50 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/stdlib/level1/jsonlike/1KB-2          	  249284	      4814 ns/op	 212.71 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/stdlib/level1/jsonlike/1KB-2          	  248838	      4806 ns/op	 213.06 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/stdlib/level1/jsonlike/1KB-2          	  249067	      4805 ns/op	 213.12 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/stdlib/level1/jsonlike/4KB-2          	  112279	     10651 ns/op	 384.55 MB/s	     128 B/op	       5 allocs/op
+BenchmarkDeflateDecode/stdlib/level1/jsonlike/4KB-2          	  112627	     10670 ns/op	 383.86 MB/s	     128 B/op	       5 allocs/op
+BenchmarkDeflateDecode/stdlib/level1/jsonlike/4KB-2          	  111614	     10715 ns/op	 382.28 MB/s	     128 B/op	       5 allocs/op
+BenchmarkDeflateDecode/stdlib/level1/jsonlike/4KB-2          	  111997	     10693 ns/op	 383.05 MB/s	     128 B/op	       5 allocs/op
+BenchmarkDeflateDecode/stdlib/level1/jsonlike/4KB-2          	  112234	     10648 ns/op	 384.67 MB/s	     128 B/op	       5 allocs/op
+BenchmarkDeflateDecode/stdlib/level1/jsonlike/4KB-2          	  112674	     10690 ns/op	 383.16 MB/s	     128 B/op	       5 allocs/op
+BenchmarkDeflateDecode/stdlib/level1/jsonlike/4KB-2          	  111541	     10728 ns/op	 381.81 MB/s	     128 B/op	       5 allocs/op
+BenchmarkDeflateDecode/stdlib/level1/jsonlike/4KB-2          	  112425	     10678 ns/op	 383.59 MB/s	     128 B/op	       5 allocs/op
+BenchmarkDeflateDecode/stdlib/level1/jsonlike/4KB-2          	  113091	     10661 ns/op	 384.21 MB/s	     128 B/op	       5 allocs/op
+BenchmarkDeflateDecode/stdlib/level1/jsonlike/4KB-2          	  112156	     10695 ns/op	 382.99 MB/s	     128 B/op	       5 allocs/op
+BenchmarkDeflateDecode/stdlib/level1/jsonlike/16KB-2         	   32724	     36676 ns/op	 446.73 MB/s	     288 B/op	       6 allocs/op
+BenchmarkDeflateDecode/stdlib/level1/jsonlike/16KB-2         	   32524	     36760 ns/op	 445.70 MB/s	     288 B/op	       6 allocs/op
+BenchmarkDeflateDecode/stdlib/level1/jsonlike/16KB-2         	   32690	     36634 ns/op	 447.23 MB/s	     288 B/op	       6 allocs/op
+BenchmarkDeflateDecode/stdlib/level1/jsonlike/16KB-2         	   32701	     36698 ns/op	 446.46 MB/s	     288 B/op	       6 allocs/op
+BenchmarkDeflateDecode/stdlib/level1/jsonlike/16KB-2         	   32727	     36612 ns/op	 447.50 MB/s	     288 B/op	       6 allocs/op
+BenchmarkDeflateDecode/stdlib/level1/jsonlike/16KB-2         	   32716	     36642 ns/op	 447.14 MB/s	     288 B/op	       6 allocs/op
+BenchmarkDeflateDecode/stdlib/level1/jsonlike/16KB-2         	   32868	     36568 ns/op	 448.05 MB/s	     288 B/op	       6 allocs/op
+BenchmarkDeflateDecode/stdlib/level1/jsonlike/16KB-2         	   32625	     36644 ns/op	 447.11 MB/s	     288 B/op	       6 allocs/op
+BenchmarkDeflateDecode/stdlib/level1/jsonlike/16KB-2         	   32702	     36635 ns/op	 447.22 MB/s	     288 B/op	       6 allocs/op
+BenchmarkDeflateDecode/stdlib/level1/jsonlike/16KB-2         	   32791	     36633 ns/op	 447.24 MB/s	     288 B/op	       6 allocs/op
+BenchmarkDeflateDecode/stdlib/level1/random/256B-2           	 9223668	       130.0 ns/op	1969.36 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/stdlib/level1/random/256B-2           	 9220299	       130.0 ns/op	1969.55 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/stdlib/level1/random/256B-2           	 9227133	       130.0 ns/op	1969.37 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/stdlib/level1/random/256B-2           	 9230448	       130.0 ns/op	1969.21 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/stdlib/level1/random/256B-2           	 9234198	       130.0 ns/op	1969.39 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/stdlib/level1/random/256B-2           	 9229390	       130.0 ns/op	1969.62 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/stdlib/level1/random/256B-2           	 9234346	       130.0 ns/op	1969.50 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/stdlib/level1/random/256B-2           	 9224398	       130.0 ns/op	1969.08 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/stdlib/level1/random/256B-2           	 9230755	       130.0 ns/op	1969.39 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/stdlib/level1/random/256B-2           	 9226081	       130.0 ns/op	1969.32 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/stdlib/level1/random/1KB-2            	 8435896	       142.2 ns/op	7199.50 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/stdlib/level1/random/1KB-2            	 8438583	       142.3 ns/op	7195.59 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/stdlib/level1/random/1KB-2            	 8429276	       142.3 ns/op	7196.68 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/stdlib/level1/random/1KB-2            	 8429413	       142.3 ns/op	7197.76 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/stdlib/level1/random/1KB-2            	 8435828	       142.3 ns/op	7198.26 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/stdlib/level1/random/1KB-2            	 8437240	       142.3 ns/op	7196.64 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/stdlib/level1/random/1KB-2            	 8432443	       142.2 ns/op	7198.94 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/stdlib/level1/random/1KB-2            	 8430999	       142.3 ns/op	7198.36 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/stdlib/level1/random/1KB-2            	 8427427	       142.3 ns/op	7197.50 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/stdlib/level1/random/1KB-2            	 8426811	       142.3 ns/op	7197.13 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/stdlib/level1/random/4KB-2            	 3276300	       366.2 ns/op	11184.18 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/stdlib/level1/random/4KB-2            	 3274486	       366.5 ns/op	11177.44 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/stdlib/level1/random/4KB-2            	 3274863	       366.5 ns/op	11177.30 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/stdlib/level1/random/4KB-2            	 3275262	       366.4 ns/op	11177.77 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/stdlib/level1/random/4KB-2            	 3274674	       366.4 ns/op	11179.77 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/stdlib/level1/random/4KB-2            	 3274702	       366.6 ns/op	11173.87 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/stdlib/level1/random/4KB-2            	 3271515	       366.8 ns/op	11167.94 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/stdlib/level1/random/4KB-2            	 3274485	       366.4 ns/op	11177.65 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/stdlib/level1/random/4KB-2            	 3275840	       366.4 ns/op	11178.79 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/stdlib/level1/random/4KB-2            	 3273536	       366.5 ns/op	11177.40 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/stdlib/level1/random/16KB-2           	 1000000	      1074 ns/op	15253.66 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/stdlib/level1/random/16KB-2           	 1000000	      1072 ns/op	15278.81 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/stdlib/level1/random/16KB-2           	 1000000	      1075 ns/op	15243.96 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/stdlib/level1/random/16KB-2           	 1000000	      1072 ns/op	15286.26 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/stdlib/level1/random/16KB-2           	 1000000	      1073 ns/op	15263.44 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/stdlib/level1/random/16KB-2           	 1000000	      1072 ns/op	15281.79 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/stdlib/level1/random/16KB-2           	 1000000	      1074 ns/op	15255.41 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/stdlib/level1/random/16KB-2           	 1000000	      1073 ns/op	15274.71 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/stdlib/level1/random/16KB-2           	 1000000	      1074 ns/op	15260.58 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/stdlib/level1/random/16KB-2           	 1000000	      1072 ns/op	15279.93 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/stdlib/level1/repetitive/256B-2       	  494742	      2412 ns/op	 106.13 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/stdlib/level1/repetitive/256B-2       	  496815	      2413 ns/op	 106.10 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/stdlib/level1/repetitive/256B-2       	  497575	      2412 ns/op	 106.14 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/stdlib/level1/repetitive/256B-2       	  495498	      2416 ns/op	 105.96 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/stdlib/level1/repetitive/256B-2       	  496284	      2414 ns/op	 106.05 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/stdlib/level1/repetitive/256B-2       	  497227	      2414 ns/op	 106.06 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/stdlib/level1/repetitive/256B-2       	  495378	      2414 ns/op	 106.06 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/stdlib/level1/repetitive/256B-2       	  497878	      2413 ns/op	 106.08 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/stdlib/level1/repetitive/256B-2       	  496712	      2415 ns/op	 105.98 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/stdlib/level1/repetitive/256B-2       	  496664	      2416 ns/op	 105.98 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/stdlib/level1/repetitive/1KB-2        	  457264	      2618 ns/op	 391.19 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/stdlib/level1/repetitive/1KB-2        	  458420	      2613 ns/op	 391.88 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/stdlib/level1/repetitive/1KB-2        	  459752	      2622 ns/op	 390.61 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/stdlib/level1/repetitive/1KB-2        	  453758	      2624 ns/op	 390.18 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/stdlib/level1/repetitive/1KB-2        	  459348	      2621 ns/op	 390.71 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/stdlib/level1/repetitive/1KB-2        	  457506	      2618 ns/op	 391.11 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/stdlib/level1/repetitive/1KB-2        	  458038	      2614 ns/op	 391.78 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/stdlib/level1/repetitive/1KB-2        	  458668	      2615 ns/op	 391.63 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/stdlib/level1/repetitive/1KB-2        	  458979	      2620 ns/op	 390.84 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/stdlib/level1/repetitive/1KB-2        	  458299	      2611 ns/op	 392.21 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/stdlib/level1/repetitive/4KB-2        	  393114	      3065 ns/op	1336.30 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/stdlib/level1/repetitive/4KB-2        	  389029	      3075 ns/op	1332.21 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/stdlib/level1/repetitive/4KB-2        	  391046	      3059 ns/op	1339.05 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/stdlib/level1/repetitive/4KB-2        	  392942	      3062 ns/op	1337.75 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/stdlib/level1/repetitive/4KB-2        	  392815	      3065 ns/op	1336.33 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/stdlib/level1/repetitive/4KB-2        	  392767	      3079 ns/op	1330.47 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/stdlib/level1/repetitive/4KB-2        	  390907	      3079 ns/op	1330.19 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/stdlib/level1/repetitive/4KB-2        	  390603	      3082 ns/op	1329.21 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/stdlib/level1/repetitive/4KB-2        	  391422	      3069 ns/op	1334.54 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/stdlib/level1/repetitive/4KB-2        	  391275	      3073 ns/op	1332.80 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/stdlib/level1/repetitive/16KB-2       	  259948	      4607 ns/op	3556.40 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/stdlib/level1/repetitive/16KB-2       	  255502	      4697 ns/op	3488.05 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/stdlib/level1/repetitive/16KB-2       	  258662	      4639 ns/op	3531.70 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/stdlib/level1/repetitive/16KB-2       	  260694	      4617 ns/op	3548.56 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/stdlib/level1/repetitive/16KB-2       	  260876	      4602 ns/op	3560.03 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/stdlib/level1/repetitive/16KB-2       	  258964	      4620 ns/op	3546.34 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/stdlib/level1/repetitive/16KB-2       	  261255	      4611 ns/op	3553.35 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/stdlib/level1/repetitive/16KB-2       	  260018	      4614 ns/op	3550.74 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/stdlib/level1/repetitive/16KB-2       	  260325	      4625 ns/op	3542.80 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/stdlib/level1/repetitive/16KB-2       	  259096	      4624 ns/op	3542.87 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/stdlib/level6/jsonlike/256B-2         	  363244	      3313 ns/op	  77.26 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/stdlib/level6/jsonlike/256B-2         	  362870	      3320 ns/op	  77.11 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/stdlib/level6/jsonlike/256B-2         	  361149	      3324 ns/op	  77.01 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/stdlib/level6/jsonlike/256B-2         	  358882	      3314 ns/op	  77.25 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/stdlib/level6/jsonlike/256B-2         	  361512	      3314 ns/op	  77.24 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/stdlib/level6/jsonlike/256B-2         	  362072	      3311 ns/op	  77.31 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/stdlib/level6/jsonlike/256B-2         	  361606	      3312 ns/op	  77.30 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/stdlib/level6/jsonlike/256B-2         	  360675	      3317 ns/op	  77.19 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/stdlib/level6/jsonlike/256B-2         	  361116	      3323 ns/op	  77.05 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/stdlib/level6/jsonlike/256B-2         	  361531	      3316 ns/op	  77.20 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/stdlib/level6/jsonlike/1KB-2          	  250315	      4782 ns/op	 214.12 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/stdlib/level6/jsonlike/1KB-2          	  249781	      4792 ns/op	 213.67 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/stdlib/level6/jsonlike/1KB-2          	  251553	      4780 ns/op	 214.21 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/stdlib/level6/jsonlike/1KB-2          	  250126	      4773 ns/op	 214.54 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/stdlib/level6/jsonlike/1KB-2          	  251833	      4776 ns/op	 214.40 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/stdlib/level6/jsonlike/1KB-2          	  249501	      4789 ns/op	 213.81 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/stdlib/level6/jsonlike/1KB-2          	  250364	      4782 ns/op	 214.13 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/stdlib/level6/jsonlike/1KB-2          	  250647	      4782 ns/op	 214.11 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/stdlib/level6/jsonlike/1KB-2          	  251427	      4780 ns/op	 214.24 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/stdlib/level6/jsonlike/1KB-2          	  250521	      4782 ns/op	 214.16 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/stdlib/level6/jsonlike/4KB-2          	  121274	      9909 ns/op	 413.36 MB/s	     192 B/op	       7 allocs/op
+BenchmarkDeflateDecode/stdlib/level6/jsonlike/4KB-2          	  120632	      9931 ns/op	 412.46 MB/s	     192 B/op	       7 allocs/op
+BenchmarkDeflateDecode/stdlib/level6/jsonlike/4KB-2          	  119809	      9956 ns/op	 411.43 MB/s	     192 B/op	       7 allocs/op
+BenchmarkDeflateDecode/stdlib/level6/jsonlike/4KB-2          	  120261	      9914 ns/op	 413.16 MB/s	     192 B/op	       7 allocs/op
+BenchmarkDeflateDecode/stdlib/level6/jsonlike/4KB-2          	  120156	      9904 ns/op	 413.56 MB/s	     192 B/op	       7 allocs/op
+BenchmarkDeflateDecode/stdlib/level6/jsonlike/4KB-2          	  120662	      9902 ns/op	 413.64 MB/s	     192 B/op	       7 allocs/op
+BenchmarkDeflateDecode/stdlib/level6/jsonlike/4KB-2          	  119577	      9981 ns/op	 410.37 MB/s	     192 B/op	       7 allocs/op
+BenchmarkDeflateDecode/stdlib/level6/jsonlike/4KB-2          	  120436	      9923 ns/op	 412.79 MB/s	     192 B/op	       7 allocs/op
+BenchmarkDeflateDecode/stdlib/level6/jsonlike/4KB-2          	  120734	      9912 ns/op	 413.22 MB/s	     192 B/op	       7 allocs/op
+BenchmarkDeflateDecode/stdlib/level6/jsonlike/4KB-2          	  120288	      9913 ns/op	 413.18 MB/s	     192 B/op	       7 allocs/op
+BenchmarkDeflateDecode/stdlib/level6/jsonlike/16KB-2         	   38292	     31296 ns/op	 523.52 MB/s	     400 B/op	       8 allocs/op
+BenchmarkDeflateDecode/stdlib/level6/jsonlike/16KB-2         	   38443	     31239 ns/op	 524.48 MB/s	     400 B/op	       8 allocs/op
+BenchmarkDeflateDecode/stdlib/level6/jsonlike/16KB-2         	   38242	     31299 ns/op	 523.46 MB/s	     400 B/op	       8 allocs/op
+BenchmarkDeflateDecode/stdlib/level6/jsonlike/16KB-2         	   38395	     31245 ns/op	 524.37 MB/s	     400 B/op	       8 allocs/op
+BenchmarkDeflateDecode/stdlib/level6/jsonlike/16KB-2         	   38198	     31327 ns/op	 523.00 MB/s	     400 B/op	       8 allocs/op
+BenchmarkDeflateDecode/stdlib/level6/jsonlike/16KB-2         	   38211	     31429 ns/op	 521.30 MB/s	     400 B/op	       8 allocs/op
+BenchmarkDeflateDecode/stdlib/level6/jsonlike/16KB-2         	   38390	     31274 ns/op	 523.89 MB/s	     400 B/op	       8 allocs/op
+BenchmarkDeflateDecode/stdlib/level6/jsonlike/16KB-2         	   38182	     31447 ns/op	 521.00 MB/s	     400 B/op	       8 allocs/op
+BenchmarkDeflateDecode/stdlib/level6/jsonlike/16KB-2         	   38235	     31379 ns/op	 522.13 MB/s	     400 B/op	       8 allocs/op
+BenchmarkDeflateDecode/stdlib/level6/jsonlike/16KB-2         	   38274	     31265 ns/op	 524.03 MB/s	     400 B/op	       8 allocs/op
+BenchmarkDeflateDecode/stdlib/level6/random/256B-2           	 9224905	       130.0 ns/op	1969.03 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/stdlib/level6/random/256B-2           	 9227554	       130.0 ns/op	1969.50 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/stdlib/level6/random/256B-2           	 9223569	       130.0 ns/op	1968.77 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/stdlib/level6/random/256B-2           	 9235915	       130.1 ns/op	1967.23 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/stdlib/level6/random/256B-2           	 9227018	       130.0 ns/op	1969.43 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/stdlib/level6/random/256B-2           	 9232412	       130.0 ns/op	1969.15 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/stdlib/level6/random/256B-2           	 9230318	       130.0 ns/op	1968.83 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/stdlib/level6/random/256B-2           	 9224530	       130.0 ns/op	1969.05 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/stdlib/level6/random/256B-2           	 9209434	       130.1 ns/op	1968.38 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/stdlib/level6/random/256B-2           	 9229396	       130.0 ns/op	1969.47 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/stdlib/level6/random/1KB-2            	 8437112	       142.3 ns/op	7197.35 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/stdlib/level6/random/1KB-2            	 8428136	       142.3 ns/op	7197.43 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/stdlib/level6/random/1KB-2            	 8431791	       142.3 ns/op	7197.20 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/stdlib/level6/random/1KB-2            	 8421856	       142.3 ns/op	7194.04 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/stdlib/level6/random/1KB-2            	 8437695	       142.3 ns/op	7197.86 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/stdlib/level6/random/1KB-2            	 8441362	       142.2 ns/op	7199.07 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/stdlib/level6/random/1KB-2            	 8428726	       142.3 ns/op	7197.34 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/stdlib/level6/random/1KB-2            	 8427933	       142.3 ns/op	7196.74 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/stdlib/level6/random/1KB-2            	 8430775	       142.3 ns/op	7197.95 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/stdlib/level6/random/1KB-2            	 8433912	       142.3 ns/op	7197.18 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/stdlib/level6/random/4KB-2            	 3273993	       366.3 ns/op	11180.95 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/stdlib/level6/random/4KB-2            	 3276987	       366.3 ns/op	11183.26 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/stdlib/level6/random/4KB-2            	 3275840	       366.3 ns/op	11182.65 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/stdlib/level6/random/4KB-2            	 3275593	       366.3 ns/op	11182.80 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/stdlib/level6/random/4KB-2            	 3276152	       366.3 ns/op	11182.98 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/stdlib/level6/random/4KB-2            	 3277004	       366.2 ns/op	11186.32 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/stdlib/level6/random/4KB-2            	 3275607	       366.3 ns/op	11182.37 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/stdlib/level6/random/4KB-2            	 3275811	       366.3 ns/op	11182.86 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/stdlib/level6/random/4KB-2            	 3276507	       366.2 ns/op	11184.50 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/stdlib/level6/random/4KB-2            	 3276639	       366.2 ns/op	11183.69 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/stdlib/level6/random/16KB-2           	 1000000	      1075 ns/op	15246.34 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/stdlib/level6/random/16KB-2           	 1000000	      1073 ns/op	15267.94 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/stdlib/level6/random/16KB-2           	 1000000	      1075 ns/op	15242.66 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/stdlib/level6/random/16KB-2           	 1000000	      1073 ns/op	15264.64 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/stdlib/level6/random/16KB-2           	 1000000	      1074 ns/op	15251.88 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/stdlib/level6/random/16KB-2           	 1000000	      1073 ns/op	15275.18 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/stdlib/level6/random/16KB-2           	 1000000	      1074 ns/op	15248.27 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/stdlib/level6/random/16KB-2           	 1000000	      1073 ns/op	15272.79 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/stdlib/level6/random/16KB-2           	 1000000	      1074 ns/op	15255.72 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/stdlib/level6/random/16KB-2           	 1000000	      1073 ns/op	15271.13 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/stdlib/level6/repetitive/256B-2       	 2826182	       424.5 ns/op	 603.09 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/stdlib/level6/repetitive/256B-2       	 2826793	       424.3 ns/op	 603.33 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/stdlib/level6/repetitive/256B-2       	 2831103	       424.5 ns/op	 603.13 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/stdlib/level6/repetitive/256B-2       	 2830292	       423.7 ns/op	 604.14 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/stdlib/level6/repetitive/256B-2       	 2726089	       440.9 ns/op	 580.68 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/stdlib/level6/repetitive/256B-2       	 2719920	       441.1 ns/op	 580.37 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/stdlib/level6/repetitive/256B-2       	 2827866	       424.5 ns/op	 603.02 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/stdlib/level6/repetitive/256B-2       	 2826673	       424.1 ns/op	 603.68 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/stdlib/level6/repetitive/256B-2       	 2828187	       424.1 ns/op	 603.58 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/stdlib/level6/repetitive/256B-2       	 2725272	       439.8 ns/op	 582.09 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/stdlib/level6/repetitive/1KB-2        	 2280177	       526.5 ns/op	1944.90 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/stdlib/level6/repetitive/1KB-2        	 2279239	       526.7 ns/op	1944.10 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/stdlib/level6/repetitive/1KB-2        	 2279634	       526.4 ns/op	1945.19 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/stdlib/level6/repetitive/1KB-2        	 2277457	       526.8 ns/op	1943.99 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/stdlib/level6/repetitive/1KB-2        	 2278165	       526.7 ns/op	1944.31 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/stdlib/level6/repetitive/1KB-2        	 2280988	       526.3 ns/op	1945.55 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/stdlib/level6/repetitive/1KB-2        	 2277477	       526.9 ns/op	1943.47 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/stdlib/level6/repetitive/1KB-2        	 2281305	       527.1 ns/op	1942.64 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/stdlib/level6/repetitive/1KB-2        	 2276958	       527.1 ns/op	1942.62 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/stdlib/level6/repetitive/1KB-2        	 2280326	       526.2 ns/op	1946.08 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/stdlib/level6/repetitive/4KB-2        	  405349	      2944 ns/op	1391.24 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/stdlib/level6/repetitive/4KB-2        	  405135	      2938 ns/op	1394.02 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/stdlib/level6/repetitive/4KB-2        	  407053	      2940 ns/op	1393.10 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/stdlib/level6/repetitive/4KB-2        	  407043	      2942 ns/op	1392.34 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/stdlib/level6/repetitive/4KB-2        	  406636	      2944 ns/op	1391.51 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/stdlib/level6/repetitive/4KB-2        	  405568	      2950 ns/op	1388.56 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/stdlib/level6/repetitive/4KB-2        	  405560	      2942 ns/op	1392.19 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/stdlib/level6/repetitive/4KB-2        	  407481	      2942 ns/op	1392.11 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/stdlib/level6/repetitive/4KB-2        	  408120	      2943 ns/op	1391.76 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/stdlib/level6/repetitive/4KB-2        	  405692	      2944 ns/op	1391.22 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/stdlib/level6/repetitive/16KB-2       	  272200	      4404 ns/op	3720.49 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/stdlib/level6/repetitive/16KB-2       	  274232	      4367 ns/op	3751.52 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/stdlib/level6/repetitive/16KB-2       	  272740	      4395 ns/op	3728.19 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/stdlib/level6/repetitive/16KB-2       	  272974	      4395 ns/op	3727.86 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/stdlib/level6/repetitive/16KB-2       	  272724	      4396 ns/op	3726.72 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/stdlib/level6/repetitive/16KB-2       	  272504	      4396 ns/op	3727.21 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/stdlib/level6/repetitive/16KB-2       	  273721	      4394 ns/op	3728.95 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/stdlib/level6/repetitive/16KB-2       	  275302	      4372 ns/op	3747.55 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/stdlib/level6/repetitive/16KB-2       	  274724	      4371 ns/op	3747.99 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/stdlib/level6/repetitive/16KB-2       	  274726	      4366 ns/op	3753.02 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/klauspost/level1/jsonlike/256B-2      	  367843	      3252 ns/op	  78.73 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/klauspost/level1/jsonlike/256B-2      	  367232	      3251 ns/op	  78.75 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/klauspost/level1/jsonlike/256B-2      	  368698	      3255 ns/op	  78.64 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/klauspost/level1/jsonlike/256B-2      	  368973	      3253 ns/op	  78.70 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/klauspost/level1/jsonlike/256B-2      	  367515	      3244 ns/op	  78.92 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/klauspost/level1/jsonlike/256B-2      	  367826	      3242 ns/op	  78.96 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/klauspost/level1/jsonlike/256B-2      	  365347	      3239 ns/op	  79.05 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/klauspost/level1/jsonlike/256B-2      	  369450	      3242 ns/op	  78.97 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/klauspost/level1/jsonlike/256B-2      	  369008	      3246 ns/op	  78.88 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/klauspost/level1/jsonlike/256B-2      	  367603	      3242 ns/op	  78.97 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/klauspost/level1/jsonlike/1KB-2       	  281870	      4257 ns/op	 240.54 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/klauspost/level1/jsonlike/1KB-2       	  281584	      4256 ns/op	 240.62 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/klauspost/level1/jsonlike/1KB-2       	  280512	      4260 ns/op	 240.35 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/klauspost/level1/jsonlike/1KB-2       	  282067	      4253 ns/op	 240.77 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/klauspost/level1/jsonlike/1KB-2       	  268065	      4476 ns/op	 228.79 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/klauspost/level1/jsonlike/1KB-2       	  280924	      4252 ns/op	 240.85 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/klauspost/level1/jsonlike/1KB-2       	  282538	      4262 ns/op	 240.25 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/klauspost/level1/jsonlike/1KB-2       	  281526	      4262 ns/op	 240.29 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/klauspost/level1/jsonlike/1KB-2       	  281762	      4253 ns/op	 240.78 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/klauspost/level1/jsonlike/1KB-2       	  281238	      4257 ns/op	 240.55 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/klauspost/level1/jsonlike/4KB-2       	  150333	      7991 ns/op	 512.58 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/klauspost/level1/jsonlike/4KB-2       	  149121	      8040 ns/op	 509.48 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/klauspost/level1/jsonlike/4KB-2       	  149234	      8040 ns/op	 509.47 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/klauspost/level1/jsonlike/4KB-2       	  149060	      8001 ns/op	 511.95 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/klauspost/level1/jsonlike/4KB-2       	  149319	      8024 ns/op	 510.50 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/klauspost/level1/jsonlike/4KB-2       	  149667	      7983 ns/op	 513.08 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/klauspost/level1/jsonlike/4KB-2       	  150332	      7981 ns/op	 513.24 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/klauspost/level1/jsonlike/4KB-2       	  150504	      8000 ns/op	 512.02 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/klauspost/level1/jsonlike/4KB-2       	  149588	      8013 ns/op	 511.19 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/klauspost/level1/jsonlike/4KB-2       	  149900	      8009 ns/op	 511.40 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/klauspost/level1/jsonlike/16KB-2      	   50914	     23433 ns/op	 699.18 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/klauspost/level1/jsonlike/16KB-2      	   51147	     23346 ns/op	 701.78 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/klauspost/level1/jsonlike/16KB-2      	   51558	     23238 ns/op	 705.04 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/klauspost/level1/jsonlike/16KB-2      	   50986	     23437 ns/op	 699.08 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/klauspost/level1/jsonlike/16KB-2      	   50718	     23544 ns/op	 695.88 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/klauspost/level1/jsonlike/16KB-2      	   50785	     23483 ns/op	 697.71 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/klauspost/level1/jsonlike/16KB-2      	   51201	     23228 ns/op	 705.34 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/klauspost/level1/jsonlike/16KB-2      	   51380	     23270 ns/op	 704.09 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/klauspost/level1/jsonlike/16KB-2      	   51153	     23401 ns/op	 700.14 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/klauspost/level1/jsonlike/16KB-2      	   51043	     23312 ns/op	 702.81 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/klauspost/level1/random/256B-2        	13888554	        85.54 ns/op	2992.89 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/klauspost/level1/random/256B-2        	13646648	        86.12 ns/op	2972.60 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/klauspost/level1/random/256B-2        	14080832	        85.34 ns/op	2999.92 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/klauspost/level1/random/256B-2        	13996708	        85.40 ns/op	2997.58 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/klauspost/level1/random/256B-2        	13953819	        85.69 ns/op	2987.52 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/klauspost/level1/random/256B-2        	13906497	        85.30 ns/op	3001.00 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/klauspost/level1/random/256B-2        	13936988	        85.43 ns/op	2996.63 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/klauspost/level1/random/256B-2        	14122360	        85.48 ns/op	2994.76 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/klauspost/level1/random/256B-2        	13947440	        85.46 ns/op	2995.65 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/klauspost/level1/random/256B-2        	13943119	        85.79 ns/op	2983.93 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/klauspost/level1/random/1KB-2         	12283966	        97.73 ns/op	10477.44 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/klauspost/level1/random/1KB-2         	12237346	        97.88 ns/op	10461.58 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/klauspost/level1/random/1KB-2         	12261592	        97.76 ns/op	10474.64 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/klauspost/level1/random/1KB-2         	12289390	        97.77 ns/op	10473.26 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/klauspost/level1/random/1KB-2         	12271814	        97.73 ns/op	10477.91 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/klauspost/level1/random/1KB-2         	12247113	        97.90 ns/op	10460.00 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/klauspost/level1/random/1KB-2         	12287288	        97.67 ns/op	10483.92 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/klauspost/level1/random/1KB-2         	12205905	        97.80 ns/op	10469.89 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/klauspost/level1/random/1KB-2         	12250743	        97.97 ns/op	10452.24 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/klauspost/level1/random/1KB-2         	12234741	        97.87 ns/op	10462.94 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/klauspost/level1/random/4KB-2         	 3803443	       315.3 ns/op	12990.68 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/klauspost/level1/random/4KB-2         	 3806488	       315.2 ns/op	12993.49 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/klauspost/level1/random/4KB-2         	 3807298	       315.1 ns/op	12999.46 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/klauspost/level1/random/4KB-2         	 3805858	       315.2 ns/op	12994.92 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/klauspost/level1/random/4KB-2         	 3807874	       315.1 ns/op	12997.66 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/klauspost/level1/random/4KB-2         	 3807336	       315.2 ns/op	12996.54 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/klauspost/level1/random/4KB-2         	 3806890	       315.2 ns/op	12994.58 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/klauspost/level1/random/4KB-2         	 3808070	       315.1 ns/op	12998.23 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/klauspost/level1/random/4KB-2         	 3806458	       315.2 ns/op	12996.36 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/klauspost/level1/random/4KB-2         	 3806734	       315.2 ns/op	12996.91 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/klauspost/level1/random/16KB-2        	 1300261	       922.9 ns/op	17751.84 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/klauspost/level1/random/16KB-2        	 1299808	       923.2 ns/op	17746.95 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/klauspost/level1/random/16KB-2        	 1298253	       924.5 ns/op	17721.69 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/klauspost/level1/random/16KB-2        	 1298979	       924.1 ns/op	17728.88 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/klauspost/level1/random/16KB-2        	 1296685	       925.4 ns/op	17704.17 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/klauspost/level1/random/16KB-2        	 1297066	       925.1 ns/op	17709.56 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/klauspost/level1/random/16KB-2        	 1301349	       922.2 ns/op	17766.02 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/klauspost/level1/random/16KB-2        	 1299612	       923.6 ns/op	17739.96 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/klauspost/level1/random/16KB-2        	 1296402	       925.6 ns/op	17700.15 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/klauspost/level1/random/16KB-2        	 1296662	       925.5 ns/op	17702.15 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/klauspost/level1/repetitive/256B-2    	 3824286	       313.8 ns/op	 815.86 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/klauspost/level1/repetitive/256B-2    	 3812538	       313.9 ns/op	 815.63 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/klauspost/level1/repetitive/256B-2    	 3825696	       314.1 ns/op	 815.04 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/klauspost/level1/repetitive/256B-2    	 3824725	       314.0 ns/op	 815.25 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/klauspost/level1/repetitive/256B-2    	 3819813	       314.2 ns/op	 814.77 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/klauspost/level1/repetitive/256B-2    	 3810165	       314.3 ns/op	 814.49 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/klauspost/level1/repetitive/256B-2    	 3817226	       314.4 ns/op	 814.27 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/klauspost/level1/repetitive/256B-2    	 3819693	       313.9 ns/op	 815.68 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/klauspost/level1/repetitive/256B-2    	 3817842	       313.8 ns/op	 815.76 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/klauspost/level1/repetitive/256B-2    	 3817154	       313.9 ns/op	 815.54 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/klauspost/level1/repetitive/1KB-2     	 3094400	       387.7 ns/op	2641.28 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/klauspost/level1/repetitive/1KB-2     	 3094474	       387.8 ns/op	2640.69 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/klauspost/level1/repetitive/1KB-2     	 3094152	       387.7 ns/op	2641.54 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/klauspost/level1/repetitive/1KB-2     	 3095690	       387.4 ns/op	2642.98 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/klauspost/level1/repetitive/1KB-2     	 3096624	       387.4 ns/op	2643.12 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/klauspost/level1/repetitive/1KB-2     	 3093559	       387.7 ns/op	2641.14 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/klauspost/level1/repetitive/1KB-2     	 3096273	       387.4 ns/op	2643.20 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/klauspost/level1/repetitive/1KB-2     	 3094693	       387.6 ns/op	2641.83 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/klauspost/level1/repetitive/1KB-2     	 3097634	       387.5 ns/op	2642.85 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/klauspost/level1/repetitive/1KB-2     	 3095556	       387.6 ns/op	2641.70 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/klauspost/level1/repetitive/4KB-2     	  394770	      3051 ns/op	1342.45 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/klauspost/level1/repetitive/4KB-2     	  392724	      3060 ns/op	1338.37 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/klauspost/level1/repetitive/4KB-2     	  392448	      3062 ns/op	1337.64 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/klauspost/level1/repetitive/4KB-2     	  392288	      3064 ns/op	1336.71 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/klauspost/level1/repetitive/4KB-2     	  388531	      3104 ns/op	1319.65 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/klauspost/level1/repetitive/4KB-2     	  393494	      3061 ns/op	1338.01 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/klauspost/level1/repetitive/4KB-2     	  390067	      3076 ns/op	1331.61 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/klauspost/level1/repetitive/4KB-2     	  387579	      3076 ns/op	1331.45 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/klauspost/level1/repetitive/4KB-2     	  394646	      3056 ns/op	1340.10 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/klauspost/level1/repetitive/4KB-2     	  393865	      3051 ns/op	1342.50 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/klauspost/level1/repetitive/16KB-2    	  272810	      4404 ns/op	3720.43 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/klauspost/level1/repetitive/16KB-2    	  274788	      4379 ns/op	3741.38 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/klauspost/level1/repetitive/16KB-2    	  273241	      4386 ns/op	3735.76 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/klauspost/level1/repetitive/16KB-2    	  271158	      4448 ns/op	3683.47 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/klauspost/level1/repetitive/16KB-2    	  273646	      4401 ns/op	3722.75 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/klauspost/level1/repetitive/16KB-2    	  276076	      4372 ns/op	3747.34 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/klauspost/level1/repetitive/16KB-2    	  273267	      4377 ns/op	3743.03 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/klauspost/level1/repetitive/16KB-2    	  275247	      4374 ns/op	3746.06 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/klauspost/level1/repetitive/16KB-2    	  272812	      4395 ns/op	3727.74 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/klauspost/level1/repetitive/16KB-2    	  269499	      4473 ns/op	3662.95 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/klauspost/level6/jsonlike/256B-2      	  373485	      3204 ns/op	  79.91 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/klauspost/level6/jsonlike/256B-2      	  372409	      3207 ns/op	  79.83 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/klauspost/level6/jsonlike/256B-2      	  360609	      3397 ns/op	  75.37 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/klauspost/level6/jsonlike/256B-2      	  372301	      3207 ns/op	  79.81 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/klauspost/level6/jsonlike/256B-2      	  372564	      3205 ns/op	  79.86 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/klauspost/level6/jsonlike/256B-2      	  374263	      3209 ns/op	  79.79 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/klauspost/level6/jsonlike/256B-2      	  375513	      3209 ns/op	  79.77 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/klauspost/level6/jsonlike/256B-2      	  372886	      3204 ns/op	  79.91 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/klauspost/level6/jsonlike/256B-2      	  374448	      3204 ns/op	  79.91 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/klauspost/level6/jsonlike/256B-2      	  375063	      3203 ns/op	  79.92 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/klauspost/level6/jsonlike/1KB-2       	  282852	      4236 ns/op	 241.75 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/klauspost/level6/jsonlike/1KB-2       	  267973	      4471 ns/op	 229.02 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/klauspost/level6/jsonlike/1KB-2       	  268677	      4460 ns/op	 229.57 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/klauspost/level6/jsonlike/1KB-2       	  268831	      4464 ns/op	 229.37 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/klauspost/level6/jsonlike/1KB-2       	  267255	      4466 ns/op	 229.29 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/klauspost/level6/jsonlike/1KB-2       	  267698	      4463 ns/op	 229.42 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/klauspost/level6/jsonlike/1KB-2       	  268633	      4467 ns/op	 229.26 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/klauspost/level6/jsonlike/1KB-2       	  267846	      4471 ns/op	 229.04 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/klauspost/level6/jsonlike/1KB-2       	  269163	      4459 ns/op	 229.63 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/klauspost/level6/jsonlike/1KB-2       	  269152	      4462 ns/op	 229.47 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/klauspost/level6/jsonlike/4KB-2       	  152253	      7886 ns/op	 519.40 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/klauspost/level6/jsonlike/4KB-2       	  152112	      7893 ns/op	 518.97 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/klauspost/level6/jsonlike/4KB-2       	  151918	      7878 ns/op	 519.94 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/klauspost/level6/jsonlike/4KB-2       	  151680	      7877 ns/op	 520.00 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/klauspost/level6/jsonlike/4KB-2       	  151479	      7880 ns/op	 519.79 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/klauspost/level6/jsonlike/4KB-2       	  152485	      7880 ns/op	 519.82 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/klauspost/level6/jsonlike/4KB-2       	  152304	      7876 ns/op	 520.04 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/klauspost/level6/jsonlike/4KB-2       	  152241	      7882 ns/op	 519.64 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/klauspost/level6/jsonlike/4KB-2       	  152716	      7873 ns/op	 520.27 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/klauspost/level6/jsonlike/4KB-2       	  151803	      7882 ns/op	 519.64 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/klauspost/level6/jsonlike/16KB-2      	   56338	     21166 ns/op	 774.08 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/klauspost/level6/jsonlike/16KB-2      	   56436	     21220 ns/op	 772.12 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/klauspost/level6/jsonlike/16KB-2      	   56668	     21110 ns/op	 776.12 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/klauspost/level6/jsonlike/16KB-2      	   56718	     21127 ns/op	 775.50 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/klauspost/level6/jsonlike/16KB-2      	   56672	     21084 ns/op	 777.09 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/klauspost/level6/jsonlike/16KB-2      	   56875	     21127 ns/op	 775.48 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/klauspost/level6/jsonlike/16KB-2      	   56335	     21135 ns/op	 775.21 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/klauspost/level6/jsonlike/16KB-2      	   57018	     21064 ns/op	 777.82 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/klauspost/level6/jsonlike/16KB-2      	   56740	     21193 ns/op	 773.09 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/klauspost/level6/jsonlike/16KB-2      	   56671	     21048 ns/op	 778.41 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/klauspost/level6/random/256B-2        	13966034	        85.24 ns/op	3003.37 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/klauspost/level6/random/256B-2        	14019372	        85.70 ns/op	2987.06 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/klauspost/level6/random/256B-2        	14238648	        85.00 ns/op	3011.76 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/klauspost/level6/random/256B-2        	13987263	        85.28 ns/op	3001.75 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/klauspost/level6/random/256B-2        	13970035	        85.76 ns/op	2985.13 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/klauspost/level6/random/256B-2        	13889143	        85.45 ns/op	2995.81 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/klauspost/level6/random/256B-2        	14127388	        85.23 ns/op	3003.59 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/klauspost/level6/random/256B-2        	13763076	        85.67 ns/op	2988.28 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/klauspost/level6/random/256B-2        	14089585	        84.88 ns/op	3015.98 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/klauspost/level6/random/256B-2        	13742301	        85.22 ns/op	3004.13 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/klauspost/level6/random/1KB-2         	12257262	        97.70 ns/op	10481.13 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/klauspost/level6/random/1KB-2         	12280498	        97.71 ns/op	10479.87 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/klauspost/level6/random/1KB-2         	12277971	        97.89 ns/op	10460.61 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/klauspost/level6/random/1KB-2         	12290388	        97.76 ns/op	10475.06 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/klauspost/level6/random/1KB-2         	12223310	        97.92 ns/op	10457.32 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/klauspost/level6/random/1KB-2         	12230463	        97.96 ns/op	10453.33 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/klauspost/level6/random/1KB-2         	12274464	        97.81 ns/op	10469.41 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/klauspost/level6/random/1KB-2         	12237680	        97.78 ns/op	10472.42 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/klauspost/level6/random/1KB-2         	12243771	        98.08 ns/op	10440.76 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/klauspost/level6/random/1KB-2         	12210406	        97.89 ns/op	10460.21 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/klauspost/level6/random/4KB-2         	 3809388	       315.1 ns/op	13000.97 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/klauspost/level6/random/4KB-2         	 3806512	       315.3 ns/op	12990.91 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/klauspost/level6/random/4KB-2         	 3807646	       315.5 ns/op	12981.34 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/klauspost/level6/random/4KB-2         	 3808118	       315.6 ns/op	12977.02 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/klauspost/level6/random/4KB-2         	 3806643	       315.3 ns/op	12991.09 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/klauspost/level6/random/4KB-2         	 3807679	       315.2 ns/op	12994.41 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/klauspost/level6/random/4KB-2         	 3807376	       315.2 ns/op	12994.81 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/klauspost/level6/random/4KB-2         	 3808172	       315.2 ns/op	12995.35 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/klauspost/level6/random/4KB-2         	 3803322	       315.3 ns/op	12991.41 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/klauspost/level6/random/4KB-2         	 3807436	       315.2 ns/op	12994.35 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/klauspost/level6/random/16KB-2        	 1299751	       923.3 ns/op	17744.17 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/klauspost/level6/random/16KB-2        	 1297636	       924.9 ns/op	17714.09 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/klauspost/level6/random/16KB-2        	 1296456	       925.7 ns/op	17698.38 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/klauspost/level6/random/16KB-2        	 1296800	       925.4 ns/op	17704.55 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/klauspost/level6/random/16KB-2        	 1295834	       926.0 ns/op	17693.67 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/klauspost/level6/random/16KB-2        	 1296628	       925.3 ns/op	17705.75 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/klauspost/level6/random/16KB-2        	 1295775	       926.2 ns/op	17689.85 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/klauspost/level6/random/16KB-2        	 1296912	       925.3 ns/op	17707.04 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/klauspost/level6/random/16KB-2        	 1296621	       925.5 ns/op	17702.77 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/klauspost/level6/random/16KB-2        	 1296886	       925.2 ns/op	17708.22 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/klauspost/level6/repetitive/256B-2    	 4241414	       283.1 ns/op	 904.12 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/klauspost/level6/repetitive/256B-2    	 4200554	       285.9 ns/op	 895.45 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/klauspost/level6/repetitive/256B-2    	 4225240	       283.3 ns/op	 903.76 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/klauspost/level6/repetitive/256B-2    	 4184529	       285.8 ns/op	 895.79 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/klauspost/level6/repetitive/256B-2    	 4237850	       283.6 ns/op	 902.70 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/klauspost/level6/repetitive/256B-2    	 4201672	       285.9 ns/op	 895.57 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/klauspost/level6/repetitive/256B-2    	 4211659	       283.7 ns/op	 902.38 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/klauspost/level6/repetitive/256B-2    	 4227457	       283.6 ns/op	 902.75 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/klauspost/level6/repetitive/256B-2    	 4241623	       284.1 ns/op	 900.98 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/klauspost/level6/repetitive/256B-2    	 4237692	       283.5 ns/op	 903.16 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/klauspost/level6/repetitive/1KB-2     	 3164274	       379.2 ns/op	2700.25 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/klauspost/level6/repetitive/1KB-2     	 3264588	       367.3 ns/op	2787.91 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/klauspost/level6/repetitive/1KB-2     	 3271478	       367.5 ns/op	2786.53 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/klauspost/level6/repetitive/1KB-2     	 3268964	       367.2 ns/op	2788.95 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/klauspost/level6/repetitive/1KB-2     	 3265431	       367.3 ns/op	2787.57 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/klauspost/level6/repetitive/1KB-2     	 3271030	       366.9 ns/op	2790.94 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/klauspost/level6/repetitive/1KB-2     	 3265977	       367.1 ns/op	2789.56 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/klauspost/level6/repetitive/1KB-2     	 3266516	       367.4 ns/op	2787.29 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/klauspost/level6/repetitive/1KB-2     	 3259664	       367.2 ns/op	2788.82 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/klauspost/level6/repetitive/1KB-2     	 3271809	       367.2 ns/op	2788.42 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/klauspost/level6/repetitive/4KB-2     	  390858	      3061 ns/op	1338.17 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/klauspost/level6/repetitive/4KB-2     	  391962	      3065 ns/op	1336.32 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/klauspost/level6/repetitive/4KB-2     	  390613	      3072 ns/op	1333.13 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/klauspost/level6/repetitive/4KB-2     	  389350	      3079 ns/op	1330.37 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/klauspost/level6/repetitive/4KB-2     	  389268	      3067 ns/op	1335.43 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/klauspost/level6/repetitive/4KB-2     	  388142	      3066 ns/op	1335.96 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/klauspost/level6/repetitive/4KB-2     	  391878	      3060 ns/op	1338.75 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/klauspost/level6/repetitive/4KB-2     	  389280	      3071 ns/op	1333.56 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/klauspost/level6/repetitive/4KB-2     	  391628	      3068 ns/op	1335.27 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/klauspost/level6/repetitive/4KB-2     	  390718	      3055 ns/op	1340.92 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/klauspost/level6/repetitive/16KB-2    	  278031	      4307 ns/op	3803.72 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/klauspost/level6/repetitive/16KB-2    	  278482	      4306 ns/op	3805.12 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/klauspost/level6/repetitive/16KB-2    	  279289	      4308 ns/op	3802.85 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/klauspost/level6/repetitive/16KB-2    	  278235	      4313 ns/op	3798.75 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/klauspost/level6/repetitive/16KB-2    	  278222	      4310 ns/op	3801.60 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/klauspost/level6/repetitive/16KB-2    	  278570	      4307 ns/op	3803.93 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/klauspost/level6/repetitive/16KB-2    	  278287	      4308 ns/op	3802.74 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/klauspost/level6/repetitive/16KB-2    	  277486	      4315 ns/op	3797.16 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/klauspost/level6/repetitive/16KB-2    	  278764	      4305 ns/op	3806.23 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateDecode/klauspost/level6/repetitive/16KB-2    	  278653	      4314 ns/op	3797.69 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDeflateWriterReset/stdlib/level1-2                  	243718963	         4.924 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDeflateWriterReset/stdlib/level1-2                  	243196326	         4.928 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDeflateWriterReset/stdlib/level1-2                  	243308980	         4.931 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDeflateWriterReset/stdlib/level1-2                  	242991862	         4.932 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDeflateWriterReset/stdlib/level1-2                  	242841721	         4.940 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDeflateWriterReset/stdlib/level1-2                  	243442304	         4.929 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDeflateWriterReset/stdlib/level1-2                  	243504481	         4.918 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDeflateWriterReset/stdlib/level1-2                  	244289985	         4.915 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDeflateWriterReset/stdlib/level1-2                  	243104320	         4.928 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDeflateWriterReset/stdlib/level1-2                  	244263284	         4.921 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDeflateWriterReset/stdlib/level6-2                  	   88574	     13545 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDeflateWriterReset/stdlib/level6-2                  	   88512	     13548 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDeflateWriterReset/stdlib/level6-2                  	   88576	     13547 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDeflateWriterReset/stdlib/level6-2                  	   88599	     13545 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDeflateWriterReset/stdlib/level6-2                  	   88554	     13547 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDeflateWriterReset/stdlib/level6-2                  	   88585	     13546 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDeflateWriterReset/stdlib/level6-2                  	   88555	     13547 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDeflateWriterReset/stdlib/level6-2                  	   88549	     13547 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDeflateWriterReset/stdlib/level6-2                  	   88570	     13547 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDeflateWriterReset/stdlib/level6-2                  	   88579	     13546 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDeflateWriterReset/klauspost/level1-2               	178916164	         6.709 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDeflateWriterReset/klauspost/level1-2               	178196238	         6.714 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDeflateWriterReset/klauspost/level1-2               	178300846	         6.716 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDeflateWriterReset/klauspost/level1-2               	179665362	         6.676 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDeflateWriterReset/klauspost/level1-2               	179445892	         6.694 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDeflateWriterReset/klauspost/level1-2               	179071390	         6.687 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDeflateWriterReset/klauspost/level1-2               	179206485	         6.696 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDeflateWriterReset/klauspost/level1-2               	179386587	         6.688 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDeflateWriterReset/klauspost/level1-2               	180172885	         6.680 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDeflateWriterReset/klauspost/level1-2               	179549401	         6.682 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDeflateWriterReset/klauspost/level6-2               	156346420	         7.781 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDeflateWriterReset/klauspost/level6-2               	158170249	         7.702 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDeflateWriterReset/klauspost/level6-2               	155777648	         7.695 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDeflateWriterReset/klauspost/level6-2               	153980206	         7.843 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDeflateWriterReset/klauspost/level6-2               	149801166	         7.990 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDeflateWriterReset/klauspost/level6-2               	149864863	         8.009 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDeflateWriterReset/klauspost/level6-2               	150386665	         7.905 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDeflateWriterReset/klauspost/level6-2               	151157293	         7.964 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDeflateWriterReset/klauspost/level6-2               	150969801	         7.912 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDeflateWriterReset/klauspost/level6-2               	149974477	         8.018 ns/op	       0 B/op	       0 allocs/op
+PASS
+ok  	github.com/zchee/gows/bench	1196.541s
+BENCH_DONE rc=0

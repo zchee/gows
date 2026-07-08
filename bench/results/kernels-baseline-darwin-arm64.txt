@@ -1,0 +1,28 @@
+goos: darwin
+goarch: arm64
+pkg: github.com/zchee/gows/bench
+cpu: Apple M3 Max
+BenchmarkMaskGorilla/64B-16         	145501958	         8.215 ns/op	7790.88 MB/s	       0 B/op	       0 allocs/op
+BenchmarkMaskGorilla/64B-16         	146273796	         8.212 ns/op	7793.44 MB/s	       0 B/op	       0 allocs/op
+BenchmarkMaskGorilla/64B-16         	145139124	         8.258 ns/op	7750.49 MB/s	       0 B/op	       0 allocs/op
+BenchmarkMaskGorilla/64B-16         	145925330	         8.255 ns/op	7753.26 MB/s	       0 B/op	       0 allocs/op
+BenchmarkMaskGorilla/64B-16         	146031295	         8.212 ns/op	7793.06 MB/s	       0 B/op	       0 allocs/op
+BenchmarkMaskGorilla/64B-16         	146184685	         8.186 ns/op	7817.86 MB/s	       0 B/op	       0 allocs/op
+BenchmarkMaskGorilla/64B-16         	146242065	         8.207 ns/op	7797.85 MB/s	       0 B/op	       0 allocs/op
+BenchmarkMaskGorilla/64B-16         	146083434	         8.215 ns/op	7790.64 MB/s	       0 B/op	       0 allocs/op
+BenchmarkMaskGorilla/64B-16         	145655778	         8.240 ns/op	7766.89 MB/s	       0 B/op	       0 allocs/op
+BenchmarkMaskGorilla/64B-16         	144543222	         8.266 ns/op	7742.74 MB/s	       0 B/op	       0 allocs/op
+BenchmarkMaskGorilla/256B-16        	79183532	        15.13 ns/op	16920.67 MB/s	       0 B/op	       0 allocs/op
+BenchmarkMaskGorilla/256B-16        	79348678	        15.24 ns/op	16799.65 MB/s	       0 B/op	       0 allocs/op
+BenchmarkMaskGorilla/256B-16        	79163286	        15.24 ns/op	16795.08 MB/s	       0 B/op	       0 allocs/op
+BenchmarkMaskGorilla/256B-16        	78203702	        15.29 ns/op	16745.83 MB/s	       0 B/op	       0 allocs/op
+BenchmarkMaskGorilla/256B-16        	78969666	        15.23 ns/op	16812.39 MB/s	       0 B/op	       0 allocs/op
+BenchmarkMaskGorilla/256B-16        	79453317	        15.25 ns/op	16791.09 MB/s	       0 B/op	       0 allocs/op
+BenchmarkMaskGorilla/256B-16        	80500443	        15.22 ns/op	16824.34 MB/s	       0 B/op	       0 allocs/op
+BenchmarkMaskGorilla/256B-16        	75264799	        15.28 ns/op	16752.90 MB/s	       0 B/op	       0 allocs/op
+BenchmarkMaskGorilla/256B-16        	79109798	        15.24 ns/op	16798.11 MB/s	       0 B/op	       0 allocs/op
+BenchmarkMaskGorilla/256B-16        	78405964	        15.31 ns/op	16715.94 MB/s	       0 B/op	       0 allocs/op
+BenchmarkMaskGorilla/1KB-16         	25335296	        47.09 ns/op	21746.24 MB/s	       0 B/op	       0 allocs/op
+BenchmarkMaskGorilla/1KB-16         	25445854	        47.16 ns/op	21712.18 MB/s	       0 B/op	       0 allocs/op
+BenchmarkMaskGorilla/1KB-16         	25432102	        47.04 ns/op	21770.17 MB/s	       0 B/op	       0 allocs/op
+BenchmarkMaskGorilla/1KB-16         	

@@ -1,0 +1,5 @@
+2026/07/08 17:08:06 echoserver: lib=nbio addr=127.0.0.1:19001 debug-addr=127.0.0.1:19101 buffer=4096B
+2026/07/08 17:08:06.915 [INF] NBIO Engine[NB] start with [4 eventloop, MaxOpenFiles: 524288]
+2026/07/08 17:08:06.916 [INF] NBHTTP Engine[NB] Start with "IOModNonBlocking"
+2026/07/08 17:08:06.916 [INF] NBHTTP Engine[NB] Serve HTTP On: [tcp@127.0.0.1:19001]
+2026/07/08 17:08:26.030 [INF] NBIO[NB] stop
