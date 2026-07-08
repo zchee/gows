@@ -260,78 +260,72 @@ func (c *Conn) readFramePayload(h Header) error {
 	c.msgBuf = c.msgBuf[:start+int(remaining)]
 	dst := c.msgBuf[start:]
 
-	// The I/O boundary and the processing boundary below are deliberately
-	// independent, and sized for two different concerns:
+	// Fused read-and-validate loop over the direct (beyond-rbuf) remainder.
+	// Each iteration issues ONE Read over the *entire* remaining destination --
+	// not a cap(rbuf)-sized slice of it -- so the transport is free to hand
+	// back as much as it already has in one Read rather than being limited to a
+	// 4096-byte gulp, and then immediately unmasks and UTF-8-validates exactly
+	// the bytes that arrived, before waiting for any more. Validating per
+	// arrival (rather than reading the whole remainder first and validating
+	// afterward) is what lets an invalid UTF-8 octet delivered in an early TCP
+	// chop of a large frame fail the connection with 1007 the instant it
+	// arrives, instead of only after the final chop assembles the whole frame
+	// (RFC 6455 §8.1; Autobahn 6.4.3/6.4.4 require this "fail as soon as
+	// possible" behavior even mid-frame).
 	//
-	//   - I/O: readDirect requests the *entire* remainder in one logical
-	//     call, not a cap(rbuf)-sized slice of it, so the transport is
-	//     free to hand back as much as it has already got in one Read
-	//     rather than being artificially limited to a 4096-byte gulp.
-	//     readDirect's own retry loop still copes with a real socket
-	//     splitting that across more than one underlying Read.
-	//   - Processing: mask.Mask/utf8v.Feed still run over cap(rbuf)-sized
-	//     sub-chunks regardless of how readDirect above satisfied the
-	//     read, because a single very large (tens of KB+) call to either
-	//     measurably loses cache residency in the SIMD mask kernel (see
-	//     the 64KB row of .omc/research/phase5-results.md's kernel table,
-	//     and bench/results/phase5-linux-amd64.md's "64KB drops off ...
-	//     consistent with leaving cache residency") -- keeping this loop
-	//     at the pre-optimization chunk size avoids that regression.
+	// Processing still runs over cap(rbuf)-sized sub-chunks regardless of how
+	// much a single Read returned, because a single very large (tens of KB+)
+	// mask.Mask/utf8v.Feed call measurably loses cache residency in the SIMD
+	// mask kernel (see the 64KB row of .omc/research/phase5-results.md's kernel
+	// table, and bench/results/phase5-linux-amd64.md's "64KB drops off ...
+	// consistent with leaving cache residency"). A Read that already returns
+	// everything at once (e.g. a single-writer peer's writev'd frame, or the
+	// benchmark's loopConn) is processed identically to the old
+	// read-all-then-feed order, so hot-path throughput is unchanged; only the
+	// order of I/O and validation relative to a *chopped* arrival differs.
 	//
-	// Known limitation, confirmed by strace on the AC5 benchmark harness:
-	// how many actual read(2) calls the I/O step above needs is governed
-	// by *arrival pacing* on the wire, not by the size requested here.
-	// If a peer writes a frame's header and payload as two separate
-	// write(2) calls, a fast reader can re-enter Read before the second
-	// write's bytes have arrived, splitting the payload across more
-	// reads than a slower reader would "accidentally" batch by being
-	// late to ask -- gows measured 5.02 reads/msg for a 16KB frame
-	// against gws's 2.00 there, entirely attributable to this pacing
-	// effect, not to any remaining artificial chunk cap on gows's side
-	// (there is none, as of this change). A single-writer sender (e.g.
-	// this package's own writev'd WriteMessage output) does not trigger
-	// the pattern. MSG_WAITALL via a raw syscall (RawConn) was evaluated
-	// as a way to force full-remainder reads regardless of arrival
-	// pacing and rejected: on the non-blocking sockets Go's netpoller
-	// requires, MSG_WAITALL does not block in-kernel across multiple
-	// future arrivals -- it is an atomic single-attempt gate that
-	// returns EAGAIN immediately (discarding whatever partial bytes did
-	// arrive) if the full requested length is not already buffered, so
-	// it does not reduce the read count here and can add wasted
-	// round-trips instead.
+	// I/O-error contract (mirrors fillOnce): a Read returning zero new bytes
+	// alongside a non-nil error propagates that error verbatim (a plain io.EOF,
+	// not io.ReadFull's io.ErrUnexpectedEOF upgrade), so a truncated stream
+	// surfaces identically here and on the buffered path.
+	//
+	// Known limitation, confirmed by strace on the AC5 benchmark harness: how
+	// many actual read(2) calls this needs is governed by *arrival pacing* on
+	// the wire, not by the size requested here. If a peer writes a frame's
+	// header and payload as two separate write(2) calls, a fast reader can
+	// re-enter Read before the second write's bytes have arrived, splitting the
+	// payload across more reads than a slower reader would "accidentally" batch
+	// by being late to ask -- gows measured 5.02 reads/msg for a 16KB frame
+	// against gws's 2.00 there, entirely attributable to this pacing effect,
+	// not to any artificial chunk cap on gows's side (there is none). A
+	// single-writer sender (e.g. this package's own writev'd WriteMessage
+	// output) does not trigger the pattern. MSG_WAITALL via a raw syscall
+	// (RawConn) was evaluated as a way to force full-remainder reads regardless
+	// of arrival pacing and rejected: on the non-blocking sockets Go's
+	// netpoller requires, MSG_WAITALL does not block in-kernel across multiple
+	// future arrivals -- it is an atomic single-attempt gate that returns
+	// EAGAIN immediately (discarding whatever partial bytes did arrive) if the
+	// full requested length is not already buffered, so it does not reduce the
+	// read count here and can add wasted round-trips instead.
 	chunkSize := cap(c.rbuf)
-	if err := c.readDirect(dst); err != nil {
-		return c.ioError(err)
-	}
-	for rest := dst; len(rest) > 0; {
-		n := min(len(rest), chunkSize)
-		sub := rest[:n]
-		if h.Masked {
-			key = mask.Mask(sub, key)
-		}
-		if c.msgIsText && !c.skipUTF8 && !c.msgCompressed {
-			if !c.utf8v.Feed(sub) {
-				return c.failClose(CloseInvalidFramePayloadData, "invalid UTF-8 in text message")
-			}
-		}
-		rest = rest[n:]
-	}
-	return nil
-}
-
-// readDirect fills dst completely by reading straight from the connection,
-// bypassing c.rbuf entirely. It mirrors fillOnce's underlying-error contract
-// exactly: a Read that returns zero new bytes alongside a non-nil error
-// propagates that error verbatim (e.g. a plain io.EOF, not io.ReadFull's
-// io.ErrUnexpectedEOF upgrade for a partially filled destination), so a
-// truncated stream surfaces identically regardless of which path served the
-// frame that got cut off.
-func (c *Conn) readDirect(dst []byte) error {
 	for len(dst) > 0 {
 		n, err := c.conn.Read(dst)
+		for arrived := dst[:n]; len(arrived) > 0; {
+			m := min(len(arrived), chunkSize)
+			sub := arrived[:m]
+			if h.Masked {
+				key = mask.Mask(sub, key)
+			}
+			if c.msgIsText && !c.skipUTF8 && !c.msgCompressed {
+				if !c.utf8v.Feed(sub) {
+					return c.failClose(CloseInvalidFramePayloadData, "invalid UTF-8 in text message")
+				}
+			}
+			arrived = arrived[m:]
+		}
 		dst = dst[n:]
 		if n == 0 && err != nil {
-			return err
+			return c.ioError(err)
 		}
 	}
 	return nil
