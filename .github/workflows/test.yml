@@ -21,9 +21,11 @@ jobs:
           go-version: '1.26.x'
           cache: true
 
+      # bench/internal/thirdparty vendors verbatim upstream masking kernels
+      # for benchmark comparison; they keep upstream formatting as-is.
       - name: gofmt -s
         run: |
-          out="$(gofmt -s -l .)"
+          out="$(gofmt -s -l $(git ls-files '*.go' ':!bench/internal/thirdparty'))"
           if [ -n "$out" ]; then
             echo "$out"
             echo "::error::gofmt -s found unformatted files (run: gofmt -s -w .)"
@@ -35,7 +37,7 @@ jobs:
 
       - name: gofumpt -extra
         run: |
-          out="$(go run mvdan.cc/gofumpt@latest -extra -l .)"
+          out="$(go run mvdan.cc/gofumpt@latest -extra -l $(git ls-files '*.go' ':!bench/internal/thirdparty'))"
           if [ -n "$out" ]; then
             echo "$out"
             echo "::error::gofumpt -extra found unformatted files (run: gofumpt -extra -w .)"
