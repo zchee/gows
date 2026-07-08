@@ -1,0 +1,22 @@
+gows -lib gows, 16KB/1000conns/-rate 0, 2s `strace -f -e trace=read` sample
+(200 conns, 8s window, traced for a 2s slice mid-run; server pinned taskset -c 0-19)
+
+read() return-value histogram (bytes: count):
+  4096: 107205
+     8:  26687
+  4088:     26
+    16:     26
+  4080:      2
+    24:      2
+
+total reads sampled: 133948
+average bytes/read:  3280.68
+
+Interpretation: the WebSocket frame header for a masked 16KB frame is
+exactly 8 bytes (1 FIN/opcode + 1 mask+len126 + 2 extended-length +
+4 mask key). The dominant pattern is a clean split: one 8-byte read for
+the header, then a sequence of ~4096-byte reads for the payload -- despite
+reader.go's readDirect requesting the full remaining payload length
+(up to ~16KB) per call, not capped at 4096. See gws's histogram for
+contrast and .omc/research/phase5-results.md's "16KB CPU profile
+comparison" section for the full analysis.

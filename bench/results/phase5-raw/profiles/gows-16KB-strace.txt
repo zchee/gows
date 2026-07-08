@@ -1,0 +1,102 @@
+strace: Process 181657 attached with 41 threads
+strace: Process 181738 attached
+strace: Process 181739 attached
+strace: Process 181740 attached
+strace: Process 181741 attached
+strace: Process 181742 attached
+strace: Process 181743 attached
+strace: Process 181744 attached
+strace: Process 181745 attached
+strace: Process 181746 attached
+strace: Process 181747 attached
+strace: Process 181748 attached
+strace: Process 181749 attached
+strace: Process 181750 attached
+strace: Process 181751 attached
+strace: Process 181752 attached
+strace: Process 181753 attached
+strace: Process 181754 attached
+strace: Process 181757 attached
+strace: Process 181659 detached
+strace: Process 181661 detached
+strace: Process 181662 detached
+strace: Process 181664 detached
+strace: Process 181674 detached
+strace: Process 181675 detached
+strace: Process 181676 detached
+strace: Process 181677 detached
+strace: Process 181678 detached
+strace: Process 181679 detached
+strace: Process 181680 detached
+strace: Process 181681 detached
+strace: Process 181694 detached
+strace: Process 181695 detached
+strace: Process 181696 detached
+strace: Process 181697 detached
+strace: Process 181703 detached
+strace: Process 181705 detached
+strace: Process 181706 detached
+strace: Process 181708 detached
+strace: Process 181709 detached
+strace: Process 181710 detached
+strace: Process 181711 detached
+strace: Process 181715 detached
+strace: Process 181716 detached
+strace: Process 181717 detached
+strace: Process 181718 detached
+strace: Process 181719 detached
+strace: Process 181722 detached
+strace: Process 181723 detached
+strace: Process 181725 detached
+strace: Process 181726 detached
+strace: Process 181740 detached
+strace: Process 181742 detached
+strace: Process 181743 detached
+strace: Process 181745 detached
+strace: Process 181747 detached
+strace: Process 181748 detached
+strace: Process 181749 detached
+strace: Process 181751 detached
+strace: Process 181752 detached
+strace: Process 181754 detached
+strace: Process 181757 detached
+strace: Process 181750 detached
+strace: Process 181746 detached
+strace: Process 181744 detached
+strace: Process 181741 detached
+strace: Process 181739 detached
+strace: Process 181728 detached
+strace: Process 181724 detached
+strace: Process 181714 detached
+strace: Process 181712 detached
+strace: Process 181707 detached
+strace: Process 181704 detached
+strace: Process 181663 detached
+strace: Process 181660 detached
+strace: Process 181657 detached
+strace: Process 181753 detached
+strace: Process 181738 detached
+% time     seconds  usecs/call     calls    errors syscall
+------ ----------- ----------- --------- --------- ------------------
+ 59.41  210.071571        7139     29425      2571 futex
+ 32.87  116.235944         147    786155        68 read
+  6.72   23.754310         151    156707           writev
+  0.93    3.295169         258     12723           nanosleep
+  0.04    0.143492         153       932           epoll_pwait
+  0.01    0.022216         205       108           rt_sigprocmask
+  0.00    0.008859         492        18           clone3
+  0.00    0.007988         215        37           mmap
+  0.00    0.007564         210        36           mprotect
+  0.00    0.006811         189        36           sigaltstack
+  0.00    0.003827         212        18           rseq
+  0.00    0.003746         208        18           set_robust_list
+  0.00    0.003356         186        18           gettid
+  0.00    0.002523         210        12           munmap
+  0.00    0.001692         188         9           sched_getaffinity
+  0.00    0.001539         171         9           pread64
+  0.00    0.000563         187         3           tgkill
+  0.00    0.000529         176         3           getpid
+  0.00    0.000240          80         3           rt_sigreturn
+  0.00    0.000211         211         1           sched_yield
+------ ----------- ----------- --------- --------- ------------------
+100.00  353.572150         358    986271      2639 total

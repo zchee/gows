@@ -1,0 +1,108 @@
+strace: Process 189144 attached with 40 threads
+strace: Process 189224 attached
+strace: Process 189225 attached
+strace: Process 189226 attached
+strace: Process 189227 attached
+strace: Process 189228 attached
+strace: Process 189229 attached
+strace: Process 189230 attached
+strace: Process 189231 attached
+strace: Process 189232 attached
+strace: Process 189233 attached
+strace: Process 189234 attached
+strace: Process 189235 attached
+strace: Process 189236 attached
+strace: Process 189237 attached
+strace: Process 189238 attached
+strace: Process 189239 attached
+strace: Process 189241 attached
+strace: Process 189243 attached
+strace: Process 189244 attached
+strace: Process 189249 attached
+strace: Process 189252 attached
+strace: Process 189146 detached
+strace: Process 189148 detached
+strace: Process 189149 detached
+strace: Process 189151 detached
+strace: Process 189152 detached
+strace: Process 189165 detached
+strace: Process 189166 detached
+strace: Process 189167 detached
+strace: Process 189168 detached
+strace: Process 189169 detached
+strace: Process 189170 detached
+strace: Process 189171 detached
+strace: Process 189172 detached
+strace: Process 189182 detached
+strace: Process 189183 detached
+strace: Process 189185 detached
+strace: Process 189194 detached
+strace: Process 189197 detached
+strace: Process 189200 detached
+strace: Process 189206 detached
+strace: Process 189209 detached
+strace: Process 189210 detached
+strace: Process 189215 detached
+strace: Process 189224 detached
+strace: Process 189227 detached
+strace: Process 189228 detached
+strace: Process 189238 detached
+strace: Process 189239 detached
+strace: Process 189243 detached
+strace: Process 189244 detached
+strace: Process 189252 detached
+strace: Process 189237 detached
+strace: Process 189249 detached
+strace: Process 189236 detached
+strace: Process 189234 detached
+strace: Process 189233 detached
+strace: Process 189232 detached
+strace: Process 189229 detached
+strace: Process 189226 detached
+strace: Process 189217 detached
+strace: Process 189208 detached
+strace: Process 189207 detached
+strace: Process 189205 detached
+strace: Process 189204 detached
+strace: Process 189203 detached
+strace: Process 189201 detached
+strace: Process 189199 detached
+strace: Process 189198 detached
+strace: Process 189196 detached
+strace: Process 189195 detached
+strace: Process 189190 detached
+strace: Process 189184 detached
+strace: Process 189164 detached
+strace: Process 189150 detached
+strace: Process 189147 detached
+strace: Process 189144 detached
+strace: Process 189235 detached
+strace: Process 189241 detached
+strace: Process 189231 detached
+strace: Process 189230 detached
+strace: Process 189225 detached
+% time     seconds  usecs/call     calls    errors syscall
+------ ----------- ----------- --------- --------- ------------------
+ 61.49  865.035691        9750     88716      8052 futex
+ 25.02  351.906093         192   1824751      1119 read
+ 12.60  177.214229         194    911331           writev
+  0.84   11.828850         328     36003           nanosleep
+  0.04    0.535712         191      2791           epoll_pwait
+  0.00    0.036662         290       126           rt_sigprocmask
+  0.00    0.017968         157       114           sched_yield
+  0.00    0.014008         298        47           mmap
+  0.00    0.013623         648        21           clone3
+  0.00    0.012334         293        42           mprotect
+  0.00    0.011016         262        42           sigaltstack
+  0.00    0.008225         149        55           tgkill
+  0.00    0.007580         137        55           getpid
+  0.00    0.007472         135        55           rt_sigreturn
+  0.00    0.006524         310        21           rseq
+  0.00    0.006495         309        21           set_robust_list
+  0.00    0.005407         180        30           sched_getaffinity
+  0.00    0.005242         174        30           pread64
+  0.00    0.005225         248        21           gettid
+  0.00    0.004644         309        15           munmap
+  0.00    0.001276         182         7           madvise
+------ ----------- ----------- --------- --------- ------------------
+100.00 1406.684276         491   2864294      9171 total

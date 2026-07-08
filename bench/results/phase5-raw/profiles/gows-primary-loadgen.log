@@ -1,0 +1,6 @@
+2026/07/08 17:08:47 loadgen: dialed 1000 conns to 127.0.0.1:9001, warming up for 3s
+2026/07/08 17:08:50 loadgen: measuring for 15s
+addr=127.0.0.1:9001 conns=1000 payload=1024B duration=15.000046957s
+throughput: 963446 msg/s, 1881.73 MB/s
+latency: p50=941.388µs p90=1.776466ms p99=3.371213ms p999=6.826542ms min=18.607µs max=14.201221ms (n=14451735)
+server mallocs delta: 14461469 (1.00/msg), total_alloc delta: 350890672 bytes

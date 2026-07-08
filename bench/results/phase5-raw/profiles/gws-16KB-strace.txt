@@ -1,0 +1,103 @@
+strace: Process 181808 attached with 43 threads
+strace: Process 181886 attached
+strace: Process 181887 attached
+strace: Process 181888 attached
+strace: Process 181889 attached
+strace: Process 181890 attached
+strace: Process 181891 attached
+strace: Process 181893 attached
+strace: Process 181894 attached
+strace: Process 181895 attached
+strace: Process 181896 attached
+strace: Process 181898 attached
+strace: Process 181899 attached
+strace: Process 181900 attached
+strace: Process 181901 attached
+strace: Process 181902 attached
+strace: Process 181903 attached
+strace: Process 181904 attached
+strace: Process 181810 detached
+strace: Process 181812 detached
+strace: Process 181813 detached
+strace: Process 181825 detached
+strace: Process 181826 detached
+strace: Process 181827 detached
+strace: Process 181828 detached
+strace: Process 181831 detached
+strace: Process 181833 detached
+strace: Process 181852 detached
+strace: Process 181854 detached
+strace: Process 181855 detached
+strace: Process 181856 detached
+strace: Process 181859 detached
+strace: Process 181861 detached
+strace: Process 181863 detached
+strace: Process 181864 detached
+strace: Process 181865 detached
+strace: Process 181866 detached
+strace: Process 181867 detached
+strace: Process 181870 detached
+strace: Process 181871 detached
+strace: Process 181872 detached
+strace: Process 181876 detached
+strace: Process 181879 detached
+strace: Process 181886 detached
+strace: Process 181887 detached
+strace: Process 181896 detached
+strace: Process 181900 detached
+strace: Process 181903 detached
+strace: Process 181902 detached
+strace: Process 181901 detached
+strace: Process 181899 detached
+strace: Process 181895 detached
+strace: Process 181894 detached
+strace: Process 181878 detached
+strace: Process 181877 detached
+strace: Process 181873 detached
+strace: Process 181869 detached
+strace: Process 181868 detached
+strace: Process 181858 detached
+strace: Process 181857 detached
+strace: Process 181853 detached
+strace: Process 181850 detached
+strace: Process 181849 detached
+strace: Process 181832 detached
+strace: Process 181830 detached
+strace: Process 181829 detached
+strace: Process 181815 detached
+strace: Process 181814 detached
+strace: Process 181811 detached
+strace: Process 181808 detached
+strace: Process 181889 detached
+strace: Process 181904 detached
+strace: Process 181898 detached
+strace: Process 181893 detached
+strace: Process 181890 detached
+strace: Process 181888 detached
+strace: Process 181875 detached
+strace: Process 181891 detached
+% time     seconds  usecs/call     calls    errors syscall
+------ ----------- ----------- --------- --------- ------------------
+ 57.99  234.745893        8105     28962      2848 futex
+ 27.30  110.497780         185    596892       203 read
+ 13.74   55.619687         186    297872           write
+  0.90    3.629862         313     11577           nanosleep
+  0.04    0.174635         187       929           epoll_pwait
+  0.01    0.023249         227       102           rt_sigprocmask
+  0.00    0.012652         145        87           tgkill
+  0.00    0.011505         132        87           getpid
+  0.00    0.011366         130        87         1 rt_sigreturn
+  0.00    0.009475         236        40           mmap
+  0.00    0.008392         246        34           mprotect
+  0.00    0.008208         482        17           clone3
+  0.00    0.008169        8168         1           restart_syscall
+  0.00    0.007973         234        34           sigaltstack
+  0.00    0.005243         131        40           sched_yield
+  0.00    0.004362         256        17           gettid
+  0.00    0.003836         225        17           rseq
+  0.00    0.003735         219        17           set_robust_list
+  0.00    0.001783         222         8           munmap
+  0.00    0.001494         149        10           pread64
+  0.00    0.001456         145        10           sched_getaffinity
+------ ----------- ----------- --------- --------- ------------------
+100.00  404.790755         432    936840      3052 total
