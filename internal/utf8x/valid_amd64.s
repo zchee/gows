@@ -111,7 +111,7 @@ block:
 	VPXOR Y14, Y4, Y4
 	VPOR  Y4, Y6, Y6
 
-	VMOVDQA Y0, Y1 // prev_input = input
+	VMOVDQA Y0, Y1  // prev_input = input
 	ADDQ    $32, AX
 	SUBQ    $32, CX
 	JNZ     block

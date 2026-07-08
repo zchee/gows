@@ -95,10 +95,10 @@ sse2_done:
 
 // func maskAVX2(b *byte, n int, key uint32) uint32
 TEXT ·maskAVX2(SB), NOSPLIT, $0-28
-	MOVQ        b+0(FP), AX
-	MOVQ        n+8(FP), CX
-	MOVL        key+16(FP), DX
-	VMOVD       DX, X0
+	MOVQ         b+0(FP), AX
+	MOVQ         n+8(FP), CX
+	MOVL         key+16(FP), DX
+	VMOVD        DX, X0
 	VPBROADCASTD X0, Y0
 
 avx2_loop128:

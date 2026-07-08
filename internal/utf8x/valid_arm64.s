@@ -64,18 +64,18 @@ TEXT ·utf8ValidNEON(SB), NOSPLIT, $0-17
 	MOVD n+8(FP), R1
 
 	// Load the constant tables once (V6..V10) and the low-nibble mask (V11).
-	MOVD  $tbl1high<>(SB), R2
-	VLD1  (R2), [V6.B16]
-	MOVD  $tbl1low<>(SB), R2
-	VLD1  (R2), [V7.B16]
-	MOVD  $tbl2high<>(SB), R2
-	VLD1  (R2), [V8.B16]
-	MOVD  $tblthird<>(SB), R2
-	VLD1  (R2), [V9.B16]
-	MOVD  $tblfourth<>(SB), R2
-	VLD1  (R2), [V10.B16]
-	MOVD  $masklow<>(SB), R2
-	VLD1  (R2), [V11.B16]
+	MOVD $tbl1high<>(SB), R2
+	VLD1 (R2), [V6.B16]
+	MOVD $tbl1low<>(SB), R2
+	VLD1 (R2), [V7.B16]
+	MOVD $tbl2high<>(SB), R2
+	VLD1 (R2), [V8.B16]
+	MOVD $tblthird<>(SB), R2
+	VLD1 (R2), [V9.B16]
+	MOVD $tblfourth<>(SB), R2
+	VLD1 (R2), [V10.B16]
+	MOVD $masklow<>(SB), R2
+	VLD1 (R2), [V11.B16]
 
 	VEOR V1.B16, V1.B16, V1.B16 // prev_input = 0
 	VEOR V5.B16, V5.B16, V5.B16 // error = 0
@@ -91,14 +91,14 @@ loop:
 	VEXT $13, V0.B16, V1.B16, V4.B16
 
 	// special cases = tbl1high[hi(prev1)] & tbl1low[lo(prev1)] & tbl2high[hi(input)]
-	VUSHR $4, V2.B16, V12.B16   // hi(prev1)
-	VAND  V11.B16, V2.B16, V13.B16 // lo(prev1)
-	VUSHR $4, V0.B16, V14.B16   // hi(input)
+	VUSHR $4, V2.B16, V12.B16        // hi(prev1)
+	VAND  V11.B16, V2.B16, V13.B16   // lo(prev1)
+	VUSHR $4, V0.B16, V14.B16        // hi(input)
 	VTBL  V12.B16, [V6.B16], V15.B16
 	VTBL  V13.B16, [V7.B16], V13.B16
 	VTBL  V14.B16, [V8.B16], V14.B16
 	VAND  V13.B16, V15.B16, V15.B16
-	VAND  V14.B16, V15.B16, V15.B16 // V15 = sc
+	VAND  V14.B16, V15.B16, V15.B16  // V15 = sc
 
 	// must23_80 = is_third[hi(prev2)] | is_fourth[hi(prev3)]  (0x80 where a
 	// continuation is required at this position).
@@ -114,8 +114,8 @@ loop:
 
 	VMOV V0.B16, V1.B16 // prev_input = input
 
-	ADD $16, R0
-	SUB $16, R1
+	ADD  $16, R0
+	SUB  $16, R1
 	CBNZ R1, loop
 
 	// error != 0 -> invalid
