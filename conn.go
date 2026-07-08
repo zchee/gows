@@ -29,6 +29,7 @@ import (
 // Default connection settings. They are overridable via the With* options.
 const (
 	defaultReadBufferSize  = 4096
+	defaultWriteBufferSize = 4096     // fragment size for streaming NextWriter output.
 	defaultReadLimit       = 32 << 20 // 32 MiB
 	defaultCloseTimeout    = 5 * time.Second
 	defaultCompressMinSize = 512 // bytes; RFC 7692 negotiated but below this, sent uncompressed.
@@ -67,19 +68,21 @@ type Conn struct {
 	msgBuf         []byte // reassembly buffer for fragmented/oversized messages
 	utf8v          utf8x.Validator
 	msgIsText      bool
-	msgCompressed  bool   // current message's first frame carried RSV1 (permessage-deflate)
-	inflateBuf     []byte // decompression output buffer, reused across messages
-	inflateScratch []byte // fixed-size read-chunk scratch for the inflate loop
-	readErr        error  // sticky terminal read error once set
+	msgCompressed  bool           // current message's first frame carried RSV1 (permessage-deflate)
+	inflateBuf     []byte         // decompression output buffer, reused across messages
+	inflateScratch []byte         // fixed-size read-chunk scratch for the inflate loop
+	readErr        error          // sticky terminal read error once set
+	msgReader      *messageReader // active NextReader stream, if any; nil on the ReadMessage-only hot path
 
 	// --- write side (serialized by wmu) ---
 	wmu       sync.Mutex
-	whdr      []byte    // header encode scratch
-	wpay      []byte    // client-role masked-payload scratch
-	wcomp     []byte    // compression output scratch
-	wclose    []byte    // close-body encode scratch
-	wiov      [2][]byte // writev scratch (header, payload)
-	closeSent bool      // a Close frame has been written (guarded by wmu)
+	whdr      []byte         // header encode scratch
+	wpay      []byte         // client-role masked-payload scratch
+	wcomp     []byte         // compression output scratch
+	wclose    []byte         // close-body encode scratch
+	wiov      [2][]byte      // writev scratch (header, payload)
+	closeSent bool           // a Close frame has been written (guarded by wmu)
+	msgWriter *messageWriter // open NextWriter stream, if any (guarded by wmu); nil on the WriteMessage-only hot path
 
 	// --- extensions ---
 	compression bool // permessage-deflate negotiated (RFC 7692); see WithCompression
