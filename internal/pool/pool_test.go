@@ -74,20 +74,54 @@ func TestGetClassBoundaries(t *testing.T) {
 	}
 }
 
+// TestGetPutRoundTripReuse checks that a Get following a Put observes a
+// consistent pool: the invariants ([Get]'s documented len=0/cap>=n
+// contract) hold unconditionally on every call, and -- only when the
+// returned slice actually aliases the one just Put -- its contents
+// survived the round trip untouched.
+//
+// It deliberately does not assert that Get reuses the backing array
+// unconditionally: sync.Pool provides no such guarantee (the runtime is
+// free to drop a pooled item at any GC cycle, e.g. victim-cache eviction
+// after two GCs with no intervening Get), and asserting it anyway was
+// observed to flake under -race, which shifts GC timing enough to make a
+// fresh allocation (instead of the Put one) noticeably more likely.
+// Comparing &b2[0] against the address obtained before Put -- ordinary
+// pointer comparison, not unsafe -- distinguishes "reused, must match"
+// from "freshly allocated, legitimately zero" without relying on
+// sync.Pool internals.
 func TestGetPutRoundTripReuse(t *testing.T) {
 	const size = 1024
 
 	b := pool.Get(size)
+	if len(b) != 0 {
+		t.Fatalf("Get(%d): len = %d, want 0", size, len(b))
+	}
+	if cap(b) < size {
+		t.Fatalf("Get(%d): cap = %d, want >= %d", size, cap(b), size)
+	}
 	b = b[:cap(b)]
 	for i := range b {
 		b[i] = 0xAB
 	}
+	orig := &b[0]
 	pool.Put(b)
 
 	b2 := pool.Get(size)
+	if len(b2) != 0 {
+		t.Fatalf("Get after Put: len = %d, want 0", len(b2))
+	}
+	if cap(b2) < size {
+		t.Fatalf("Get after Put: cap = %d, want >= %d", cap(b2), size)
+	}
 	b2 = b2[:cap(b2)]
-	if b2[0] != 0xAB {
-		t.Fatalf("Get after Put: b2[0] = %#x, want 0xAB (pool did not reuse the backing array)", b2[0])
+
+	if reused := &b2[0] == orig; reused {
+		for i, v := range b2 {
+			if v != 0xAB {
+				t.Fatalf("Get after Put reused the backing array but contents changed at [%d] = %#x, want 0xAB", i, v)
+			}
+		}
 	}
 }
 
