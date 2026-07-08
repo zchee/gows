@@ -1,0 +1,356 @@
+// Copyright 2026 The gows Authors.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+package gows
+
+import (
+	"bytes"
+	"errors"
+	"fmt"
+	"io"
+	"net"
+	"strings"
+
+	"github.com/zchee/gows/internal/extension"
+	"github.com/zchee/gows/internal/httpx"
+	"github.com/zchee/gows/internal/pool"
+)
+
+// deflateWindowBits is the only server_max_window_bits value this
+// package's default stdlib compress/flate backend can honor: stdlib
+// flate always compresses at the full 32KB (windowBits=15) window with
+// no public API to shrink it (see .omc/research/compress-design.md §4).
+// An offer requesting a smaller server_max_window_bits is declined.
+const deflateWindowBits = 15
+
+// negotiateDeflate scans a client's Sec-WebSocket-Extensions header
+// value (RFC 7692 §5) for the first permessage-deflate offer this server
+// can actually honor with its default stdlib compress/flate backend,
+// applying RFC 7692 §7's "first structurally valid offer, otherwise fall
+// back to the next" rule alongside this server's own policy:
+// server_no_context_takeover and client_no_context_takeover are always
+// forced on in the response (this phase never offers context takeover),
+// and an offer requesting a server_max_window_bits smaller than
+// [deflateWindowBits] is declined and skipped in favor of the client's
+// next offer, since stdlib compress/flate has no way to compress at a
+// smaller window. client_max_window_bits, bare or valued, never causes a
+// decline: it only bounds the client's own compressor, which this
+// server's decompressor (also a fixed 32KB window) can always handle
+// regardless.
+//
+// It reports ok=false if extensions contains no acceptable
+// permessage-deflate offer at all; per RFC 7692 §7 the caller should
+// then omit permessage-deflate from its response entirely -- this is
+// never itself a handshake failure.
+func negotiateDeflate(extensions []byte) (extension.DeflateParams, bool) {
+	sc := extension.NewOfferScanner(extensions)
+	for sc.Next() {
+		if !httpx.EqualFold(sc.Name(), extension.DeflateExtensionName) {
+			continue
+		}
+		params, ok := extension.ParseDeflateOfferParams(sc.Params())
+		if !ok {
+			continue
+		}
+		if params.ServerMaxWindowBits != 0 && params.ServerMaxWindowBits != deflateWindowBits {
+			continue
+		}
+		return extension.DeflateParams{
+			ServerNoContextTakeover: true,
+			ClientNoContextTakeover: true,
+		}, true
+	}
+	return extension.DeflateParams{}, false
+}
+
+// doubleCRLF marks the end of an HTTP request or response header block.
+var doubleCRLF = []byte("\r\n\r\n")
+
+// Upgrade performs the server side of a WebSocket opening handshake on c
+// using the zero-value [Upgrader] (no subprotocols, no Origin check, the
+// default header size limit). It is a convenience equivalent to
+// (&Upgrader{}).Upgrade(c).
+func Upgrade(c net.Conn) (Handshake, error) {
+	var u Upgrader
+	return u.Upgrade(c)
+}
+
+// Upgrade performs the server side of a WebSocket opening handshake
+// (RFC 6455 §4.2) directly on c, without net/http: it reads the request
+// line and headers into a pooled buffer (growing it as needed, across
+// as many reads as it takes, up to [Upgrader.MaxHeaderBytes]), validates
+// it, and writes the "101 Switching Protocols" response (or a minimal
+// HTTP error response on rejection) in a single Write.
+//
+// Upgrade requires the request to use GET and HTTP/1.1, to carry a Host
+// header, an Upgrade header containing "websocket", a Connection header
+// containing the "Upgrade" token, a Sec-WebSocket-Version header equal
+// to "13", and a 24-byte Sec-WebSocket-Key header. On any failure it
+// writes a best-effort HTTP error response (426, with a
+// Sec-WebSocket-Version header, for a version mismatch; 403 for an
+// [Upgrader.OriginCheck] rejection; 431 for a header block exceeding
+// [Upgrader.MaxHeaderBytes]; 400 for everything else) and returns a
+// typed error: one of this package's Err* sentinels for a WebSocket-level
+// requirement, or a wrapped internal/httpx sentinel for a malformed
+// request line or header.
+//
+// On success, Upgrade does not close c or read any further from it. The
+// caller owns c from that point on (e.g. to build a Conn on top of it,
+// once that type exists).
+func (u *Upgrader) Upgrade(c net.Conn) (Handshake, error) {
+	maxHeader := u.MaxHeaderBytes
+	if maxHeader <= 0 {
+		maxHeader = defaultMaxHeaderBytes
+	}
+	initial := min(4096, maxHeader)
+
+	data, filled, err := readHeaderBlock(c, pool.Get(initial), maxHeader)
+	if err != nil {
+		if errors.Is(err, ErrHeaderTooLarge) {
+			writeErrorResponse(c, 431, "Request Header Fields Too Large", "")
+		}
+		pool.Put(data)
+		return Handshake{}, err
+	}
+
+	reject := func(status int, reason, extraHeader string, rejErr error) (Handshake, error) {
+		writeErrorResponse(c, status, reason, extraHeader)
+		pool.Put(data)
+		return Handshake{}, rejErr
+	}
+
+	idx := bytes.Index(data[:filled], doubleCRLF)
+	headerBlock := data[:idx+4]
+
+	reqLine, consumed, err := httpx.ParseRequestLine(headerBlock)
+	if err != nil {
+		return reject(400, "Bad Request", "", fmt.Errorf("gows: parse request line: %w", err))
+	}
+	headers := headerBlock[consumed:]
+
+	var hostSeen, upgradeOK, connectionOK, versionOK bool
+	var key, origin, clientProtocols, extensions []byte
+
+	sc := httpx.NewHeaderScanner(headers)
+	for sc.Next() {
+		switch {
+		case httpx.EqualFold(sc.Key(), "host"):
+			hostSeen = true
+		case httpx.EqualFold(sc.Key(), "upgrade"):
+			upgradeOK = upgradeOK || httpx.ContainsToken(sc.Value(), "websocket")
+		case httpx.EqualFold(sc.Key(), "connection"):
+			connectionOK = connectionOK || httpx.ContainsToken(sc.Value(), "upgrade")
+		case httpx.EqualFold(sc.Key(), "sec-websocket-version"):
+			versionOK = versionOK || string(sc.Value()) == "13"
+		case httpx.EqualFold(sc.Key(), "sec-websocket-key"):
+			key = sc.Value()
+		case httpx.EqualFold(sc.Key(), "origin"):
+			origin = sc.Value()
+		case httpx.EqualFold(sc.Key(), "sec-websocket-protocol"):
+			clientProtocols = sc.Value()
+		case httpx.EqualFold(sc.Key(), "sec-websocket-extensions"):
+			extensions = sc.Value()
+		}
+	}
+	if err := sc.Err(); err != nil {
+		return reject(400, "Bad Request", "", fmt.Errorf("gows: scan headers: %w", err))
+	}
+
+	switch {
+	case !versionOK:
+		return reject(426, "Upgrade Required", "Sec-WebSocket-Version: 13", ErrUnsupportedVersion)
+	case !hostSeen:
+		return reject(400, "Bad Request", "", ErrMissingHost)
+	case !upgradeOK:
+		return reject(400, "Bad Request", "", ErrNotUpgrade)
+	case !connectionOK:
+		return reject(400, "Bad Request", "", ErrNotConnectionUpgrade)
+	case len(key) != 24:
+		return reject(400, "Bad Request", "", ErrMissingKey)
+	}
+	if u.OriginCheck != nil && !u.OriginCheck(origin) {
+		return reject(403, "Forbidden", "", ErrOriginRejected)
+	}
+
+	selected := ""
+	if len(u.Subprotocols) > 0 && clientProtocols != nil {
+		selected = negotiateSubprotocol(u.Subprotocols, clientProtocols)
+	}
+
+	var deflateParams extension.DeflateParams
+	var deflateOK bool
+	if u.EnableCompression && extensions != nil {
+		deflateParams, deflateOK = negotiateDeflate(extensions)
+	}
+
+	resp := appendSwitchingProtocolsResponse(pool.Get(160+len(selected)), key, selected, deflateParams, deflateOK)
+	_, werr := c.Write(resp)
+	pool.Put(resp)
+	if werr != nil {
+		pool.Put(data)
+		return Handshake{}, werr
+	}
+
+	h := Handshake{Subprotocol: selected, Compressed: deflateOK}
+	if idx+4 < filled {
+		h.Buffered = append([]byte(nil), data[idx+4:filled]...)
+	}
+
+	path, query := splitTarget(reqLine.Target)
+	if u.RawPath {
+		h.buf = data
+		h.rawPath, h.rawQuery = path, query
+	} else {
+		h.Path = string(path)
+		h.Query = string(query)
+		pool.Put(data)
+	}
+
+	return h, nil
+}
+
+// readHeaderBlock reads from c into buf (growing it via the pool as
+// needed, up to maxBytes total) until buf[:filled] contains a complete
+// header block: some prefix ending in the blank-line terminator
+// "\r\n\r\n". It returns the (possibly grown) buffer and the number of
+// valid bytes read into it, which may extend past the terminator if the
+// peer pipelined additional data right after the handshake bytes.
+//
+// The returned buffer always has len(out) == cap(out); callers are
+// expected to look only at out[:filled] and to eventually pool.Put(out).
+//
+// readHeaderBlock returns [ErrHeaderTooLarge] if the header block does
+// not fit within maxBytes, and whatever error c.Read returns otherwise
+// (including io.EOF if the connection closes before a complete header
+// block arrives).
+func readHeaderBlock(c net.Conn, buf []byte, maxBytes int) (out []byte, filled int, err error) {
+	filled = len(buf)
+	buf = buf[:cap(buf)]
+	for {
+		if idx := bytes.Index(buf[:filled], doubleCRLF); idx >= 0 {
+			return buf, filled, nil
+		}
+
+		limit := min(len(buf), maxBytes)
+		if filled == limit {
+			if limit >= maxBytes {
+				return buf, filled, ErrHeaderTooLarge
+			}
+			grown := pool.Get(min(len(buf)*2, maxBytes))
+			grown = grown[:filled]
+			copy(grown, buf[:filled])
+			pool.Put(buf)
+			buf = grown[:cap(grown)]
+			continue
+		}
+
+		n, rerr := c.Read(buf[filled:limit])
+		filled += n
+		if rerr != nil {
+			return buf, filled, rerr
+		}
+		if n == 0 {
+			return buf, filled, io.ErrNoProgress
+		}
+	}
+}
+
+// negotiateSubprotocol returns the first entry in offered (in preference
+// order) that case-sensitively equals one of the comma-separated,
+// OWS-trimmed tokens in clientList (RFC 6455 §4.1), or "" if none match.
+// On a match, it returns the string value from offered itself rather
+// than a substring of clientList, so the result never allocates and
+// remains valid regardless of the underlying request buffer's lifetime.
+func negotiateSubprotocol(offered []string, clientList []byte) string {
+	for _, want := range offered {
+		rest := clientList
+		for len(rest) > 0 {
+			var tok []byte
+			if i := bytes.IndexByte(rest, ','); i >= 0 {
+				tok, rest = rest[:i], rest[i+1:]
+			} else {
+				tok, rest = rest, nil
+			}
+			if string(trimOWS(tok)) == want {
+				return want
+			}
+		}
+	}
+	return ""
+}
+
+// trimOWS trims leading and trailing optional whitespace (SP or HTAB)
+// from b, per RFC 7230 §3.2.3. It is a local copy of the identical
+// unexported helper in internal/httpx, which this package cannot import.
+func trimOWS(b []byte) []byte {
+	for len(b) > 0 && (b[0] == ' ' || b[0] == '\t') {
+		b = b[1:]
+	}
+	for len(b) > 0 && (b[len(b)-1] == ' ' || b[len(b)-1] == '\t') {
+		b = b[:len(b)-1]
+	}
+	return b
+}
+
+// splitTarget splits an origin-form request-target (RFC 7230 §5.3.1)
+// into its path and query components at the first '?', per RFC 6455
+// §4.1's "/resource name/" -- neither is percent-decoded.
+func splitTarget(target []byte) (path, query []byte) {
+	path, query, _ = bytes.Cut(target, []byte("?"))
+	return path, query
+}
+
+// appendSwitchingProtocolsResponse appends a complete
+// "101 Switching Protocols" response, accepting key (assumed already
+// validated to be 24 bytes; see [httpx.AppendAccept]) and naming
+// subprotocol if non-empty, to dst, returning the extended buffer. When
+// deflateOK is true, a Sec-WebSocket-Extensions header naming
+// permessage-deflate and deflate's agreed parameters is included too
+// (see [negotiateDeflate]).
+func appendSwitchingProtocolsResponse(dst, key []byte, subprotocol string, deflate extension.DeflateParams, deflateOK bool) []byte {
+	dst = append(dst, "HTTP/1.1 101 Switching Protocols\r\n"...)
+	dst = append(dst, "Upgrade: websocket\r\n"...)
+	dst = append(dst, "Connection: Upgrade\r\n"...)
+	dst = append(dst, "Sec-WebSocket-Accept: "...)
+	dst = httpx.AppendAccept(dst, key)
+	dst = append(dst, "\r\n"...)
+	if subprotocol != "" {
+		dst = append(dst, "Sec-WebSocket-Protocol: "...)
+		dst = append(dst, subprotocol...)
+		dst = append(dst, "\r\n"...)
+	}
+	if deflateOK {
+		dst = append(dst, "Sec-WebSocket-Extensions: "...)
+		dst = extension.AppendDeflateResponse(dst, deflate)
+		dst = append(dst, "\r\n"...)
+	}
+	return append(dst, "\r\n"...)
+}
+
+// writeErrorResponse writes a minimal HTTP error response with the given
+// status, reason phrase, and an optional extra header line (without its
+// own CRLF), and closes out the response with Content-Length: 0 and
+// Connection: close. It is best-effort: since the caller is already
+// failing the handshake and returning an error regardless, a failure to
+// write this courtesy response to the peer is not itself reported.
+func writeErrorResponse(c net.Conn, status int, reason, extraHeader string) {
+	var b strings.Builder
+	fmt.Fprintf(&b, "HTTP/1.1 %d %s\r\n", status, reason)
+	if extraHeader != "" {
+		b.WriteString(extraHeader)
+		b.WriteString("\r\n")
+	}
+	b.WriteString("Content-Length: 0\r\nConnection: close\r\n\r\n")
+	_, _ = c.Write([]byte(b.String()))
+}
