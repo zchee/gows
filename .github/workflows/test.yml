@@ -42,6 +42,15 @@ jobs:
             exit 1
           fi
 
+      - name: asmfmt
+        run: |
+          out="$(go run github.com/klauspost/asmfmt/cmd/asmfmt@latest -l $(git ls-files '*.s'))"
+          if [ -n "$out" ]; then
+            echo "$out"
+            echo "::error::asmfmt found unformatted assembly files (run: asmfmt -w <file>.s)"
+            exit 1
+          fi
+
   test:
     name: test (${{ matrix.os }}, ${{ matrix.variant }})
     runs-on: ${{ matrix.os }}
