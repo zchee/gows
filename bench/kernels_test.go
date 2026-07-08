@@ -2,7 +2,11 @@
 // the gows plan §6 Phase 0 item 3: gorilla maskBytes, coder maskGo, gws
 // MaskXOR, and gobwas Cipher, vendored under internal/thirdparty with
 // attribution (see that package's doc comments) rather than go:linkname'd,
-// for build stability across upstream refactors.
+// for build stability across upstream refactors. BenchmarkMaskGows calls
+// gows's own internal/mask.Mask directly (not vendored -- gows is a real
+// dependency of this module via the local replace in go.mod), exercising
+// its actual runtime CPU-feature dispatch (AVX2/AVX-512/NEON/scalar) rather
+// than one fixed kernel, same as production traffic would hit.
 //
 // Run with: go test -bench=BenchmarkMask -benchmem -count=10 ./...
 package bench
@@ -10,6 +14,8 @@ package bench
 import (
 	"strconv"
 	"testing"
+
+	"github.com/zchee/gows/internal/mask"
 
 	tpcoder "github.com/zchee/gows/bench/internal/thirdparty/coder"
 	tpgobwas "github.com/zchee/gows/bench/internal/thirdparty/gobwas"
@@ -67,6 +73,23 @@ func BenchmarkMaskGobwas(b *testing.B) {
 			b.SetBytes(int64(n))
 			for b.Loop() {
 				tpgobwas.Cipher(buf, maskKey, 0)
+			}
+		})
+	}
+}
+
+// BenchmarkMaskGows exercises gows's own internal/mask.Mask, i.e. the exact
+// kernel dispatch [Conn.ReadMessage]/[Conn.WriteMessage] use in production
+// (see .omc/research/mask-calibration.md for the arm64/NEON calibration this
+// benchmark cross-checks on linux/amd64).
+func BenchmarkMaskGows(b *testing.B) {
+	for _, n := range sizes {
+		b.Run(sizeName(n), func(b *testing.B) {
+			buf := make([]byte, n)
+			key := uint32(0x78563412)
+			b.SetBytes(int64(n))
+			for b.Loop() {
+				key = mask.Mask(buf, key)
 			}
 		})
 	}

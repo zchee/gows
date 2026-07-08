@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"net/http/pprof"
 	"runtime"
 	"time"
 )
@@ -22,10 +23,13 @@ type MemSnapshot struct {
 }
 
 // StartDebugServer starts a plain net/http server on addr exposing
-// GET /debug/memstats as JSON. It is intentionally isolated from every
-// echoserver library implementation's hot path: runtime.ReadMemStats is only
-// invoked when this endpoint is polled by loadgen (before warmup and after
-// the measurement window), never on the per-message code path.
+// GET /debug/memstats as JSON, plus the standard net/http/pprof handlers
+// under /debug/pprof/ (e.g. "curl .../debug/pprof/profile?seconds=10" for a
+// CPU profile of a losing config under load -- plan §8's regression-tuning
+// evidence requirement). Both are intentionally isolated from every
+// echoserver library implementation's hot path: runtime.ReadMemStats and
+// profiling only run when this endpoint is polled/hit by loadgen or an
+// operator, never on the per-message code path.
 //
 // It returns the *http.Server so the caller can Shutdown it; the caller is
 // responsible for running Serve in a goroutine.
@@ -45,6 +49,11 @@ func StartDebugServer(addr string) (*http.Server, <-chan error) {
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(snap)
 	})
+	mux.HandleFunc("/debug/pprof/", pprof.Index)
+	mux.HandleFunc("/debug/pprof/cmdline", pprof.Cmdline)
+	mux.HandleFunc("/debug/pprof/profile", pprof.Profile)
+	mux.HandleFunc("/debug/pprof/symbol", pprof.Symbol)
+	mux.HandleFunc("/debug/pprof/trace", pprof.Trace)
 	srv := &http.Server{Addr: addr, Handler: mux}
 	errCh := make(chan error, 1)
 	go func() {
