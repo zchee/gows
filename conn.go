@@ -45,14 +45,17 @@ const (
 // issues) may run concurrently with one [Conn.WriteMessage]; all frame writes
 // are serialized internally, so the read path's control replies never
 // interleave with an application write. [Conn.Close] participates in the read
-// side and must not run concurrently with [Conn.ReadMessage] -- this is a
-// deliberate divergence from gorilla/websocket's looser ergonomics, so the
-// safe pattern for the common "shut this connection down from another
+// side and must not run concurrently with [Conn.ReadMessage] -- nor with
+// reading from the reader returned by [Conn.NextReader], which drives
+// the same read side and shares the same buffers -- this is a deliberate
+// divergence from gorilla/websocket's looser ergonomics, so the safe
+// pattern for the common "shut this connection down from another
 // goroutine" need is worth spelling out explicitly: to interrupt a
-// [Conn.ReadMessage] call that is blocked in another goroutine, first call
-// [Conn.SetReadDeadline] with a time in the past (which unblocks the pending
-// read with a timeout error) and only then call [Conn.Close]; calling Close
-// directly while ReadMessage is still blocked races the read side's buffers.
+// [Conn.ReadMessage] call (or a NextReader stream's Read) that is blocked
+// in another goroutine, first call [Conn.SetReadDeadline] with a time in
+// the past (which unblocks the pending read with a timeout error) and
+// only then call [Conn.Close]; calling Close directly while either is
+// still blocked races the read side's buffers.
 //
 // The zero value is not usable; construct a Conn with [NewServerConn] or
 // [NewClientConn].
@@ -184,15 +187,18 @@ func WithCompression(enabled bool) ConnOption {
 	}
 }
 
-// WithCompressionParams enables permessage-deflate exactly like
-// [WithCompression](true), but additionally configures context takeover
-// (RFC 7692 §7.1.1) per params for whichever direction(s) it reports --
-// pass [Handshake.CompressionParams], not a hardcoded value, for the same
-// reason [WithCompression] warns against a hardcoded bool: a Conn that
-// disagrees with what the peer actually agreed to produces frames (or
-// expects decompression behavior) the peer will reject or fail to
-// decode. The zero [CompressionParams] value (both fields false) is
-// identical to calling only WithCompression(true).
+// WithCompressionParams always enables permessage-deflate -- unlike
+// [WithCompression], there is no bool to pass false for; call this only
+// when [Handshake.Compressed] is true, never unconditionally. It
+// otherwise behaves exactly like [WithCompression](true), but
+// additionally configures context takeover (RFC 7692 §7.1.1) per params
+// for whichever direction(s) it reports -- pass [Handshake.CompressionParams],
+// not a hardcoded value, for the same reason [WithCompression] warns
+// against a hardcoded bool: a Conn that disagrees with what the peer
+// actually agreed to produces frames (or expects decompression behavior)
+// the peer will reject or fail to decode. The zero [CompressionParams]
+// value (both fields false) is identical to calling only
+// WithCompression(true).
 //
 // # Memory cost
 //
@@ -214,22 +220,30 @@ func WithCompression(enabled bool) ConnOption {
 //     consequential level/backend tradeoff for the no-context-takeover
 //     path).
 //   - Incoming (decompressing the peer's messages) is much cheaper: only
-//     a growing/sliding dictionary buffer, capped at 2^(negotiated
-//     window bits) bytes (32 KB at the RFC 7692 default) of the most
-//     recently decompressed plaintext -- not a persistent decompressor
-//     (see decompressMessage's doc for why one isn't needed).
+//     a growing/sliding dictionary buffer, capped at 32 KB (the RFC 7692
+//     default window) of the most recently decompressed plaintext -- not
+//     a persistent decompressor (see decompressMessage's doc for why one
+//     isn't needed). This cap is always 32 KB, never smaller, regardless
+//     of what backend/window bits this process's own [SetDeflateBackend]
+//     has active: gows negotiates no bound at all on what window the
+//     *peer* actually compresses with (this package only ever restricts
+//     or offers a bound for its *own* outgoing direction -- see
+//     [Upgrader.NegotiateWindowBits]/[Dialer.WindowBits]), so assuming
+//     anything smaller than the RFC maximum here would risk truncating a
+//     fully compliant peer's genuine cross-message back-references,
+//     corrupting decode.
 //
 // A server or client handling many concurrent context-takeover
 // connections should budget roughly 1 MB (compress/flate's default
-// level) to 32 KB per negotiated direction per connection accordingly;
-// [Upgrader.NegotiateWindowBits]/[Dialer.WindowBits] combined with a
-// smaller-window backend (e.g. github.com/zchee/gows/flatekp) reduces
-// the incoming side's cost proportionally, but not the outgoing side's
-// (a smaller window does not shrink compress/flate's own internal
-// tables, which are sized independently of the window actually
-// negotiated). For high connection counts, prefer leaving context
-// takeover off (the default) and accepting the lower compression ratio
-// of a fresh window per message.
+// level) for the outgoing side plus a fixed 32 KB for the incoming side,
+// per negotiated direction per connection -- neither shrinks with a
+// smaller-window backend (e.g. github.com/zchee/gows/flatekp): the
+// outgoing side because a smaller window does not shrink compress/flate's
+// own internal tables (sized independently of the window actually
+// negotiated), and the incoming side per the paragraph above. For high
+// connection counts, prefer leaving context takeover off (the default)
+// and accepting the lower compression ratio of a fresh window per
+// message.
 func WithCompressionParams(params CompressionParams) ConnOption {
 	return func(c *connConfig) {
 		c.compression = true

@@ -16,6 +16,7 @@ package gows
 
 import (
 	"bytes"
+	"compress/flate"
 	"context"
 	"errors"
 	"net"
@@ -419,13 +420,93 @@ func TestContextTakeoverBackendPinning(t *testing.T) {
 	}
 
 	// The Conn must keep working correctly (still the original backend's
-	// behavior, e.g. windowBits pinned at construction time), not the
-	// newly active one.
-	if c.deflate.windowBits != deflateWindowBits {
-		t.Fatalf("c.deflate.windowBits = %d, want %d (pinned at construction)", c.deflate.windowBits, deflateWindowBits)
+	// behavior, e.g. outgoingWindowBits pinned at construction time), not
+	// the newly active one.
+	if c.deflate.outgoingWindowBits != deflateWindowBits {
+		t.Fatalf("c.deflate.outgoingWindowBits = %d, want %d (pinned at construction)", c.deflate.outgoingWindowBits, deflateWindowBits)
 	}
 	if _, err := c.compressMessage(nil, []byte("still usable after SetDeflateBackend")); err != nil {
 		t.Fatalf("compressMessage after SetDeflateBackend: %v", err)
+	}
+}
+
+// --- regression: incoming dict must not be bound by the outgoing window ---
+
+// TestContextTakeoverIncomingDictNotBoundToOutgoingWindowBits is a
+// regression test for a reviewer-caught bug: an earlier revision capped
+// the incoming context-takeover sliding dict at 1<<outgoingWindowBits --
+// the process-wide *outgoing* compressor's window (from
+// [SetDeflateBackend]) -- even though gows negotiates no bound at all on
+// what window the *peer* actually compresses with (neither
+// negotiateDeflate nor Dialer.deflateOffer ever emits
+// client_max_window_bits/server_max_window_bits to restrict the peer's
+// own compressor; see [deflateState]'s doc). A fully RFC-7692-compliant
+// peer using the full 32KB default window can legitimately emit a
+// cross-message back-reference the wrongly truncated dict can no longer
+// resolve, corrupting decode ("flate: corrupt input") for an innocent,
+// conformant peer.
+//
+// This is deliberately reproduced with a real, independent
+// compress/flate.Writer standing in for "the peer" -- not gows's own
+// compressMessage -- since the whole point is that the peer is not, and
+// was never meant to be, bound by this process's own backend/windowBits.
+func TestContextTakeoverIncomingDictNotBoundToOutgoingWindowBits(t *testing.T) {
+	// Our own outgoing window: 1KB (2^10) -- deliberately small, and
+	// deliberately irrelevant to the peer's own (unbounded) window. Before
+	// the fix, this value alone determined the incoming dict's capacity,
+	// which is the bug.
+	withDeflateBackend(t, fakeWindowedBackend, 1, 10)
+
+	var buf bytes.Buffer
+	peer, err := flate.NewWriter(&buf, 6)
+	if err != nil {
+		t.Fatalf("flate.NewWriter: %v", err)
+	}
+	compressMsg := func(p string) []byte {
+		buf.Reset()
+		if _, err := peer.Write([]byte(p)); err != nil {
+			t.Fatalf("peer Write: %v", err)
+		}
+		if err := peer.Flush(); err != nil {
+			t.Fatalf("peer Flush: %v", err)
+		}
+		out := buf.Bytes()
+		out = out[:len(out)-len(deflateFlushTail)] // Strip the 4-byte sync-flush marker, matching wire framing.
+		// Copy out of buf's backing array: the next compressMsg call
+		// Resets and reuses the same array, which would otherwise
+		// overwrite this result before it's used (buf.Bytes() aliases,
+		// it does not copy).
+		return append([]byte(nil), out...)
+	}
+
+	const sharedBlock = "CROSS-MESSAGE-BACK-REFERENCE-PROBE-1234567890-"
+	// message1 puts sharedBlock at its very start, followed by >1KB of
+	// filler, so message2's back-reference into it lands at a distance
+	// comfortably past a 1KB cap but well within the real 32KB window.
+	message1 := sharedBlock + strings.Repeat("filler-", 300)
+	message2 := sharedBlock
+	if len(message1) <= 1<<10 {
+		t.Fatalf("test setup bug: message1 (%d bytes) must exceed 1KB for this regression to be meaningful", len(message1))
+	}
+
+	compressed1 := compressMsg(message1)
+	compressed2 := compressMsg(message2)
+
+	c := NewServerConn(&scriptConn{}, WithCompressionParams(CompressionParams{ClientContextTakeover: true}))
+	got1, err := c.decompressMessage(compressed1)
+	if err != nil {
+		t.Fatalf("decompressMessage(message1): %v", err)
+	}
+	if string(got1) != message1 {
+		t.Fatalf("message1 mismatch: got %d bytes, want %d", len(got1), len(message1))
+	}
+
+	got2, err := c.decompressMessage(compressed2)
+	if err != nil {
+		t.Fatalf("decompressMessage(message2): %v -- a small process-wide outgoing windowBits must not truncate the incoming sliding dict", err)
+	}
+	if string(got2) != message2 {
+		t.Fatalf("message2 mismatch: got %q, want %q", got2, message2)
 	}
 }
 

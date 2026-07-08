@@ -531,10 +531,13 @@ type messageReader struct {
 // NextReader, ReadMessage, or Close call on the same Conn; afterward its Read
 // returns a sticky "superseded" error. NextReader and ReadMessage may be
 // interleaved from one message to the next but never used concurrently (the
-// single-reader contract). Starting a new read -- via either method -- while
-// a previously returned reader has not been drained to io.EOF discards the
-// unread remainder of that message (it is consumed off the wire and thrown
-// away), matching gorilla/websocket's drain-on-next-read behavior.
+// single-reader contract), and -- per [Conn]'s own concurrency doc -- a Read
+// on the returned reader must not run concurrently with [Conn.Close] either;
+// it drives the same read side and shares the same buffers ReadMessage does.
+// Starting a new read -- via either method -- while a previously returned
+// reader has not been drained to io.EOF discards the unread remainder of
+// that message (it is consumed off the wire and thrown away), matching
+// gorilla/websocket's drain-on-next-read behavior.
 //
 // A compressed message (permessage-deflate, RSV1) cannot be streamed in
 // place; NextReader falls back to reassembling and inflating it in full, then

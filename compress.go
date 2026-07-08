@@ -224,10 +224,32 @@ func DefaultDeflateBackend() *DeflateBackend {
 // [SetDeflateBackend] call changes what newly constructed Conns use but
 // never reaches back into an already-built deflateState, since its
 // persistent compressor already exists and cannot be transplanted onto a
-// different backend mid-life, and its sliding-window dictionary's
-// capacity is fixed to the window bits negotiated for this connection.
+// different backend mid-life.
+//
+// outgoingWindowBits governs only outgoing's own persistent compressor,
+// never incomingDict's capacity: gows negotiates no bound at all on the
+// *peer's* own compression window (the server never emits
+// client_max_window_bits to restrict the client's compressor; the
+// client never emits server_max_window_bits to restrict the server's --
+// see negotiateDeflate/Dialer.deflateOffer, neither of which offers or
+// requires either), so a fully RFC-7692-compliant peer may use the full
+// 32KB default window regardless of what backend/windowBits this
+// process's own SetDeflateBackend happens to have active.
+// incomingDict must therefore always be capped at the RFC 7692 default
+// (32KB, [deflateWindowBits]) independent of outgoingWindowBits -- capping
+// it any smaller would silently truncate genuine cross-message
+// back-references from a compliant peer using the full window, corrupting
+// decode (this was a real, reviewer-caught bug in an earlier revision of
+// this file: incomingDict was capped at 1<<outgoingWindowBits, wrongly
+// reusing the outgoing-direction value for the incoming direction's
+// unrelated, unnegotiated bound). Negotiating an actual bound on the
+// peer's window (so this cap could legitimately shrink below 32KB) is
+// deferred -- see .omc/research/context-takeover-design.md.
 type deflateState struct {
-	windowBits int
+	// outgoingWindowBits is the window bits outgoing's own persistent
+	// compressor was constructed with; see the doc above for why this
+	// must never also govern incomingDict's capacity.
+	outgoingWindowBits int
 
 	// outgoing is non-nil only when this Conn's own outgoing direction
 	// negotiated context takeover: a persistent [DeflateWriter]
@@ -240,11 +262,13 @@ type deflateState struct {
 
 	// incomingDict is non-nil only when this Conn's incoming direction
 	// (the peer's own outgoing direction) negotiated context takeover: a
-	// sliding window of up to 2^windowBits bytes of the most recently
-	// decompressed plaintext, grown and capped by [Conn.decompressMessage]
-	// after each message and passed as [DeflateReader.Reset]'s preset
-	// dictionary -- see decompressMessage's doc for why this needs no
-	// persistent reader object, unlike outgoing.
+	// sliding window of up to 2^[deflateWindowBits] (32KB) bytes of the
+	// most recently decompressed plaintext, grown and capped by
+	// [Conn.decompressMessage] after each message and passed as
+	// [DeflateReader.Reset]'s preset dictionary -- see decompressMessage's
+	// doc for why this needs no persistent reader object, unlike
+	// outgoing, and the doc above for why its cap is always the RFC 7692
+	// default rather than outgoingWindowBits.
 	incomingDict []byte
 }
 
@@ -274,7 +298,7 @@ func newDeflateState(client bool, p CompressionParams) *deflateState {
 	}
 
 	cfg := activeDeflate.Load()
-	ds := &deflateState{windowBits: cfg.windowBits}
+	ds := &deflateState{outgoingWindowBits: cfg.windowBits}
 	if outgoingTakeover {
 		w, err := cfg.backend.NewWriter(cfg.level, cfg.windowBits)
 		if err != nil {
@@ -295,7 +319,9 @@ func newDeflateState(client bool, p CompressionParams) *deflateState {
 		ds.outgoing = w
 	}
 	if incomingTakeover {
-		ds.incomingDict = make([]byte, 0, 1<<cfg.windowBits)
+		// Always the RFC 7692 default (32KB), never cfg.windowBits -- see
+		// deflateState's doc for why the two must not be conflated.
+		ds.incomingDict = make([]byte, 0, 1<<deflateWindowBits)
 	}
 	return ds
 }
@@ -466,8 +492,11 @@ func writeAndFlush(w DeflateWriter, sw *sliceWriter, p []byte) ([]byte, error) {
 // resetFlate's getFlateReader(r, dict) call, dict coming from a per-Conn
 // slidingWindow, never a persistent reader object.) On a successful
 // decode, decompressMessage grows incomingDict with this message's newly
-// decompressed bytes, capped at the negotiated window size, for the next
-// call to draw on.
+// decompressed bytes, capped at the RFC 7692 default window (32KB,
+// [deflateWindowBits]) -- deliberately not c.deflate's own
+// outgoingWindowBits, since gows negotiates no bound at all on what
+// window the *peer* actually compresses with; see [deflateState]'s doc
+// for why conflating the two was a real, reviewer-caught bug.
 func (c *Conn) decompressMessage(compressed []byte) ([]byte, error) {
 	cfg := activeDeflate.Load()
 	r := cfg.readers.Get().(DeflateReader)
@@ -506,7 +535,9 @@ func (c *Conn) decompressMessage(compressed []byte) ([]byte, error) {
 			c.inflateBuf = out
 			if errors.Is(err, io.EOF) {
 				if ds != nil {
-					ds.incomingDict = slideWindow(ds.incomingDict, out, 1<<ds.windowBits)
+					// Always the RFC 7692 default (32KB) cap, matching
+					// newDeflateState's allocation -- see deflateState's doc.
+					ds.incomingDict = slideWindow(ds.incomingDict, out, 1<<deflateWindowBits)
 				}
 				return out, nil
 			}

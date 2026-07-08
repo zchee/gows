@@ -66,7 +66,7 @@
 // A caller combining this backend with gows's permessage-deflate context
 // takeover (a persistent per-Conn compressor; see gows's
 // WithCompressionParams doc for the full cost breakdown) might expect a
-// smaller negotiated window to also shrink that persistent compressor's
+// smaller negotiated window to shrink that persistent compressor's
 // memory footprint proportionally. Measured directly against this
 // backend, it does not: klauspost's windowed encoder
 // (fastEncL5Window, the type NewWriterWindow constructs) allocates a
@@ -75,13 +75,21 @@
 // windows) all measured at ~730KB per instance, versus ~475KB for the
 // unwindowed NewWriter(level=1) path. windowBits only bounds how far
 // back a match may reference, a cheap int32 comparison, not how large
-// the encoder's own working set is. The negotiated window size *does*
-// still shrink gows's own incoming-side sliding-window dictionary
-// (capped at 2^windowBits bytes, entirely gows's allocation, not this
-// backend's) -- see WithCompressionParams -- so window-bits negotiation
-// remains worthwhile for a connection's *receive* direction even with
-// this backend installed; it just should not be expected to reduce the
-// *send* direction's persistent compressor cost.
+// the encoder's own working set is.
+//
+// gows's own incoming-side sliding-window dictionary (see
+// WithCompressionParams) does not shrink with a negotiated window either
+// -- but for an entirely different, non-negotiable reason: gows never
+// negotiates any bound on what window the *peer* actually compresses
+// with (this backend's windowBits only ever configures this process's
+// own outgoing compressor), so the incoming dictionary must always
+// assume the RFC 7692 maximum (32KB) regardless of this backend's own
+// configuration, or a fully compliant peer's genuine cross-message
+// back-references could be truncated, corrupting decode. Installing
+// this backend at a smaller windowBits therefore only ever affects this
+// process's own *sending* direction's negotiation eligibility (see
+// gows.Upgrader.NegotiateWindowBits/gows.Dialer.WindowBits); it does not
+// reduce memory on either the sending or the receiving side.
 package flatekp
 
 import (
