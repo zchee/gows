@@ -96,3 +96,30 @@ jobs:
         if: ${{ hashFiles('bench/go.mod') != '' }}
         working-directory: bench
         run: go vet ./...
+
+  flatekp-test:
+    name: flatekp-test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        if: ${{ hashFiles('flatekp/go.mod') != '' }}
+        with:
+          go-version: '1.26.x'
+          cache: true
+
+      - name: go build
+        if: ${{ hashFiles('flatekp/go.mod') != '' }}
+        working-directory: flatekp
+        run: go build ./...
+
+      - name: go vet
+        if: ${{ hashFiles('flatekp/go.mod') != '' }}
+        working-directory: flatekp
+        run: go vet ./...
+
+      - name: go test -race
+        if: ${{ hashFiles('flatekp/go.mod') != '' }}
+        working-directory: flatekp
+        run: go test -race ./...
