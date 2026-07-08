@@ -57,3 +57,7 @@ bench.txt
 
 # profile
 *.pprof
+
+# oh-my-claudecode operational state (agent session/plan/research
+# artifacts); not part of the project's source or documentation.
+.omc/
