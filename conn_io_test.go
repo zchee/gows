@@ -316,3 +316,36 @@ func BenchmarkConnWriteMessage(b *testing.B) {
 		}
 	}
 }
+
+// BenchmarkConnReadMessage16KB and BenchmarkConnReadMessage64KB exercise a
+// single-frame message larger than the default 4096-byte read buffer, i.e.
+// the reassembly path in readFramePayload rather than ReadMessage's
+// zero-copy single-frame fast path (see reader.go's readFramePayload doc:
+// once the read buffer is exhausted mid-frame, the remainder is read
+// directly into the reassembly buffer instead of being double-buffered
+// through rbuf first).
+func BenchmarkConnReadMessage16KB(b *testing.B) {
+	const size = 16 << 10
+	frame := clientFrame(true, OpcodeBinary, bytes.Repeat([]byte{0x7f}, size))
+	c := NewServerConn(&loopConn{frame: frame})
+	b.SetBytes(size)
+	b.ReportAllocs()
+	for b.Loop() {
+		if _, _, err := c.ReadMessage(); err != nil {
+			b.Fatal(err)
+		}
+	}
+}
+
+func BenchmarkConnReadMessage64KB(b *testing.B) {
+	const size = 64 << 10
+	frame := clientFrame(true, OpcodeBinary, bytes.Repeat([]byte{0x7f}, size))
+	c := NewServerConn(&loopConn{frame: frame})
+	b.SetBytes(size)
+	b.ReportAllocs()
+	for b.Loop() {
+		if _, _, err := c.ReadMessage(); err != nil {
+			b.Fatal(err)
+		}
+	}
+}

@@ -227,6 +227,76 @@ func TestReadMessageByteFragments(t *testing.T) {
 	}
 }
 
+// TestReadMessageLargeFrameDirectRead exercises readFramePayload's direct
+// read into the reassembly buffer for a single frame whose payload exceeds
+// the read buffer: once rbuf is exhausted mid-frame, the remainder is read
+// straight from the connection in one logical call (letting scriptConn hand
+// back as much as its own chunk cap allows per underlying Read), then
+// masked/validated separately in cap(rbuf)-sized sub-chunks. Using
+// non-multiple-of-4 scriptConn chunk sizes deliberately misaligns the
+// underlying Read boundaries against both the drain-then-direct-read split
+// and the fixed processing-chunk boundaries, so the resumable key must
+// carry across all of them correctly for the payload to unmask to the exact
+// original bytes.
+func TestReadMessageLargeFrameDirectRead(t *testing.T) {
+	t.Parallel()
+
+	tests := map[string]struct {
+		size  int
+		chunk int // scriptConn per-Read byte cap; 0 means unlimited
+	}{
+		"one byte over the read buffer, unlimited chunks":            {size: defaultReadBufferSize + 1, chunk: 0},
+		"large message, unlimited chunks":                            {size: 20000, chunk: 0},
+		"large message, chunk size misaligned with mask width (37B)": {size: 20000, chunk: 37},
+		"large message, chunk size misaligned with mask width (3B)":  {size: 20000, chunk: 3},
+	}
+
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			payload := pseudoRandomBytes(tt.size)
+			frame := clientFrame(true, OpcodeBinary, payload)
+			sc := &scriptConn{in: frame, chunk: tt.chunk}
+			c := NewServerConn(sc)
+			op, got, err := c.ReadMessage()
+			if err != nil {
+				t.Fatalf("ReadMessage: %v", err)
+			}
+			if op != OpcodeBinary || !bytes.Equal(got, payload) {
+				t.Fatalf("mismatch: op=%v len(got)=%d len(want)=%d", op, len(got), len(payload))
+			}
+		})
+	}
+}
+
+// TestReadMessageMultiFrameDirectRead is
+// TestReadMessageLargeFrameDirectRead's multi-frame counterpart: each of
+// several Continuation fragments individually exceeds the read buffer, so
+// readFramePayload's direct-read branch must engage once per frame and
+// compose correctly across frame boundaries in the same reassembly buffer.
+func TestReadMessageMultiFrameDirectRead(t *testing.T) {
+	t.Parallel()
+
+	const fragSize = defaultReadBufferSize + 500
+	payload := pseudoRandomBytes(fragSize * 3)
+
+	var in []byte
+	in = append(in, clientFrame(false, OpcodeBinary, payload[:fragSize])...)
+	in = append(in, clientFrame(false, OpcodeContinuation, payload[fragSize:2*fragSize])...)
+	in = append(in, clientFrame(true, OpcodeContinuation, payload[2*fragSize:])...)
+
+	for _, chunk := range []int{0, 37, 4096} {
+		sc := &scriptConn{in: in, chunk: chunk}
+		c := NewServerConn(sc)
+		op, got, err := c.ReadMessage()
+		if err != nil {
+			t.Fatalf("chunk=%d: ReadMessage: %v", chunk, err)
+		}
+		if op != OpcodeBinary || !bytes.Equal(got, payload) {
+			t.Fatalf("chunk=%d: mismatch: op=%v len(got)=%d len(want)=%d", chunk, op, len(got), len(payload))
+		}
+	}
+}
+
 func TestReadMessageProtocolErrors(t *testing.T) {
 	t.Parallel()
 

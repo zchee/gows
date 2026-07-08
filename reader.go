@@ -17,6 +17,7 @@ package gows
 import (
 	"errors"
 	"net"
+	"slices"
 
 	"github.com/zchee/gows/internal/mask"
 	"github.com/zchee/gows/internal/utf8x"
@@ -210,8 +211,20 @@ func (c *Conn) readContiguousPayload(h Header) ([]byte, error) {
 
 // readFramePayload consumes h.Length payload bytes from the stream, unmasking
 // with a resumable key across buffer refills, appending them to the reassembly
-// buffer, and validating UTF-8 incrementally for text messages. It enforces
-// the read limit across the whole message.
+// buffer, and validating UTF-8 for text messages. It enforces the read limit
+// across the whole message.
+//
+// Bytes already sitting in the read buffer are drained with a plain append --
+// that data is already resident in memory, so there is nothing to gain by
+// routing it anywhere else. Once the read buffer is exhausted and more of
+// this frame's payload remains on the wire (the common case once h.Length
+// exceeds the read buffer's capacity, e.g. any message bigger than the
+// default 4096-byte buffer), looping fillOnce (read into rbuf, up to
+// cap(rbuf) bytes at a time) plus an append per refill would double-buffer
+// every remaining byte through rbuf before it lands in msgBuf. Instead,
+// readFramePayload grows msgBuf once to its final size for this frame and
+// reads the remainder directly into it, halving the memory traffic for the
+// part of a large frame that doesn't fit in the read buffer.
 func (c *Conn) readFramePayload(h Header) error {
 	if int64(len(c.msgBuf))+h.Length > c.readLimit {
 		return c.failClose(CloseMessageTooBig, "message exceeds read limit")
@@ -219,13 +232,7 @@ func (c *Conn) readFramePayload(h Header) error {
 
 	remaining := h.Length
 	key := h.MaskKey
-	for remaining > 0 {
-		if c.r0 == c.r1 {
-			if err := c.fillOnce(); err != nil {
-				return c.ioError(err)
-			}
-			continue
-		}
+	for remaining > 0 && c.r0 < c.r1 {
 		take := int(min(int64(c.r1-c.r0), remaining))
 		chunk := c.rbuf[c.r0 : c.r0+take]
 		if h.Masked {
@@ -243,6 +250,89 @@ func (c *Conn) readFramePayload(h Header) error {
 		c.msgBuf = append(c.msgBuf, chunk...)
 		c.r0 += take
 		remaining -= int64(take)
+	}
+	if remaining == 0 {
+		return nil
+	}
+
+	start := len(c.msgBuf)
+	c.msgBuf = slices.Grow(c.msgBuf, int(remaining))
+	c.msgBuf = c.msgBuf[:start+int(remaining)]
+	dst := c.msgBuf[start:]
+
+	// The I/O boundary and the processing boundary below are deliberately
+	// independent, and sized for two different concerns:
+	//
+	//   - I/O: readDirect requests the *entire* remainder in one logical
+	//     call, not a cap(rbuf)-sized slice of it, so the transport is
+	//     free to hand back as much as it has already got in one Read
+	//     rather than being artificially limited to a 4096-byte gulp.
+	//     readDirect's own retry loop still copes with a real socket
+	//     splitting that across more than one underlying Read.
+	//   - Processing: mask.Mask/utf8v.Feed still run over cap(rbuf)-sized
+	//     sub-chunks regardless of how readDirect above satisfied the
+	//     read, because a single very large (tens of KB+) call to either
+	//     measurably loses cache residency in the SIMD mask kernel (see
+	//     the 64KB row of .omc/research/phase5-results.md's kernel table,
+	//     and bench/results/phase5-linux-amd64.md's "64KB drops off ...
+	//     consistent with leaving cache residency") -- keeping this loop
+	//     at the pre-optimization chunk size avoids that regression.
+	//
+	// Known limitation, confirmed by strace on the AC5 benchmark harness:
+	// how many actual read(2) calls the I/O step above needs is governed
+	// by *arrival pacing* on the wire, not by the size requested here.
+	// If a peer writes a frame's header and payload as two separate
+	// write(2) calls, a fast reader can re-enter Read before the second
+	// write's bytes have arrived, splitting the payload across more
+	// reads than a slower reader would "accidentally" batch by being
+	// late to ask -- gows measured 5.02 reads/msg for a 16KB frame
+	// against gws's 2.00 there, entirely attributable to this pacing
+	// effect, not to any remaining artificial chunk cap on gows's side
+	// (there is none, as of this change). A single-writer sender (e.g.
+	// this package's own writev'd WriteMessage output) does not trigger
+	// the pattern. MSG_WAITALL via a raw syscall (RawConn) was evaluated
+	// as a way to force full-remainder reads regardless of arrival
+	// pacing and rejected: on the non-blocking sockets Go's netpoller
+	// requires, MSG_WAITALL does not block in-kernel across multiple
+	// future arrivals -- it is an atomic single-attempt gate that
+	// returns EAGAIN immediately (discarding whatever partial bytes did
+	// arrive) if the full requested length is not already buffered, so
+	// it does not reduce the read count here and can add wasted
+	// round-trips instead.
+	chunkSize := cap(c.rbuf)
+	if err := c.readDirect(dst); err != nil {
+		return c.ioError(err)
+	}
+	for rest := dst; len(rest) > 0; {
+		n := min(len(rest), chunkSize)
+		sub := rest[:n]
+		if h.Masked {
+			key = mask.Mask(sub, key)
+		}
+		if c.msgIsText && !c.skipUTF8 && !c.msgCompressed {
+			if !c.utf8v.Feed(sub) {
+				return c.failClose(CloseInvalidFramePayloadData, "invalid UTF-8 in text message")
+			}
+		}
+		rest = rest[n:]
+	}
+	return nil
+}
+
+// readDirect fills dst completely by reading straight from the connection,
+// bypassing c.rbuf entirely. It mirrors fillOnce's underlying-error contract
+// exactly: a Read that returns zero new bytes alongside a non-nil error
+// propagates that error verbatim (e.g. a plain io.EOF, not io.ReadFull's
+// io.ErrUnexpectedEOF upgrade for a partially filled destination), so a
+// truncated stream surfaces identically regardless of which path served the
+// frame that got cut off.
+func (c *Conn) readDirect(dst []byte) error {
+	for len(dst) > 0 {
+		n, err := c.conn.Read(dst)
+		dst = dst[n:]
+		if n == 0 && err != nil {
+			return err
+		}
 	}
 	return nil
 }
