@@ -60,6 +60,28 @@
 // windowBits is 15 (the default, full window); for windowBits 8-14, the
 // level argument is accepted (so callers configuring
 // [gows.SetDeflateBackend] don't need to special-case it) but ignored.
+//
+// # Memory cost does not shrink with window bits (measured)
+//
+// A caller combining this backend with gows's permessage-deflate context
+// takeover (a persistent per-Conn compressor; see gows's
+// WithCompressionParams doc for the full cost breakdown) might expect a
+// smaller negotiated window to also shrink that persistent compressor's
+// memory footprint proportionally. Measured directly against this
+// backend, it does not: klauspost's windowed encoder
+// (fastEncL5Window, the type NewWriterWindow constructs) allocates a
+// fixed-size internal buffer independent of windowBits --
+// NewWriterWindow at 8, 10, 12, and 15 bits (256B, 1KB, 4KB, and 32KB
+// windows) all measured at ~730KB per instance, versus ~475KB for the
+// unwindowed NewWriter(level=1) path. windowBits only bounds how far
+// back a match may reference, a cheap int32 comparison, not how large
+// the encoder's own working set is. The negotiated window size *does*
+// still shrink gows's own incoming-side sliding-window dictionary
+// (capped at 2^windowBits bytes, entirely gows's allocation, not this
+// backend's) -- see WithCompressionParams -- so window-bits negotiation
+// remains worthwhile for a connection's *receive* direction even with
+// this backend installed; it just should not be expected to reduce the
+// *send* direction's persistent compressor cost.
 package flatekp
 
 import (

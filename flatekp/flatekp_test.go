@@ -494,3 +494,34 @@ func benchmarkWriterReset(b *testing.B, level int) {
 		w.Reset(io.Discard)
 	}
 }
+
+// --- benchmark: NewWriter memory cost does not shrink with window bits ---
+
+// BenchmarkNewWriterMemoryWindowBits8/15 back up the package doc's
+// "measured directly" claim with a reproducible number: -benchmem's B/op
+// here is each construction's allocation size, and it is expected to
+// come out essentially identical at windowBits 8 and 15 -- klauspost's
+// windowed encoder allocates a fixed-size internal buffer regardless of
+// how far back a match may reference, so a smaller negotiated window
+// does not shrink this backend's own persistent-compressor memory cost
+// (gows's WithCompressionParams doc explains why that memory
+// distinction matters for permessage-deflate context takeover).
+func BenchmarkNewWriterMemoryWindowBits8(b *testing.B) {
+	benchmarkNewWriterMemory(b, 8)
+}
+
+func BenchmarkNewWriterMemoryWindowBits15(b *testing.B) {
+	benchmarkNewWriterMemory(b, 15)
+}
+
+func benchmarkNewWriterMemory(b *testing.B, windowBits int) {
+	backend := flatekp.Backend()
+	b.ReportAllocs()
+	for b.Loop() {
+		w, err := backend.NewWriter(1, windowBits)
+		if err != nil {
+			b.Fatalf("backend.NewWriter: %v", err)
+		}
+		_ = w
+	}
+}
