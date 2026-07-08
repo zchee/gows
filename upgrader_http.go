@@ -98,7 +98,7 @@ func (u *Upgrader) UpgradeHTTP(w http.ResponseWriter, r *http.Request) (net.Conn
 	var deflateOK bool
 	if u.EnableCompression {
 		if extValue := r.Header.Get("Sec-WebSocket-Extensions"); extValue != "" {
-			deflateParams, deflateOK = negotiateDeflate([]byte(extValue))
+			deflateParams, deflateOK = negotiateDeflate([]byte(extValue), u.NegotiateWindowBits)
 		}
 	}
 

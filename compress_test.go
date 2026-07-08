@@ -16,9 +16,11 @@ package gows
 
 import (
 	"bytes"
+	"compress/flate"
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"strings"
 	"testing"
@@ -32,9 +34,10 @@ import (
 
 func TestNegotiateDeflate(t *testing.T) {
 	tests := map[string]struct {
-		extensions string
-		wantOK     bool
-		want       extension.DeflateParams
+		extensions          string
+		negotiateWindowBits bool
+		wantOK              bool
+		want                extension.DeflateParams
 	}{
 		"simplest offer": {
 			extensions: "permessage-deflate",
@@ -83,7 +86,7 @@ func TestNegotiateDeflate(t *testing.T) {
 
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
-			got, ok := negotiateDeflate([]byte(tt.extensions))
+			got, ok := negotiateDeflate([]byte(tt.extensions), tt.negotiateWindowBits)
 			if ok != tt.wantOK {
 				t.Fatalf("ok = %v, want %v (got=%+v)", ok, tt.wantOK, got)
 			}
@@ -91,6 +94,177 @@ func TestNegotiateDeflate(t *testing.T) {
 				t.Fatalf("params = %+v, want %+v", got, tt.want)
 			}
 		})
+	}
+}
+
+// --- negotiation: windows-capable backend (SetDeflateBackend) --------------
+
+// fakeWindowedBackend reports capability for the full RFC 7692 window
+// range (8-15) so negotiateDeflate's accept/decline/echo logic can be
+// exercised, but its NewWriter/NewReader ignore windowBits and always
+// compress at the full stdlib compress/flate window: this test only
+// exercises negotiation policy (does the handshake accept and correctly
+// echo a sub-15 offer), not real window-restricted compression --
+// flatekp's own module tests that.
+var fakeWindowedBackend = &DeflateBackend{
+	Name: "fake-windowed",
+	NewWriter: func(level, windowBits int) (DeflateWriter, error) {
+		return flate.NewWriter(io.Discard, level)
+	},
+	NewReader: func(windowBits int) DeflateReader {
+		return flate.NewReader(bytes.NewReader(nil)).(DeflateReader)
+	},
+	MinLevel: flate.HuffmanOnly, MaxLevel: flate.BestCompression,
+	MinWindowBits: 8, MaxWindowBits: 15,
+}
+
+// withDeflateBackend installs b at level/windowBits for the duration of
+// t, restoring whatever was active beforehand once t completes. It must
+// not be used from a t.Parallel() test: Go's test runner always finishes
+// every non-parallel top-level test (cleanup included) before any
+// t.Parallel() test in the same package starts running, which is what
+// keeps this process-global mutation from racing the package's other,
+// t.Parallel()-marked compression tests.
+func withDeflateBackend(t *testing.T, b *DeflateBackend, level, windowBits int) {
+	t.Helper()
+	prev := activeDeflate.Load()
+	if err := SetDeflateBackend(b, level, windowBits); err != nil {
+		t.Fatalf("SetDeflateBackend: %v", err)
+	}
+	t.Cleanup(func() { activeDeflate.Store(prev) })
+}
+
+func TestSetDeflateBackendValidation(t *testing.T) {
+	tests := map[string]struct {
+		backend    *DeflateBackend
+		level      int
+		windowBits int
+		wantErr    bool
+	}{
+		"valid":                                  {fakeWindowedBackend, 1, 10, false},
+		"nil backend":                            {nil, 1, 15, true},
+		"level too low":                          {fakeWindowedBackend, flate.HuffmanOnly - 1, 15, true},
+		"level too high":                         {fakeWindowedBackend, flate.BestCompression + 1, 15, true},
+		"window bits too low":                    {fakeWindowedBackend, 1, 7, true},
+		"window bits too high":                   {fakeWindowedBackend, 1, 16, true},
+		"stdlib backend, sub-15 window rejected": {defaultDeflateBackend, 1, 10, true},
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			prev := activeDeflate.Load()
+			defer activeDeflate.Store(prev)
+
+			err := SetDeflateBackend(tt.backend, tt.level, tt.windowBits)
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("SetDeflateBackend err = %v, wantErr %v", err, tt.wantErr)
+			}
+			if tt.wantErr && activeDeflate.Load() != prev {
+				t.Fatalf("SetDeflateBackend must leave the previous backend active on error")
+			}
+		})
+	}
+}
+
+func TestNegotiateDeflateWindowBits(t *testing.T) {
+	withDeflateBackend(t, fakeWindowedBackend, defaultDeflateLevel, 10)
+
+	tests := map[string]struct {
+		extensions          string
+		negotiateWindowBits bool
+		wantOK              bool
+		want                extension.DeflateParams
+	}{
+		"negotiation off: sub-15 still declined despite capable backend": {
+			extensions:          "permessage-deflate; server_max_window_bits=10",
+			negotiateWindowBits: false,
+			wantOK:              false,
+		},
+		"negotiation on: offer equal to active bits accepted and echoed": {
+			extensions:          "permessage-deflate; server_max_window_bits=10",
+			negotiateWindowBits: true,
+			wantOK:              true,
+			want: extension.DeflateParams{
+				ServerNoContextTakeover: true, ClientNoContextTakeover: true,
+				ServerMaxWindowBits: 10,
+			},
+		},
+		"negotiation on: offer above active bits accepted, echoes active bits (less than ceiling)": {
+			extensions:          "permessage-deflate; server_max_window_bits=15",
+			negotiateWindowBits: true,
+			wantOK:              true,
+			want: extension.DeflateParams{
+				ServerNoContextTakeover: true, ClientNoContextTakeover: true,
+				ServerMaxWindowBits: 10,
+			},
+		},
+		"negotiation on: offer below active bits declined, no fallback": {
+			extensions:          "permessage-deflate; server_max_window_bits=8",
+			negotiateWindowBits: true,
+			wantOK:              false,
+		},
+		"negotiation on: offer below active bits declined, falls back to next offer": {
+			extensions:          "permessage-deflate; server_max_window_bits=8, permessage-deflate",
+			negotiateWindowBits: true,
+			wantOK:              true,
+			want: extension.DeflateParams{
+				ServerNoContextTakeover: true, ClientNoContextTakeover: true,
+				ServerMaxWindowBits: 10,
+			},
+		},
+		"negotiation on: no window-bits parameter at all still echoes active bits": {
+			extensions:          "permessage-deflate",
+			negotiateWindowBits: true,
+			wantOK:              true,
+			want: extension.DeflateParams{
+				ServerNoContextTakeover: true, ClientNoContextTakeover: true,
+				ServerMaxWindowBits: 10,
+			},
+		},
+	}
+
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			got, ok := negotiateDeflate([]byte(tt.extensions), tt.negotiateWindowBits)
+			if ok != tt.wantOK {
+				t.Fatalf("ok = %v, want %v (got=%+v)", ok, tt.wantOK, got)
+			}
+			if ok && got != tt.want {
+				t.Fatalf("params = %+v, want %+v", got, tt.want)
+			}
+		})
+	}
+}
+
+// TestUpgradeCompressionNegotiationWindowBits drives the full Upgrade()
+// handshake with a windows-capable backend active, asserting the wire
+// response actually echoes the negotiated server_max_window_bits (RFC
+// 7692 §7.1.2.1), not just negotiateDeflate's return value in isolation.
+func TestUpgradeCompressionNegotiationWindowBits(t *testing.T) {
+	withDeflateBackend(t, fakeWindowedBackend, defaultDeflateLevel, 10)
+
+	const base = "GET / HTTP/1.1\r\n" +
+		"Host: example.com\r\n" +
+		"Upgrade: websocket\r\n" +
+		"Connection: Upgrade\r\n" +
+		"Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n" +
+		"Sec-WebSocket-Version: 13\r\n" +
+		"Sec-WebSocket-Extensions: permessage-deflate; server_max_window_bits=12\r\n" +
+		"\r\n"
+
+	sc := &scriptConn{in: []byte(base)}
+	u := &Upgrader{EnableCompression: true, NegotiateWindowBits: true}
+	hs, err := u.Upgrade(sc)
+	if err != nil {
+		t.Fatalf("Upgrade: %v", err)
+	}
+	if !hs.Compressed {
+		t.Fatalf("Compressed = false, want true")
+	}
+	resp := sc.out.String()
+	const want = "Sec-WebSocket-Extensions: permessage-deflate; server_no_context_takeover; " +
+		"client_no_context_takeover; server_max_window_bits=10\r\n"
+	if !strings.Contains(resp, want) {
+		t.Errorf("response missing echoed window bits %q: %q", want, resp)
 	}
 }
 
@@ -276,6 +450,89 @@ func TestDialCompressionNegotiation(t *testing.T) {
 			defer conn.Close()
 			if hs.Compressed != tt.wantCompressed {
 				t.Errorf("Compressed = %v, want %v", hs.Compressed, tt.wantCompressed)
+			}
+		})
+	}
+}
+
+// TestDialWindowBitsOffer confirms Dialer.WindowBits controls whether
+// (and with what value) the handshake request's Sec-WebSocket-Extensions
+// offer includes client_max_window_bits, without needing a windows-
+// capable backend at all: offering a restriction on the Dialer's own
+// outgoing compression is a request-side concern, independent of
+// [SetDeflateBackend].
+func TestDialWindowBitsOffer(t *testing.T) {
+	tests := map[string]struct {
+		windowBits int
+		wantOffer  string
+	}{
+		"zero value: no window-bits restriction offered": {
+			windowBits: 0,
+			wantOffer:  "permessage-deflate; server_no_context_takeover; client_no_context_takeover\r\n",
+		},
+		"explicit window bits offered": {
+			windowBits: 10,
+			wantOffer: "permessage-deflate; server_no_context_takeover; client_no_context_takeover; " +
+				"client_max_window_bits=10\r\n",
+		},
+	}
+
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			serverConn, clientConn := net.Pipe()
+			reqCh := make(chan []byte, 1)
+			go func() {
+				req := readRawHeaderBlockCompress(t, serverConn)
+				reqCh <- req
+				resp := "HTTP/1.1 101 Switching Protocols\r\n" +
+					"Upgrade: websocket\r\n" +
+					"Connection: Upgrade\r\n" +
+					"Sec-WebSocket-Accept: " + acceptFromRawRequest(t, req) + "\r\n\r\n"
+				serverConn.Write([]byte(resp))
+			}()
+
+			d := &Dialer{
+				EnableCompression: true,
+				WindowBits:        tt.windowBits,
+				NetDial: func(ctx context.Context, network, addr string) (net.Conn, error) {
+					return clientConn, nil
+				},
+			}
+			conn, _, err := d.Dial(t.Context(), "ws://example.invalid/")
+			if err != nil {
+				t.Fatalf("Dial: unexpected error %v", err)
+			}
+			defer conn.Close()
+
+			req := <-reqCh
+			if !bytes.Contains(req, []byte("Sec-WebSocket-Extensions: "+tt.wantOffer)) {
+				t.Errorf("request missing expected offer %q: %q", tt.wantOffer, req)
+			}
+		})
+	}
+}
+
+// TestDialInvalidWindowBits confirms Dial rejects an out-of-range
+// Dialer.WindowBits before dialing anything at all (NetDial must never
+// be called).
+func TestDialInvalidWindowBits(t *testing.T) {
+	tests := map[string]int{
+		"too low (below 8)":   7,
+		"too high (above 15)": 16,
+	}
+	for name, windowBits := range tests {
+		t.Run(name, func(t *testing.T) {
+			d := &Dialer{
+				EnableCompression: true,
+				WindowBits:        windowBits,
+				NetDial: func(ctx context.Context, network, addr string) (net.Conn, error) {
+					t.Fatal("NetDial must not be called for an invalid WindowBits")
+					return nil, nil
+				},
+			}
+			_, _, err := d.Dial(t.Context(), "ws://example.invalid/")
+			if !errors.Is(err, ErrInvalidWindowBits) {
+				t.Fatalf("Dial err = %v, want %v", err, ErrInvalidWindowBits)
 			}
 		})
 	}

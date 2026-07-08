@@ -57,6 +57,14 @@ type PreparedMessage struct {
 // [defaultCompressMinSize] -- a permessage-deflate compressed frame too,
 // so [Conn.WritePreparedMessage] can pick whichever a given connection
 // needs without recompressing per connection. It never mutates payload.
+//
+// The compressed frame, if any, is produced by whichever [DeflateBackend]
+// is process-wide active at the moment NewPreparedMessage runs (see
+// [SetDeflateBackend]); a *PreparedMessage already built keeps using its
+// frozen-at-construction-time compressed bytes even if a later
+// SetDeflateBackend call changes what newly compressed messages look
+// like -- consistent with a PreparedMessage's whole purpose (compress
+// once, reuse the same bytes for every connection that sends it).
 func NewPreparedMessage(op Opcode, payload []byte) (*PreparedMessage, error) {
 	pm := &PreparedMessage{}
 	pm.plain = AppendHeader(nil, Header{Fin: true, Opcode: op, Length: int64(len(payload))})

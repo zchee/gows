@@ -69,6 +69,10 @@ var (
 	// wraps a more specific internal/extension error; see the wrapped
 	// error's text for which condition failed.
 	ErrInvalidCompressionResponse = errors.New("gows: handshake response's Sec-WebSocket-Extensions (permessage-deflate) is invalid")
+	// ErrInvalidWindowBits indicates [Dialer.WindowBits] was set outside
+	// RFC 7692 §7.1.2.2's valid range (8-15). [Dialer.Dial] returns this
+	// before dialing anything.
+	ErrInvalidWindowBits = errors.New("gows: Dialer.WindowBits outside the valid range (8-15)")
 	// ErrInvalidCloseReason indicates a [Conn.Close] call's reason string
 	// was not valid UTF-8, which RFC 6455 §5.5.1 requires for a Close
 	// frame's reason text. Close returns this before sending anything --

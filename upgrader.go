@@ -27,33 +27,55 @@ import (
 	"github.com/zchee/gows/internal/pool"
 )
 
-// deflateWindowBits is the only server_max_window_bits value this
-// package's default stdlib compress/flate backend can honor: stdlib
-// flate always compresses at the full 32KB (windowBits=15) window with
-// no public API to shrink it (see .omc/research/compress-design.md §4).
-// An offer requesting a smaller server_max_window_bits is declined.
+// deflateWindowBits is the RFC 7692 default permessage-deflate window
+// size (log2 of 32KB) -- the only server_max_window_bits value this
+// package's default stdlib compress/flate backend can honor, since
+// stdlib flate always compresses at the full window with no public API
+// to shrink it (see .omc/research/compress-design.md §4). An offer
+// requesting a smaller server_max_window_bits is declined unless the
+// process's active [DeflateBackend] is actually configured (via
+// [SetDeflateBackend]) to compress at a smaller window and the
+// [Upgrader] negotiating this offer set [Upgrader.NegotiateWindowBits].
 const deflateWindowBits = 15
+
+// minDeflateWindowBits is RFC 7692 §7.1.2's window-bits lower bound,
+// shared by server_max_window_bits and client_max_window_bits.
+const minDeflateWindowBits = 8
 
 // negotiateDeflate scans a client's Sec-WebSocket-Extensions header
 // value (RFC 7692 §5) for the first permessage-deflate offer this server
-// can actually honor with its default stdlib compress/flate backend,
-// applying RFC 7692 §7's "first structurally valid offer, otherwise fall
-// back to the next" rule alongside this server's own policy:
-// server_no_context_takeover and client_no_context_takeover are always
-// forced on in the response (this phase never offers context takeover),
-// and an offer requesting a server_max_window_bits smaller than
-// [deflateWindowBits] is declined and skipped in favor of the client's
-// next offer, since stdlib compress/flate has no way to compress at a
-// smaller window. client_max_window_bits, bare or valued, never causes a
+// can actually honor, applying RFC 7692 §7's "first structurally valid
+// offer, otherwise fall back to the next" rule alongside this server's
+// own policy: server_no_context_takeover and client_no_context_takeover
+// are always forced on in the response (this phase never offers context
+// takeover). client_max_window_bits, bare or valued, never causes a
 // decline: it only bounds the client's own compressor, which this
-// server's decompressor (also a fixed 32KB window) can always handle
-// regardless.
+// server's decompressor (always a full 32KB window, regardless of
+// backend) can always handle.
+//
+// server_max_window_bits governs this server's own outgoing compression
+// window, which -- per [SetDeflateBackend]'s doc -- is a single
+// process-wide value (activeBits below): [deflateWindowBits] (15) unless
+// negotiateWindowBits is true and [SetDeflateBackend] installed a
+// backend configured for less. An offer requesting a server_max_window_bits
+// smaller than activeBits is declined and skipped in favor of the
+// client's next offer, since the server cannot compress within a
+// smaller ceiling than what it is actually configured to use; an offer
+// requesting activeBits or more (or omitting the parameter entirely) is
+// accepted, echoing activeBits back (RFC 7692 §7.1.2.1) whenever it is
+// below 15 -- using less window than the offer's ceiling allows is
+// always RFC-compliant.
 //
 // It reports ok=false if extensions contains no acceptable
 // permessage-deflate offer at all; per RFC 7692 §7 the caller should
 // then omit permessage-deflate from its response entirely -- this is
 // never itself a handshake failure.
-func negotiateDeflate(extensions []byte) (extension.DeflateParams, bool) {
+func negotiateDeflate(extensions []byte, negotiateWindowBits bool) (extension.DeflateParams, bool) {
+	activeBits := deflateWindowBits
+	if negotiateWindowBits {
+		activeBits = currentDeflateWindowBits()
+	}
+
 	sc := extension.NewOfferScanner(extensions)
 	for sc.Next() {
 		if !httpx.EqualFold(sc.Name(), extension.DeflateExtensionName) {
@@ -63,13 +85,17 @@ func negotiateDeflate(extensions []byte) (extension.DeflateParams, bool) {
 		if !ok {
 			continue
 		}
-		if params.ServerMaxWindowBits != 0 && params.ServerMaxWindowBits != deflateWindowBits {
+		if params.ServerMaxWindowBits != 0 && params.ServerMaxWindowBits < activeBits {
 			continue
 		}
-		return extension.DeflateParams{
+		agreed := extension.DeflateParams{
 			ServerNoContextTakeover: true,
 			ClientNoContextTakeover: true,
-		}, true
+		}
+		if activeBits < deflateWindowBits {
+			agreed.ServerMaxWindowBits = activeBits
+		}
+		return agreed, true
 	}
 	return extension.DeflateParams{}, false
 }
@@ -191,7 +217,7 @@ func (u *Upgrader) Upgrade(c net.Conn) (Handshake, error) {
 	var deflateParams extension.DeflateParams
 	var deflateOK bool
 	if u.EnableCompression && extensions != nil {
-		deflateParams, deflateOK = negotiateDeflate(extensions)
+		deflateParams, deflateOK = negotiateDeflate(extensions, u.NegotiateWindowBits)
 	}
 
 	resp := appendSwitchingProtocolsResponse(pool.Get(160+len(selected)), key, selected, deflateParams, deflateOK)

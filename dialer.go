@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"net"
 	"net/url"
+	"strconv"
 
 	"github.com/zchee/gows/internal/extension"
 	"github.com/zchee/gows/internal/httpx"
@@ -29,15 +30,31 @@ import (
 )
 
 // deflateOfferHeader is this package's fixed permessage-deflate offer
-// (RFC 7692 §7.1.1) sent when [Dialer.EnableCompression] is set: both
-// no-context-takeover directions, no window-bits restriction, matching
-// this phase's server-side policy in negotiateDeflate.
+// (RFC 7692 §7.1.1) prefix sent when [Dialer.EnableCompression] is set:
+// both no-context-takeover directions, matching this phase's
+// server-side policy in negotiateDeflate. [Dialer.deflateOffer] appends
+// a client_max_window_bits parameter to this when [Dialer.WindowBits] is
+// set.
 const deflateOfferHeader = "permessage-deflate; server_no_context_takeover; client_no_context_takeover"
 
-// deflateOffer is [deflateOfferHeader]'s [extension.DeflateParams]
-// equivalent, passed to [extension.ValidateDeflateResponse] to validate
-// the server's response against what this Dialer actually offered.
-var deflateOffer = extension.DeflateParams{ServerNoContextTakeover: true, ClientNoContextTakeover: true}
+// deflateOffer builds this Dialer's permessage-deflate offer: the header
+// value for the handshake request's Sec-WebSocket-Extensions, and its
+// [extension.DeflateParams] equivalent, passed to
+// [extension.ValidateDeflateResponse] to validate the server's response
+// against what this Dialer actually offered. When [Dialer.WindowBits] is
+// non-zero, the offer restricts this Dialer's own outgoing (client-to-
+// server) compression to that window size (RFC 7692 §7.1.2.2) --
+// meaningful only when the process's active permessage-deflate backend
+// ([SetDeflateBackend]) is actually configured to compress that small;
+// see there.
+func (d *Dialer) deflateOffer() (header string, params extension.DeflateParams) {
+	params = extension.DeflateParams{ServerNoContextTakeover: true, ClientNoContextTakeover: true}
+	if d.WindowBits == 0 {
+		return deflateOfferHeader, params
+	}
+	params.ClientMaxWindowBits = d.WindowBits
+	return deflateOfferHeader + "; client_max_window_bits=" + strconv.Itoa(d.WindowBits), params
+}
 
 // hasDeflateElement reports whether b (a Sec-WebSocket-Extensions header
 // value) names permessage-deflate at all, regardless of whether its
@@ -91,6 +108,10 @@ func Dial(ctx context.Context, rawURL string) (net.Conn, Handshake, error) {
 // once per connection, not once per message) and allocates freely to
 // keep its implementation straightforward.
 func (d *Dialer) Dial(ctx context.Context, rawURL string) (net.Conn, Handshake, error) {
+	if d.WindowBits != 0 && (d.WindowBits < minDeflateWindowBits || d.WindowBits > deflateWindowBits) {
+		return nil, Handshake{}, ErrInvalidWindowBits
+	}
+
 	u, err := url.Parse(rawURL)
 	if err != nil {
 		return nil, Handshake{}, fmt.Errorf("gows: parse dial URL: %w", err)
@@ -171,8 +192,9 @@ func (d *Dialer) handshake(conn net.Conn, u *url.URL) (Handshake, error) {
 	if len(d.Subprotocols) > 0 {
 		fmt.Fprintf(&req, "Sec-WebSocket-Protocol: %s\r\n", joinComma(d.Subprotocols))
 	}
+	offerHeader, offerParams := d.deflateOffer()
 	if d.EnableCompression {
-		req.WriteString("Sec-WebSocket-Extensions: " + deflateOfferHeader + "\r\n")
+		fmt.Fprintf(&req, "Sec-WebSocket-Extensions: %s\r\n", offerHeader)
 	}
 	req.WriteString("\r\n")
 
@@ -254,7 +276,7 @@ func (d *Dialer) handshake(conn net.Conn, u *url.URL) (Handshake, error) {
 
 	var compressed bool
 	if d.EnableCompression && serverExtensions != nil && hasDeflateElement(serverExtensions) {
-		if _, verr := extension.ValidateDeflateResponse(deflateOffer, serverExtensions); verr != nil {
+		if _, verr := extension.ValidateDeflateResponse(offerParams, serverExtensions); verr != nil {
 			return Handshake{}, fmt.Errorf("%w: %w", ErrInvalidCompressionResponse, verr)
 		}
 		compressed = true

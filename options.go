@@ -15,8 +15,6 @@
 package gows
 
 import (
-	"bytes"
-	"compress/flate"
 	"context"
 	"crypto/tls"
 	"io"
@@ -33,33 +31,94 @@ const defaultMaxHeaderBytes = 8192
 
 // --- permessage-deflate (RFC 7692) backend seam -----------------------
 //
-// compress.go never calls compress/flate directly; it only calls
-// newDeflateWriter/newDeflateReader through these package-level vars, so
-// swapping the backend (e.g. to github.com/klauspost/compress/flate, once
-// the bench/ deflate study picks a winner) means reassigning these two
-// vars in one place, behind a build tag if that backend isn't zero-dep.
-// The interfaces below are structural subsets both compress/flate and
-// klauspost/compress/flate satisfy without either package needing to
-// name gows's types.
+// compress.go never calls compress/flate (or any other compression
+// package) directly; it only goes through the pooled [DeflateWriter]/
+// [DeflateReader] values a [DeflateBackend] constructs, so swapping the
+// backend -- e.g. to github.com/klauspost/compress/flate via the
+// separate github.com/zchee/gows/flatekp submodule, once the bench/
+// deflate study (.omc/research/deflate-study.md) picked a winner --
+// means calling [SetDeflateBackend] once, without core gows ever
+// depending on klauspost/compress itself (AC9's zero-dependency
+// invariant survives because flatekp is its own module).
 
-// deflateWriter is the subset of *compress/flate.Writer's method set
-// compress.go needs to run one permessage-deflate compression cycle:
-// Write the payload, Flush to force the RFC 7692 §7.2.1 sync-flush
-// marker, Reset to reuse the writer for the next message (or the next
-// pooled borrower) without allocating a new one.
-type deflateWriter interface {
+// DeflateWriter is the subset of *compress/flate.Writer's method set (or
+// a third-party backend's equivalent, e.g.
+// *github.com/klauspost/compress/flate.Writer) compress.go needs to run
+// one permessage-deflate compression cycle: Write the payload, Flush to
+// force the RFC 7692 §7.2.1 sync-flush marker, Reset to reuse the writer
+// for the next message (or the next pooled borrower) without allocating
+// a new one.
+type DeflateWriter interface {
 	io.Writer
 	Reset(dst io.Writer)
 	Flush() error
 }
 
-// deflateReader is the subset of the value *compress/flate.NewReader
-// returns (which also implements [flate.Resetter]) that compress.go
-// needs to decompress one message and reuse the reader afterward without
-// allocating a new one.
-type deflateReader interface {
+// DeflateReader is the subset of the value *compress/flate.NewReader (or
+// a third-party backend's equivalent) returns -- which also implements
+// that package's own Resetter interface, Reset(io.Reader, []byte) error
+// -- that compress.go needs to decompress one message and reuse the
+// reader afterward without allocating a new one.
+type DeflateReader interface {
 	io.Reader
 	Reset(r io.Reader, dict []byte) error
+}
+
+// DeflateBackend supplies compress.go's permessage-deflate (RFC 7692)
+// compressor and decompressor implementation, installed process-wide
+// with [SetDeflateBackend]. compress.go's built-in default (stdlib
+// compress/flate, [defaultDeflateLevel], a fixed 32KB window) needs no
+// DeflateBackend value at all; construct one to switch backends, e.g.
+// via github.com/zchee/gows/flatekp's Backend function, which wraps
+// github.com/klauspost/compress/flate (kept out of gows's own go.mod --
+// AC9 -- by living in its own submodule).
+//
+// A connection's own negotiated window bits ([Upgrader.NegotiateWindowBits],
+// [Dialer.WindowBits]) and the window bits [SetDeflateBackend] actually
+// runs with are independent knobs a caller must keep consistent: see
+// [SetDeflateBackend] for why compress.go's pools -- and so the backend,
+// level, and window bits actually used to compress/decompress -- are a
+// process-wide setting in this phase, not a per-Conn one.
+type DeflateBackend struct {
+	// Name identifies the backend for diagnostics (e.g. "compress/flate",
+	// "klauspost/compress/flate"). Optional.
+	Name string
+
+	// NewWriter constructs a compressor at level, restricted to at most
+	// 2^windowBits bytes of LZ77 history (RFC 7692 §7.1.2's window-bits
+	// range, 8-15). By the time compress.go calls this, [SetDeflateBackend]
+	// has already validated level against [DeflateBackend.MinLevel]/
+	// [DeflateBackend.MaxLevel] and windowBits against
+	// [DeflateBackend.MinWindowBits]/[DeflateBackend.MaxWindowBits].
+	NewWriter func(level, windowBits int) (DeflateWriter, error)
+
+	// NewReader constructs a decompressor for messages compressed with at
+	// most 2^windowBits bytes of LZ77 history. Most DEFLATE
+	// implementations (including stdlib compress/flate and
+	// klauspost/compress/flate) need no window-size configuration on the
+	// decompression side at all -- back-reference distances are
+	// self-describing in the compressed stream -- so windowBits is often
+	// unused by a NewReader implementation; it is still passed through
+	// for backends that do size an internal buffer from it.
+	NewReader func(windowBits int) DeflateReader
+
+	// MinLevel and MaxLevel report the inclusive range of compression
+	// levels NewWriter accepts when windowBits requests the full,
+	// RFC 7692 default 32KB window (windowBits == 15). A backend whose
+	// windowed mode (windowBits < 15) uses a fixed internal encoder
+	// instead of an adjustable level -- true of both stdlib
+	// compress/flate (which has no windowed mode at all) and
+	// klauspost/compress/flate's NewWriterWindow -- should document that
+	// caveat on NewWriter itself; MinLevel/MaxLevel describes the
+	// windowBits == 15 case only.
+	MinLevel, MaxLevel int
+
+	// MinWindowBits and MaxWindowBits report the inclusive range of
+	// window sizes (RFC 7692 §7.1.2) this backend's NewWriter/NewReader
+	// honor. A backend that can only compress at the RFC 7692 default
+	// 32KB window -- like compress.go's built-in stdlib compress/flate
+	// backend -- reports MinWindowBits == MaxWindowBits == 15.
+	MinWindowBits, MaxWindowBits int
 }
 
 // defaultDeflateLevel is the compression level compress.go's default
@@ -68,34 +127,10 @@ type deflateReader interface {
 // Writer.Reset cost at ~11.6µs -- large enough to dominate small-message
 // overhead under the no-context-takeover, pool-and-reset-per-message
 // model this phase uses -- so level 1 (BestSpeed) is the default; level 6
-// is not used unless a future option explicitly asks for it.
+// is not used unless [SetDeflateBackend] explicitly asks for it (e.g.
+// with the flatekp/klauspost backend, whose Writer.Reset cost is flat
+// across levels -- see .omc/research/deflate-study.md).
 const defaultDeflateLevel = 1
-
-// newDeflateWriter constructs a compressor at level. The returned
-// writer's destination is meaningless until the first Reset(dst) call;
-// callers always Reset before Write per compress.go's pooling contract.
-var newDeflateWriter = func(level int) deflateWriter {
-	w, err := flate.NewWriter(io.Discard, level)
-	if err != nil {
-		// Only returns an error for a level outside [flate.HuffmanOnly,
-		// flate.BestCompression], and defaultDeflateLevel is a constant
-		// within that range, so this is unreachable in practice.
-		panic("gows: invalid compression level: " + err.Error())
-	}
-	return w
-}
-
-// newDeflateReader constructs a decompressor. Like newDeflateWriter's
-// destination, the source given here is a placeholder; callers always
-// call Reset(src, nil) before reading per compress.go's pooling
-// contract.
-var newDeflateReader = func() deflateReader {
-	// flate.NewReader's returned io.ReadCloser also implements
-	// flate.Resetter (Reset(io.Reader, []byte) error), a stable stdlib
-	// guarantee this package relies on instead of redeclaring the
-	// interface with an incompatible name.
-	return flate.NewReader(bytes.NewReader(nil)).(deflateReader)
-}
 
 // Upgrader performs the server side of a WebSocket opening handshake
 // (RFC 6455 §4.2). The zero value is a ready-to-use Upgrader with no
@@ -146,7 +181,8 @@ type Upgrader struct {
 	// [Upgrader.UpgradeHTTP] negotiate permessage-deflate (RFC 7692) with
 	// a client that offers it. This phase only ever responds with both
 	// server_no_context_takeover and client_no_context_takeover set
-	// (context takeover is a later opt-in), and declines any offer
+	// (context takeover is a later opt-in), and -- unless
+	// [Upgrader.NegotiateWindowBits] is also set -- declines any offer
 	// requesting a server_max_window_bits other than 15 (the only window
 	// size compress.go's default stdlib compress/flate backend can
 	// actually honor), falling back to the client's next offer or no
@@ -155,6 +191,24 @@ type Upgrader struct {
 	// without compression. When negotiated, [Handshake.Compressed] is
 	// true; pass it to [WithCompression] when constructing the [Conn].
 	EnableCompression bool
+
+	// NegotiateWindowBits, when true (and EnableCompression is also
+	// true), lets [Upgrader.Upgrade] and [Upgrader.UpgradeHTTP] accept a
+	// client's server_max_window_bits offer smaller than the RFC 7692
+	// default 32KB window, provided the process's active permessage-
+	// deflate backend ([SetDeflateBackend]) is actually configured to
+	// compress at a window that small (or smaller) -- see
+	// [SetDeflateBackend]'s doc for why that is a process-wide setting
+	// this field only opts an individual Upgrader into consulting,
+	// rather than a value configured directly here. The response echoes
+	// exactly the active window bits (RFC 7692 §7.1.2.1) whenever they
+	// are below 15.
+	//
+	// The zero value (false) preserves this package's original behavior
+	// exactly: any server_max_window_bits other than 15 is declined,
+	// falling back to the client's next offer, regardless of what
+	// backend is process-wide active.
+	NegotiateWindowBits bool
 }
 
 // Dialer performs the client side of a WebSocket opening handshake
@@ -190,6 +244,19 @@ type Dialer struct {
 	// simply false. If the server's response is present but invalid (see
 	// [ErrInvalidCompressionResponse]), Dial fails.
 	EnableCompression bool
+
+	// WindowBits, if non-zero, must be 8-15 (RFC 7692 §7.1.2.2) and adds
+	// a client_max_window_bits=WindowBits parameter to [Dialer.Dial]'s
+	// permessage-deflate offer, restricting this connection's own
+	// outgoing (client-to-server) compression to that window size --
+	// meaningful only when the process's active permessage-deflate
+	// backend ([SetDeflateBackend]) is actually configured to compress
+	// that small; see there. [Dial] fails with [ErrInvalidWindowBits]
+	// before dialing anything if WindowBits is out of range.
+	//
+	// The zero value adds no window-bits restriction to the offer,
+	// matching this package's original behavior exactly.
+	WindowBits int
 }
 
 // Handshake describes a completed WebSocket opening handshake, returned

@@ -15,21 +15,24 @@
 package gows
 
 import (
+	"bytes"
+	"compress/flate"
 	"errors"
 	"fmt"
 	"io"
 	"sync"
+	"sync/atomic"
 
 	"github.com/zchee/gows/internal/pool"
 )
 
 // inflateChunkSize is the scratch read size [Conn.decompressMessage]
-// uses per [deflateReader.Read] call while inflating a compressed
+// uses per [DeflateReader.Read] call while inflating a compressed
 // message.
 const inflateChunkSize = 4096
 
 // deflateFlushTail is the 4-byte DEFLATE sync-flush marker (RFC 7692
-// §7.2.1) that [deflateWriter.Flush] always appends to its output;
+// §7.2.1) that [DeflateWriter.Flush] always appends to its output;
 // compressPayload strips exactly these 4 trailing bytes before the
 // result goes on the wire.
 var deflateFlushTail = [4]byte{0x00, 0x00, 0xff, 0xff}
@@ -38,7 +41,7 @@ var deflateFlushTail = [4]byte{0x00, 0x00, 0xff, 0xff}
 // compressed bytes before inflating -- RFC 7692 §7.2.2's mirror of
 // deflateFlushTail, but 5 bytes longer. A bare 4-byte sync-flush marker
 // decodes to the right bytes but leaves the underlying DEFLATE bitstream
-// non-final (BFINAL=0): a [deflateReader.Read] fed only those 4 bytes
+// non-final (BFINAL=0): a [DeflateReader.Read] fed only those 4 bytes
 // correctly reports io.ErrUnexpectedEOF once tailReader's source is
 // exhausted, since the stream never saw a real terminator. Appending 5
 // more bytes forming a genuine final empty stored block (BFINAL=1,
@@ -51,23 +54,161 @@ var deflateFlushTail = [4]byte{0x00, 0x00, 0xff, 0xff}
 // output either way).
 var deflateReadTail = [9]byte{0x00, 0x00, 0xff, 0xff, 0x01, 0x00, 0x00, 0xff, 0xff}
 
-// deflateWriterPool recycles pooled [deflateWriter] values (backed by
-// [newDeflateWriter] at [defaultDeflateLevel]) across messages and
-// connections. Every borrow calls Reset onto a fresh destination before
-// use, which -- per compress/flate's documented Reset semantics --
-// discards any prior LZ77 window state too, giving each message a fresh,
-// empty window: exactly RFC 7692 §7.2.1's no-context-takeover behavior,
-// achieved without any per-Conn compressor state.
-var deflateWriterPool = sync.Pool{
-	New: func() any { return newDeflateWriter(defaultDeflateLevel) },
+// defaultDeflateBackend is compress.go's built-in permessage-deflate
+// backend: stdlib compress/flate, restricted to the RFC 7692 default
+// 32KB window ([deflateWindowBits]) since stdlib flate has no public API
+// to compress at a smaller one (see .omc/research/compress-design.md
+// §4) -- MinWindowBits == MaxWindowBits == 15 advertises exactly that.
+// This is the active backend until (or unless) [SetDeflateBackend]
+// installs a different one.
+var defaultDeflateBackend = &DeflateBackend{
+	Name: "compress/flate",
+	NewWriter: func(level, windowBits int) (DeflateWriter, error) {
+		if windowBits != deflateWindowBits {
+			return nil, fmt.Errorf("gows: compress/flate backend only supports window bits %d, got %d", deflateWindowBits, windowBits)
+		}
+		w, err := flate.NewWriter(io.Discard, level)
+		if err != nil {
+			return nil, err
+		}
+		return w, nil
+	},
+	NewReader: func(windowBits int) DeflateReader {
+		// flate.NewReader's returned io.ReadCloser also implements
+		// flate.Resetter (Reset(io.Reader, []byte) error), a stable
+		// stdlib guarantee this package relies on instead of
+		// redeclaring the interface with an incompatible name. windowBits
+		// is unused: stdlib's decompressor always allocates a full 32KB
+		// window and needs no advance sizing hint.
+		return flate.NewReader(bytes.NewReader(nil)).(DeflateReader)
+	},
+	MinLevel: flate.HuffmanOnly, MaxLevel: flate.BestCompression,
+	MinWindowBits: deflateWindowBits, MaxWindowBits: deflateWindowBits,
 }
 
-// deflateReaderPool is deflateWriterPool's read-side counterpart: every
-// borrow calls Reset with a fresh source before use, discarding any
-// prior decompression window state (no-context-takeover for the receive
-// direction).
-var deflateReaderPool = sync.Pool{
-	New: func() any { return newDeflateReader() },
+// deflateConfig is one immutable snapshot of "what compress.go's
+// compressor/decompressor pools actually do": a backend, the compression
+// level and window bits it was installed with, and the two pools
+// themselves. [SetDeflateBackend] builds a new deflateConfig and
+// atomically swaps it in rather than mutating pool fields in place, so a
+// compressPayload/decompressMessage call in flight never observes a pool
+// whose New func was reassigned mid-use, and previously pooled
+// writers/readers from an old backend are simply dropped (left for GC)
+// instead of resurfacing from a Get call under the new configuration.
+type deflateConfig struct {
+	backend    *DeflateBackend
+	level      int
+	windowBits int
+	writers    sync.Pool
+	readers    sync.Pool
+}
+
+// newDeflateConfig builds a deflateConfig backed by b at level/windowBits,
+// without validating them against b's advertised ranges -- callers
+// (activeDeflate's init below, and [SetDeflateBackend]) are responsible
+// for validating first.
+func newDeflateConfig(b *DeflateBackend, level, windowBits int) *deflateConfig {
+	cfg := &deflateConfig{backend: b, level: level, windowBits: windowBits}
+	cfg.writers.New = func() any {
+		w, err := b.NewWriter(level, windowBits)
+		if err != nil {
+			// SetDeflateBackend already validated level/windowBits
+			// against b's MinLevel/MaxLevel/MinWindowBits/MaxWindowBits,
+			// so a backend whose NewWriter still errors here is
+			// violating its own advertised capability -- a backend bug,
+			// not a caller one, and there is no sensible recovery for a
+			// pool's New func other than to say so loudly.
+			panic("gows: DeflateBackend " + b.Name + ".NewWriter: " + err.Error())
+		}
+		return w
+	}
+	cfg.readers.New = func() any { return b.NewReader(windowBits) }
+	return cfg
+}
+
+// activeDeflate holds compress.go's process-global permessage-deflate
+// configuration: which backend, compression level, and window bits every
+// Conn in the process actually compresses/decompresses with, regardless
+// of which [Upgrader] or [Dialer] negotiated that Conn's own handshake.
+// See [SetDeflateBackend] for why this is a process-wide switch rather
+// than a per-Conn one.
+var activeDeflate atomic.Pointer[deflateConfig]
+
+func init() {
+	activeDeflate.Store(newDeflateConfig(defaultDeflateBackend, defaultDeflateLevel, deflateWindowBits))
+}
+
+// SetDeflateBackend installs b as the process-wide permessage-deflate
+// backend: every subsequent [Conn.WriteMessage] compression and
+// [Conn.ReadMessage] decompression in the process, for every Conn built
+// by every [Upgrader]/[Dialer]/[NewServerConn]/[NewClientConn] call,
+// immediately starts using b at level/windowBits -- not just Conns
+// created afterward. Pooled writers/readers already borrowed from the
+// previous backend are unaffected (they simply aren't returned to the
+// new pool); a compress/decompress call already in flight when
+// SetDeflateBackend runs always completes correctly, since it already
+// holds a reference to whichever pooled value it borrowed before the
+// swap.
+//
+// This is a process-wide setting, not a per-Upgrader/per-Dialer/per-Conn
+// [ConnOption], because [Conn] itself has no per-connection backend,
+// level, or window-bits state in this phase -- only a compression bool
+// (see [WithCompression]) -- so compress.go's pools have nowhere to
+// store a different configuration per connection; adding that is out of
+// this phase's scope (see .omc/handoffs/project-status.md's deferred
+// item 4, "context-takeover opt-in", which will need the same per-Conn
+// state this seam deliberately isn't adding yet). [Upgrader.NegotiateWindowBits]
+// and [Dialer.WindowBits] still exist as explicit, independent
+// per-instance opt-ins: whether a *specific* Upgrader/Dialer negotiates
+// (or offers) a non-default window size with its peers is a legitimate
+// policy choice to make per handshake surface even though the actual
+// compressor those connections end up sharing is process-wide -- see
+// their docs. Keeping those two concerns separate also means an
+// existing Upgrader/Dialer that never sets those fields keeps this
+// package's original behavior byte-for-byte even after some other part
+// of the same process calls SetDeflateBackend for an unrelated reason.
+//
+// level and windowBits must be within b's [DeflateBackend.MinLevel],
+// [DeflateBackend.MaxLevel] and [DeflateBackend.MinWindowBits],
+// [DeflateBackend.MaxWindowBits] ranges, or SetDeflateBackend returns an
+// error and leaves the previously active backend in place.
+func SetDeflateBackend(b *DeflateBackend, level, windowBits int) error {
+	if b == nil {
+		return errors.New("gows: SetDeflateBackend: nil backend")
+	}
+	if b.NewWriter == nil || b.NewReader == nil {
+		return fmt.Errorf("gows: SetDeflateBackend: backend %q has a nil NewWriter or NewReader", b.Name)
+	}
+	if level < b.MinLevel || level > b.MaxLevel {
+		return fmt.Errorf("gows: SetDeflateBackend: level %d outside backend %q's range [%d, %d]", level, b.Name, b.MinLevel, b.MaxLevel)
+	}
+	if windowBits < b.MinWindowBits || windowBits > b.MaxWindowBits {
+		return fmt.Errorf("gows: SetDeflateBackend: window bits %d outside backend %q's range [%d, %d]", windowBits, b.Name, b.MinWindowBits, b.MaxWindowBits)
+	}
+	activeDeflate.Store(newDeflateConfig(b, level, windowBits))
+	return nil
+}
+
+// currentDeflateWindowBits reports the window bits [SetDeflateBackend]'s
+// active backend actually compresses at: [deflateWindowBits] (15) until
+// or unless SetDeflateBackend installs a backend configured for less.
+// negotiateDeflate and [Dialer]'s handshake consult this (gated by
+// [Upgrader.NegotiateWindowBits]/[Dialer.WindowBits] respectively) to
+// decide what window bits to accept or offer.
+func currentDeflateWindowBits() int {
+	return activeDeflate.Load().windowBits
+}
+
+// DefaultDeflateBackend returns compress.go's built-in permessage-deflate
+// backend: stdlib compress/flate, fixed at the RFC 7692 default 32KB
+// window -- the backend active before any [SetDeflateBackend] call.
+// Pass it back to SetDeflateBackend (with [defaultDeflateLevel] and
+// [deflateWindowBits], or any other level within its advertised range)
+// to revert to stdlib after trying a different one; there is otherwise
+// no way for a caller outside this package to reconstruct it, since
+// gows's own default is not exported as a package-level value.
+func DefaultDeflateBackend() *DeflateBackend {
+	return defaultDeflateBackend
 }
 
 // errDecompressedTooLarge is compress.go's internal bomb-defense
@@ -80,7 +221,7 @@ var deflateReaderPool = sync.Pool{
 var errDecompressedTooLarge = errors.New("gows: decompressed message exceeds read limit")
 
 // sliceWriter is an io.Writer that appends to an owned byte slice,
-// letting compressPayload capture a pooled [deflateWriter]'s Flush
+// letting compressPayload capture a pooled [DeflateWriter]'s Flush
 // output directly into a caller-supplied scratch buffer with no
 // intermediate allocation.
 type sliceWriter struct {
@@ -94,7 +235,7 @@ func (w *sliceWriter) Write(p []byte) (int, error) {
 }
 
 // tailReader serves message bytes b followed by [deflateReadTail]'s 9
-// bytes, without copying or mutating b: a [deflateReader] reads through
+// bytes, without copying or mutating b: a [DeflateReader] reads through
 // this exactly as if the tail had been appended to b directly, but a
 // message reassembly buffer can be handed off regardless of its spare
 // capacity, and no allocation is needed to build the concatenation.
@@ -119,13 +260,15 @@ func (r *tailReader) Read(p []byte) (int, error) {
 }
 
 // compressPayload deflate-compresses p (RFC 7692 §7.2.1) using a pooled
-// [deflateWriter] reset onto a fresh, empty LZ77 window
+// [DeflateWriter] (from the process's active [DeflateBackend]; see
+// [SetDeflateBackend]) reset onto a fresh, empty LZ77 window
 // (no-context-takeover), appends the result to dst[:0] (reusing its
 // storage), strips the trailing 4-byte sync-flush marker Flush always
 // emits, and returns the extended slice.
 func compressPayload(dst, p []byte) ([]byte, error) {
-	w := deflateWriterPool.Get().(deflateWriter)
-	defer deflateWriterPool.Put(w)
+	cfg := activeDeflate.Load()
+	w := cfg.writers.Get().(DeflateWriter)
+	defer cfg.writers.Put(w)
 
 	sw := sliceWriter{b: dst[:0]}
 	w.Reset(&sw)
@@ -150,14 +293,16 @@ func compressPayload(dst, p []byte) ([]byte, error) {
 
 // decompressMessage inflates compressed -- a reassembled permessage-deflate
 // message with its trailing sync-flush marker already stripped, per RFC
-// 7692 §7.2.1 -- using a pooled [deflateReader] and [deflateReadTail]
+// 7692 §7.2.1 -- using a pooled [DeflateReader] (from the process's
+// active [DeflateBackend]; see [SetDeflateBackend]) and [deflateReadTail]
 // re-appended (§7.2.2), into c.inflateBuf (reused across messages, like
 // c.msgBuf). Decompressed output is bounded by c.readLimit; exceeding it
 // returns [errDecompressedTooLarge] instead of continuing to inflate an
 // unbounded decompression bomb.
 func (c *Conn) decompressMessage(compressed []byte) ([]byte, error) {
-	r := deflateReaderPool.Get().(deflateReader)
-	defer deflateReaderPool.Put(r)
+	cfg := activeDeflate.Load()
+	r := cfg.readers.Get().(DeflateReader)
+	defer cfg.readers.Put(r)
 
 	tr := tailReader{b: compressed}
 	if err := r.Reset(&tr, nil); err != nil {
