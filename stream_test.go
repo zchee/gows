@@ -17,6 +17,7 @@ package gows
 import (
 	"bytes"
 	"errors"
+	"fmt"
 	"io"
 	"net"
 	"strings"
@@ -558,14 +559,16 @@ func TestNextWriterInvalidOpcode(t *testing.T) {
 	}
 }
 
-// TestNextWriterNeverCompresses confirms NextWriter emits uncompressed frames
-// (RSV1 clear, payload verbatim) even when permessage-deflate is negotiated.
-func TestNextWriterNeverCompresses(t *testing.T) {
+// TestNextWriterCompressesAboveThreshold confirms NextWriter compresses a
+// message at or above defaultCompressMinSize when permessage-deflate is
+// negotiated: RSV1 is set on the first frame and clear on any continuations.
+func TestNextWriterCompressesAboveThreshold(t *testing.T) {
 	t.Parallel()
 
 	sc := &scriptConn{}
 	c := NewServerConn(sc, WithCompression(true))
-	// Well above the compression threshold and highly compressible.
+	// Well above the compression threshold and highly compressible; still
+	// under one fragment buffer so CLOSE-LARGE emits a single Fin frame.
 	payload := bytes.Repeat([]byte("A"), 4000)
 	w, err := c.NextWriter(OpcodeBinary)
 	if err != nil {
@@ -578,15 +581,492 @@ func TestNextWriterNeverCompresses(t *testing.T) {
 		t.Fatalf("Close: %v", err)
 	}
 	frames := parseFrames(t, sc.out.Bytes())
-	var reassembled []byte
-	for i, f := range frames {
-		if f.h.Rsv != 0 {
-			t.Errorf("frame %d Rsv = %#x, want 0 (uncompressed)", i, f.h.Rsv)
-		}
-		reassembled = append(reassembled, f.payload...)
+	if len(frames) != 1 {
+		t.Fatalf("got %d frames, want 1 (CLOSE-LARGE single Fin)", len(frames))
 	}
-	if !bytes.Equal(reassembled, payload) {
-		t.Fatalf("payload was altered: len(got)=%d len(want)=%d", len(reassembled), len(payload))
+	f := frames[0]
+	if f.h.Opcode != OpcodeBinary || !f.h.Fin {
+		t.Fatalf("frame op=%v fin=%v, want Binary Fin", f.h.Opcode, f.h.Fin)
+	}
+	if f.h.Rsv&RSV1 == 0 {
+		t.Fatalf("frame Rsv = %#x, want RSV1 set", f.h.Rsv)
+	}
+	// Payload must not be the verbatim plaintext (it is compressed).
+	if bytes.Equal(f.payload, payload) {
+		t.Fatalf("payload is verbatim plaintext; expected compressed bytes")
+	}
+}
+
+// TestNextWriterStreamingCompression covers the streaming compression cases
+// required by gows v0.3 item 2: multi-fragment RSV1 framing, threshold
+// boundaries, takeover continuity, and mid-stream failure disable.
+func TestNextWriterStreamingCompression(t *testing.T) {
+	// Not t.Parallel: several cases call withDeflateBackend (process-global).
+
+	tests := map[string]struct {
+		run func(t *testing.T)
+	}{
+		"success: compressed roundtrip multi-fragment": {
+			run: testNextWriterCompressedMultiFragment,
+		},
+		"success: sub-threshold stays uncompressed": {
+			run: testNextWriterSubThresholdUncompressed,
+		},
+		"success: threshold boundary compressed single frame": {
+			run: testNextWriterThresholdBoundary,
+		},
+		"success: empty message uncompressed": {
+			run: testNextWriterEmptyStaysUncompressed,
+		},
+		"success: context takeover across NextWriter and WriteMessage": {
+			run: testNextWriterTakeoverAcrossAPIs,
+		},
+		"success: takeover sub-threshold NextWriter leaves window untouched": {
+			run: testNextWriterTakeoverSubThresholdLeavesWindow,
+		},
+		"success: incompressible data multi-fragment roundtrip": {
+			run: testNextWriterIncompressibleMultiFragment,
+		},
+		"error: takeover mid-stream emit failure disables outgoing": {
+			run: testNextWriterTakeoverEmitFailureDisables,
+		},
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			tt.run(t)
+		})
+	}
+}
+
+// testNextWriterCompressedMultiFragment writes enough expanding data that
+// the compressed sink exceeds defaultWriteBufferSize, asserting multi-frame
+// emission with RSV1 only on the first frame and an exact peer roundtrip.
+func testNextWriterCompressedMultiFragment(t *testing.T) {
+	// stdlib flate at the package default level buffers until ~one stored
+	// block (~64 KiB of input) before writing to the sink without Flush.
+	// Size the payload so mid-stream emission exceeds defaultWriteBufferSize
+	// and forces multi-fragment drain before Close.
+	payload := pseudoRandomBytes(defaultWriteBufferSize*20 + 17)
+
+	wire := &scriptConn{}
+	sender := NewServerConn(wire, WithCompression(true))
+	w, err := sender.NextWriter(OpcodeBinary)
+	if err != nil {
+		t.Fatalf("NextWriter: %v", err)
+	}
+	if _, err := w.Write(payload); err != nil {
+		t.Fatalf("Write: %v", err)
+	}
+	if err := w.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+	frames := parseFrames(t, wire.out.Bytes())
+	if len(frames) < 2 {
+		t.Fatalf("got %d frames, want >= 2 multi-fragment compressed", len(frames))
+	}
+	for i, f := range frames {
+		wantOp := OpcodeContinuation
+		wantRSV := byte(0)
+		if i == 0 {
+			wantOp = OpcodeBinary
+			wantRSV = RSV1
+		}
+		wantFin := i == len(frames)-1
+		if f.h.Opcode != wantOp {
+			t.Errorf("frame %d opcode = %v, want %v", i, f.h.Opcode, wantOp)
+		}
+		if f.h.Fin != wantFin {
+			t.Errorf("frame %d Fin = %v, want %v", i, f.h.Fin, wantFin)
+		}
+		if f.h.Rsv != wantRSV {
+			t.Errorf("frame %d Rsv = %#x, want %#x", i, f.h.Rsv, wantRSV)
+		}
+	}
+
+	// Peer reassembly + inflate via a real pipe roundtrip.
+	a, b := net.Pipe()
+	srv := NewServerConn(a, WithCompression(true))
+	cli := NewClientConn(b, WithCompression(true))
+	done := make(chan struct{})
+	var got []byte
+	var gotOp Opcode
+	var rerr error
+	go func() {
+		defer close(done)
+		gotOp, got, rerr = cli.ReadMessage()
+	}()
+	w2, err := srv.NextWriter(OpcodeBinary)
+	if err != nil {
+		t.Fatalf("pipe NextWriter: %v", err)
+	}
+	if _, err := w2.Write(payload); err != nil {
+		t.Fatalf("pipe Write: %v", err)
+	}
+	if err := w2.Close(); err != nil {
+		t.Fatalf("pipe Close: %v", err)
+	}
+	<-done
+	if rerr != nil {
+		t.Fatalf("ReadMessage: %v", rerr)
+	}
+	if gotOp != OpcodeBinary || !bytes.Equal(got, payload) {
+		t.Fatalf("roundtrip op=%v len(got)=%d len(want)=%d", gotOp, len(got), len(payload))
+	}
+	_ = a.Close()
+	_ = b.Close()
+}
+
+func testNextWriterSubThresholdUncompressed(t *testing.T) {
+	sc := &scriptConn{}
+	c := NewServerConn(sc, WithCompression(true))
+	payload := bytes.Repeat([]byte{'x'}, 100)
+	w, err := c.NextWriter(OpcodeBinary)
+	if err != nil {
+		t.Fatalf("NextWriter: %v", err)
+	}
+	if _, err := w.Write(payload); err != nil {
+		t.Fatalf("Write: %v", err)
+	}
+	if err := w.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+	frames := parseFrames(t, sc.out.Bytes())
+	if len(frames) != 1 {
+		t.Fatalf("got %d frames, want 1", len(frames))
+	}
+	f := frames[0]
+	if f.h.Rsv != 0 {
+		t.Fatalf("Rsv = %#x, want 0 (sub-threshold uncompressed)", f.h.Rsv)
+	}
+	if !f.h.Fin || f.h.Opcode != OpcodeBinary {
+		t.Fatalf("frame op=%v fin=%v", f.h.Opcode, f.h.Fin)
+	}
+	if !bytes.Equal(f.payload, payload) {
+		t.Fatalf("payload not verbatim on the wire")
+	}
+}
+
+func testNextWriterThresholdBoundary(t *testing.T) {
+	sc := &scriptConn{}
+	c := NewServerConn(sc, WithCompression(true))
+	payload := bytes.Repeat([]byte{'y'}, defaultCompressMinSize)
+	w, err := c.NextWriter(OpcodeBinary)
+	if err != nil {
+		t.Fatalf("NextWriter: %v", err)
+	}
+	if _, err := w.Write(payload); err != nil {
+		t.Fatalf("Write: %v", err)
+	}
+	if err := w.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+	frames := parseFrames(t, sc.out.Bytes())
+	if len(frames) != 1 {
+		t.Fatalf("got %d frames, want 1", len(frames))
+	}
+	f := frames[0]
+	if f.h.Rsv&RSV1 == 0 || !f.h.Fin || f.h.Opcode != OpcodeBinary {
+		t.Fatalf("frame op=%v fin=%v rsv=%#x, want Binary Fin RSV1", f.h.Opcode, f.h.Fin, f.h.Rsv)
+	}
+
+	// Peer decodes the NextWriter-compressed single frame via a real pipe.
+	a, b := net.Pipe()
+	srv := NewServerConn(a, WithCompression(true))
+	cli := NewClientConn(b, WithCompression(true))
+	done := make(chan struct{})
+	var got []byte
+	var rerr error
+	go func() {
+		defer close(done)
+		_, got, rerr = cli.ReadMessage()
+	}()
+	w2, err := srv.NextWriter(OpcodeBinary)
+	if err != nil {
+		t.Fatalf("pipe NextWriter: %v", err)
+	}
+	if _, err := w2.Write(payload); err != nil {
+		t.Fatalf("pipe Write: %v", err)
+	}
+	if err := w2.Close(); err != nil {
+		t.Fatalf("pipe Close: %v", err)
+	}
+	<-done
+	if rerr != nil || !bytes.Equal(got, payload) {
+		t.Fatalf("NextWriter decode: err=%v len(got)=%d", rerr, len(got))
+	}
+	_ = a.Close()
+	_ = b.Close()
+}
+
+func testNextWriterEmptyStaysUncompressed(t *testing.T) {
+	sc := &scriptConn{}
+	c := NewServerConn(sc, WithCompression(true))
+	w, err := c.NextWriter(OpcodeText)
+	if err != nil {
+		t.Fatalf("NextWriter: %v", err)
+	}
+	if err := w.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+	frames := parseFrames(t, sc.out.Bytes())
+	if len(frames) != 1 {
+		t.Fatalf("got %d frames, want 1", len(frames))
+	}
+	f := frames[0]
+	if f.h.Rsv != 0 || !f.h.Fin || f.h.Opcode != OpcodeText || len(f.payload) != 0 {
+		t.Fatalf("empty frame = {op:%v fin:%v rsv:%#x len:%d}", f.h.Opcode, f.h.Fin, f.h.Rsv, len(f.payload))
+	}
+}
+
+func testNextWriterTakeoverAcrossAPIs(t *testing.T) {
+	// Level 6 so repeated content actually shrinks under takeover (level 1
+	// often emits stored blocks for short repeated tokens).
+	withDeflateBackend(t, DefaultDeflateBackend(), 6, deflateWindowBits)
+
+	token := []byte(strings.Repeat("context-takeover-token-", 40)) // above threshold
+	// Message A is large enough for multi-fragment mid-stream emission; its
+	// trailing window is filled with the token so message B (same token) can
+	// back-reference it under context takeover.
+	pad := pseudoRandomBytes(defaultWriteBufferSize * 20)
+	tail := bytes.Repeat(token, (32<<10)/len(token)+1)[:32<<10]
+	payloadA := append(pad, tail...)
+	payloadB := append([]byte(nil), token...)
+
+	a, b := net.Pipe()
+	srv := NewServerConn(a, WithCompressionParams(CompressionParams{ServerContextTakeover: true}))
+	cli := NewClientConn(b, WithCompressionParams(CompressionParams{ServerContextTakeover: true}))
+
+	done := make(chan struct{})
+	var gotA, gotB []byte
+	var rerr error
+	go func() {
+		defer close(done)
+		var op Opcode
+		var p []byte
+		op, p, rerr = cli.ReadMessage()
+		if rerr != nil {
+			return
+		}
+		if op != OpcodeBinary {
+			rerr = fmt.Errorf("msg A opcode = %v, want Binary", op)
+			return
+		}
+		// ReadMessage's payload is Conn-owned and only valid until the next
+		// ReadMessage (inflateBuf/msgBuf reuse); retain a private copy.
+		gotA = append([]byte(nil), p...)
+		op, p, rerr = cli.ReadMessage()
+		if rerr != nil {
+			return
+		}
+		if op != OpcodeBinary {
+			rerr = fmt.Errorf("msg B opcode = %v, want Binary", op)
+			return
+		}
+		gotB = append([]byte(nil), p...)
+	}()
+
+	w, err := srv.NextWriter(OpcodeBinary)
+	if err != nil {
+		t.Fatalf("NextWriter: %v", err)
+	}
+	if _, err := w.Write(payloadA); err != nil {
+		t.Fatalf("Write A: %v", err)
+	}
+	if err := w.Close(); err != nil {
+		t.Fatalf("Close A: %v", err)
+	}
+	if err := srv.WriteMessage(OpcodeBinary, payloadB); err != nil {
+		t.Fatalf("WriteMessage B: %v", err)
+	}
+	<-done
+	if rerr != nil {
+		t.Fatalf("read: %v", rerr)
+	}
+	if !bytes.Equal(gotA, payloadA) {
+		t.Fatalf("payload A mismatch: len(got)=%d len(want)=%d", len(gotA), len(payloadA))
+	}
+	if !bytes.Equal(gotB, payloadB) {
+		t.Fatalf("payload B mismatch: len(got)=%d len(want)=%d", len(gotB), len(payloadB))
+	}
+	_ = a.Close()
+	_ = b.Close()
+
+	// B's compressed size on the takeover Conn must be strictly smaller than
+	// the same B on a fresh no-takeover Conn (window continuity detector).
+	takeoverWire := &scriptConn{}
+	takeover := NewServerConn(takeoverWire, WithCompressionParams(CompressionParams{ServerContextTakeover: true}))
+	wA, err := takeover.NextWriter(OpcodeBinary)
+	if err != nil {
+		t.Fatalf("takeover NextWriter: %v", err)
+	}
+	if _, err := wA.Write(payloadA); err != nil {
+		t.Fatalf("takeover Write A: %v", err)
+	}
+	if err := wA.Close(); err != nil {
+		t.Fatalf("takeover Close A: %v", err)
+	}
+	takeoverWire.out.Reset()
+	if err := takeover.WriteMessage(OpcodeBinary, payloadB); err != nil {
+		t.Fatalf("takeover WriteMessage B: %v", err)
+	}
+	takeoverFrames := parseFrames(t, takeoverWire.out.Bytes())
+	if len(takeoverFrames) != 1 || takeoverFrames[0].h.Rsv&RSV1 == 0 {
+		t.Fatalf("takeover B frames = %+v, want one RSV1 frame", takeoverFrames)
+	}
+	takeoverBLen := len(takeoverFrames[0].payload)
+
+	freshWire := &scriptConn{}
+	fresh := NewServerConn(freshWire, WithCompression(true))
+	if err := fresh.WriteMessage(OpcodeBinary, payloadB); err != nil {
+		t.Fatalf("fresh WriteMessage B: %v", err)
+	}
+	freshFrames := parseFrames(t, freshWire.out.Bytes())
+	if len(freshFrames) != 1 || freshFrames[0].h.Rsv&RSV1 == 0 {
+		t.Fatalf("fresh B frames = %+v, want one RSV1 frame", freshFrames)
+	}
+	freshBLen := len(freshFrames[0].payload)
+	if takeoverBLen >= freshBLen {
+		t.Fatalf("takeover B compressed len %d >= fresh %d; window did not carry across NextWriter→WriteMessage", takeoverBLen, freshBLen)
+	}
+}
+
+func testNextWriterTakeoverSubThresholdLeavesWindow(t *testing.T) {
+	withDeflateBackend(t, DefaultDeflateBackend(), 6, deflateWindowBits)
+
+	shared := []byte(strings.Repeat("window-history-payload-", 30))
+	a, b := net.Pipe()
+	srv := NewServerConn(a, WithCompressionParams(CompressionParams{ServerContextTakeover: true}))
+	cli := NewClientConn(b, WithCompressionParams(CompressionParams{ServerContextTakeover: true}))
+
+	done := make(chan struct{})
+	var rerr error
+	go func() {
+		defer close(done)
+		// Message 0: establish history via WriteMessage.
+		if _, p, err := cli.ReadMessage(); err != nil || !bytes.Equal(p, shared) {
+			rerr = fmt.Errorf("msg0: err=%v len=%d", err, len(p))
+			return
+		}
+		// Message 1: sub-threshold NextWriter (uncompressed on the wire).
+		if _, p, err := cli.ReadMessage(); err != nil || string(p) != "tiny" {
+			rerr = fmt.Errorf("msg1: err=%v p=%q", err, p)
+			return
+		}
+		// Message 2: compressed WriteMessage referencing msg0 history.
+		if _, p, err := cli.ReadMessage(); err != nil || !bytes.Equal(p, shared) {
+			rerr = fmt.Errorf("msg2: err=%v len=%d", err, len(p))
+		}
+	}()
+
+	if err := srv.WriteMessage(OpcodeBinary, shared); err != nil {
+		t.Fatalf("WriteMessage establish: %v", err)
+	}
+	w, err := srv.NextWriter(OpcodeBinary)
+	if err != nil {
+		t.Fatalf("NextWriter: %v", err)
+	}
+	if _, err := w.Write([]byte("tiny")); err != nil {
+		t.Fatalf("Write tiny: %v", err)
+	}
+	if err := w.Close(); err != nil {
+		t.Fatalf("Close tiny: %v", err)
+	}
+	if err := srv.WriteMessage(OpcodeBinary, shared); err != nil {
+		t.Fatalf("WriteMessage after sub-threshold: %v", err)
+	}
+	<-done
+	if rerr != nil {
+		t.Fatalf("peer: %v", rerr)
+	}
+	_ = a.Close()
+	_ = b.Close()
+}
+
+func testNextWriterIncompressibleMultiFragment(t *testing.T) {
+	payload := pseudoRandomBytes(defaultWriteBufferSize*20 + 99)
+	a, b := net.Pipe()
+	srv := NewServerConn(a, WithCompression(true))
+	cli := NewClientConn(b, WithCompression(true))
+	done := make(chan struct{})
+	var got []byte
+	var rerr error
+	go func() {
+		defer close(done)
+		_, got, rerr = cli.ReadMessage()
+	}()
+	w, err := srv.NextWriter(OpcodeBinary)
+	if err != nil {
+		t.Fatalf("NextWriter: %v", err)
+	}
+	if _, err := w.Write(payload); err != nil {
+		t.Fatalf("Write: %v", err)
+	}
+	if err := w.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+	<-done
+	if rerr != nil || !bytes.Equal(got, payload) {
+		t.Fatalf("roundtrip err=%v len(got)=%d len(want)=%d", rerr, len(got), len(payload))
+	}
+	_ = a.Close()
+	_ = b.Close()
+}
+
+// failNthWriteConn fails on the Nth Write call (1-based), then succeeds.
+// net.Buffers writev typically issues two Writes per frame (header, payload),
+// so failAt=3 targets the second frame's first Write.
+type failNthWriteConn struct {
+	scriptConn
+	writes int
+	failAt int
+}
+
+func (f *failNthWriteConn) Write(p []byte) (int, error) {
+	f.writes++
+	if f.writes == f.failAt {
+		return 0, errors.New("simulated write failure")
+	}
+	return f.scriptConn.Write(p)
+}
+
+func testNextWriterTakeoverEmitFailureDisables(t *testing.T) {
+	// Payload large enough for multi-fragment compressed emission so the
+	// second frame's write can fail after plaintext has entered the
+	// takeover compressor (stdlib flate at default level 1 emits around one
+	// 64 KiB stored block without Flush).
+	fc := &failNthWriteConn{failAt: 3} // second frame's header write
+	c := NewServerConn(fc, WithCompressionParams(CompressionParams{ServerContextTakeover: true}))
+	payload := pseudoRandomBytes(defaultWriteBufferSize*20 + 17)
+	w, err := c.NextWriter(OpcodeBinary)
+	if err != nil {
+		t.Fatalf("NextWriter: %v", err)
+	}
+	_, werr := w.Write(payload)
+	// Write may fail mid-stream, or succeed if all drains fit before fail;
+	// Close must surface the error if Write did not.
+	cerr := w.Close()
+	if werr == nil && cerr == nil {
+		t.Fatalf("want a write/close error from failNthWriteConn")
+	}
+	if c.deflate == nil || !c.deflate.outgoingDisabled {
+		t.Fatalf("want outgoingDisabled after mid-stream failure, got deflate=%+v", c.deflate)
+	}
+
+	// Subsequent WriteMessage over the now-healthy path must go uncompressed.
+	fc.out.Reset()
+	follow := bytes.Repeat([]byte{'z'}, defaultCompressMinSize)
+	if err := c.WriteMessage(OpcodeBinary, follow); err != nil {
+		t.Fatalf("WriteMessage after disable: %v", err)
+	}
+	h, n, err := DecodeHeader(fc.out.Bytes())
+	if err != nil {
+		t.Fatalf("DecodeHeader: %v", err)
+	}
+	if h.Rsv&RSV1 != 0 {
+		t.Fatalf("RSV1 set after outgoingDisabled, want clear")
+	}
+	if !bytes.Equal(fc.out.Bytes()[n:], follow) {
+		t.Fatalf("payload mismatch after outgoingDisabled")
 	}
 }
 

@@ -26,6 +26,7 @@ import (
 	"errors"
 	"math/big"
 	"net"
+	"strconv"
 	"testing"
 	"time"
 
@@ -447,4 +448,139 @@ func TestUpgradeHTTPAgainstDial(t *testing.T) {
 	if gotHS.Path != "/room" || gotHS.Query != "x=1" {
 		t.Errorf("server Path/Query = %q/%q, want /room / x=1", gotHS.Path, gotHS.Query)
 	}
+}
+
+// --- ServerWindowBits / unsupported window bits ----------------------------
+
+// TestDialServerWindowBitsOffer confirms Dialer.ServerWindowBits is
+// emitted in the offer and that a response echoing a smaller value
+// populates CompressionParams.ServerMaxWindowBits; a response echoing
+// larger fails with the existing too-large sentinel.
+func TestDialServerWindowBitsOffer(t *testing.T) {
+	tests := map[string]struct {
+		echoBits   int // 0 = omit server_max_window_bits from response
+		wantServer int
+		wantErr    error
+	}{
+		"success: response echoes 9": {
+			echoBits:   9,
+			wantServer: 9,
+		},
+		"error: response echoes 11 above offer": {
+			echoBits: 11,
+			wantErr:  gows.ErrInvalidCompressionResponse,
+		},
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			serverConn, clientConn := net.Pipe()
+			reqCh := make(chan []byte, 1)
+			go func() {
+				req := readRawHeaderBlock(t, serverConn)
+				reqCh <- req
+				accept := mustAcceptFromRequest(t, req)
+				ext := "permessage-deflate; server_no_context_takeover; client_no_context_takeover"
+				if tt.echoBits != 0 {
+					ext += "; server_max_window_bits=" + strconv.Itoa(tt.echoBits)
+				}
+				resp := "HTTP/1.1 101 Switching Protocols\r\n" +
+					"Upgrade: websocket\r\n" +
+					"Connection: Upgrade\r\n" +
+					"Sec-WebSocket-Accept: " + accept + "\r\n" +
+					"Sec-WebSocket-Extensions: " + ext + "\r\n\r\n"
+				serverConn.Write([]byte(resp))
+			}()
+
+			d := &gows.Dialer{
+				EnableCompression: true,
+				ServerWindowBits:  10,
+				NetDial: func(ctx context.Context, network, addr string) (net.Conn, error) {
+					return clientConn, nil
+				},
+			}
+			conn, hs, err := d.Dial(t.Context(), "ws://example.invalid/")
+			if tt.wantErr != nil {
+				if !errors.Is(err, tt.wantErr) {
+					t.Fatalf("Dial err = %v, want %v", err, tt.wantErr)
+				}
+				// Also assert the more specific wrapped sentinel when too-large.
+				if tt.echoBits == 11 {
+					// ErrDeflateServerMaxWindowBitsTooLarge is internal;
+					// the public wrapper is ErrInvalidCompressionResponse.
+					if !errors.Is(err, gows.ErrInvalidCompressionResponse) {
+						t.Fatalf("want ErrInvalidCompressionResponse wrap, got %v", err)
+					}
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("Dial: %v", err)
+			}
+			defer conn.Close()
+
+			req := <-reqCh
+			if !bytes.Contains(req, []byte("server_max_window_bits=10")) {
+				t.Fatalf("request missing server_max_window_bits=10: %q", req)
+			}
+			if hs.CompressionParams.ServerMaxWindowBits != tt.wantServer {
+				t.Fatalf("ServerMaxWindowBits = %d, want %d", hs.CompressionParams.ServerMaxWindowBits, tt.wantServer)
+			}
+		})
+	}
+}
+
+// TestDialInvalidServerWindowBits confirms out-of-range ServerWindowBits
+// fails before dialing.
+func TestDialInvalidServerWindowBits(t *testing.T) {
+	for name, bits := range map[string]int{"too low": 7, "too high": 16} {
+		t.Run(name, func(t *testing.T) {
+			d := &gows.Dialer{
+				EnableCompression: true,
+				ServerWindowBits:  bits,
+				NetDial: func(ctx context.Context, network, addr string) (net.Conn, error) {
+					t.Fatal("NetDial must not be called for invalid ServerWindowBits")
+					return nil, nil
+				},
+			}
+			_, _, err := d.Dial(t.Context(), "ws://example.invalid/")
+			if !errors.Is(err, gows.ErrInvalidWindowBits) {
+				t.Fatalf("Dial err = %v, want ErrInvalidWindowBits", err)
+			}
+		})
+	}
+}
+
+// TestDialUnsupportedWindowBitsBeforeDial confirms WindowBits=10 with the
+// default stdlib backend fails with ErrUnsupportedWindowBits before any
+// network I/O.
+func TestDialUnsupportedWindowBitsBeforeDial(t *testing.T) {
+	d := &gows.Dialer{
+		EnableCompression: true,
+		WindowBits:        10,
+		NetDial: func(ctx context.Context, network, addr string) (net.Conn, error) {
+			t.Fatal("NetDial must not be called when WindowBits is unsupported by the active backend")
+			return nil, nil
+		},
+	}
+	_, _, err := d.Dial(t.Context(), "ws://example.invalid/")
+	if !errors.Is(err, gows.ErrUnsupportedWindowBits) {
+		t.Fatalf("Dial err = %v, want ErrUnsupportedWindowBits", err)
+	}
+}
+
+// mustAcceptFromRequest extracts Sec-WebSocket-Key from a raw request and
+// returns the expected Accept value.
+func mustAcceptFromRequest(t *testing.T, req []byte) string {
+	t.Helper()
+	sc := httpx.NewHeaderScanner(bytes.SplitAfterN(req, []byte("\r\n"), 2)[1])
+	var key string
+	for sc.Next() {
+		if httpx.EqualFold(sc.Key(), "sec-websocket-key") {
+			key = string(sc.Value())
+		}
+	}
+	if key == "" {
+		t.Fatal("request missing Sec-WebSocket-Key")
+	}
+	return mustAccept(t, key)
 }

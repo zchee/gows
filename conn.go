@@ -88,8 +88,9 @@ type Conn struct {
 	msgWriter *messageWriter // open NextWriter stream, if any (guarded by wmu); nil on the WriteMessage-only hot path
 
 	// --- extensions ---
-	compression bool          // permessage-deflate negotiated (RFC 7692); see WithCompression
-	deflate     *deflateState // non-nil only when context takeover is negotiated for at least one direction; see WithCompressionParams
+	compression        bool          // permessage-deflate negotiated (RFC 7692); see WithCompression
+	deflate            *deflateState // non-nil when context takeover and/or a sub-ceiling per-Conn writer is needed; see WithCompressionParams
+	outgoingWindowCeil int           // effective ceiling on this Conn's own outgoing compression window (8..15); default 15
 
 	// --- shared / teardown ---
 	closeRcvd    atomic.Bool
@@ -266,15 +267,21 @@ func newConn(nc net.Conn, client bool, opts []ConnOption) *Conn {
 	rbuf = rbuf[:cap(rbuf)]
 
 	c := &Conn{
-		conn:         nc,
-		client:       client,
-		rbuf:         rbuf,
-		readLimit:    cfg.readLimit,
-		skipUTF8:     cfg.skipUTF8,
-		closeTimeout: cfg.closeTimeout,
-		compression:  cfg.compression,
+		conn:               nc,
+		client:             client,
+		rbuf:               rbuf,
+		readLimit:          cfg.readLimit,
+		skipUTF8:           cfg.skipUTF8,
+		closeTimeout:       cfg.closeTimeout,
+		compression:        cfg.compression,
+		outgoingWindowCeil: deflateWindowBits,
 	}
 	if cfg.compression {
+		if client {
+			c.outgoingWindowCeil = effectiveWindowBits(cfg.compressionParams.ClientMaxWindowBits)
+		} else {
+			c.outgoingWindowCeil = effectiveWindowBits(cfg.compressionParams.ServerMaxWindowBits)
+		}
 		c.deflate = newDeflateState(client, cfg.compressionParams)
 	}
 	if n := len(cfg.buffered); n > 0 {

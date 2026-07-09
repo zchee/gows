@@ -48,8 +48,8 @@ const minDeflateWindowBits = 8
 // offer, otherwise fall back to the next" rule alongside this server's
 // own policy. client_max_window_bits, bare or valued, never causes a
 // decline: it only bounds the client's own compressor, which this
-// server's decompressor (always a full 32KB window, regardless of
-// backend) can always handle.
+// server's decompressor can always handle (at the negotiated incoming
+// ceiling or the RFC default 32KB).
 //
 // server_max_window_bits governs this server's own outgoing compression
 // window, which -- per [SetDeflateBackend]'s doc -- is a single
@@ -77,11 +77,25 @@ const minDeflateWindowBits = 8
 // per-direction combinations purely from what a given offer contains,
 // with no separate switch needed for each direction.
 //
+// clientWindowBits, when non-zero (8-15), is this Upgrader's own
+// [Upgrader.ClientWindowBits] policy: when the offer included
+// client_max_window_bits at all (bare or valued), the response emits
+// client_max_window_bits equal to min(clientWindowBits, offeredValue)
+// (offeredValue only participates when the offer was valued). When the
+// offer lacks the parameter, nothing is emitted regardless of this
+// value (RFC 7692 §7.1.2.2 forbids it). A valued offer's
+// client_max_window_bits is deliberately NOT used as a hint to shrink
+// the server's incoming sliding dict when we do not emit it
+// (clientWindowBits == 0): trusting a peer-supplied bound without an
+// on-the-wire ceiling would risk corruption if the peer lied; that
+// hint-based saving is deferred -- see
+// .omc/research/context-takeover-design.md.
+//
 // It reports ok=false if extensions contains no acceptable
 // permessage-deflate offer at all; per RFC 7692 §7 the caller should
 // then omit permessage-deflate from its response entirely -- this is
 // never itself a handshake failure.
-func negotiateDeflate(extensions []byte, negotiateWindowBits, allowContextTakeover bool) (extension.DeflateParams, bool) {
+func negotiateDeflate(extensions []byte, negotiateWindowBits, allowContextTakeover bool, clientWindowBits int) (extension.DeflateParams, bool) {
 	activeBits := deflateWindowBits
 	if negotiateWindowBits {
 		activeBits = currentDeflateWindowBits()
@@ -110,6 +124,14 @@ func negotiateDeflate(extensions []byte, negotiateWindowBits, allowContextTakeov
 		if activeBits < deflateWindowBits {
 			agreed.ServerMaxWindowBits = activeBits
 		}
+		// Emit client_max_window_bits only when the offer included the
+		// parameter (bare: -1, or valued: 8..15) and the Upgrader opted in.
+		if clientWindowBits != 0 && params.ClientMaxWindowBits != 0 {
+			agreed.ClientMaxWindowBits = clientWindowBits
+			if params.ClientMaxWindowBits > 0 && params.ClientMaxWindowBits < clientWindowBits {
+				agreed.ClientMaxWindowBits = params.ClientMaxWindowBits
+			}
+		}
 		return agreed, true
 	}
 	return extension.DeflateParams{}, false
@@ -124,6 +146,8 @@ func compressionParamsFromDeflate(p extension.DeflateParams) CompressionParams {
 	return CompressionParams{
 		ServerContextTakeover: !p.ServerNoContextTakeover,
 		ClientContextTakeover: !p.ClientNoContextTakeover,
+		ServerMaxWindowBits:   p.ServerMaxWindowBits,
+		ClientMaxWindowBits:   max(p.ClientMaxWindowBits, 0), // never leak the -1 bare-offer sentinel
 	}
 }
 
@@ -162,6 +186,9 @@ func Upgrade(c net.Conn) (Handshake, error) {
 // caller owns c from that point on (e.g. to build a Conn on top of it,
 // once that type exists).
 func (u *Upgrader) Upgrade(c net.Conn) (Handshake, error) {
+	if u.ClientWindowBits != 0 && (u.ClientWindowBits < minDeflateWindowBits || u.ClientWindowBits > deflateWindowBits) {
+		return Handshake{}, ErrInvalidWindowBits
+	}
 	maxHeader := u.MaxHeaderBytes
 	if maxHeader <= 0 {
 		maxHeader = defaultMaxHeaderBytes
@@ -244,7 +271,7 @@ func (u *Upgrader) Upgrade(c net.Conn) (Handshake, error) {
 	var deflateParams extension.DeflateParams
 	var deflateOK bool
 	if u.EnableCompression && extensions != nil {
-		deflateParams, deflateOK = negotiateDeflate(extensions, u.NegotiateWindowBits, u.AllowContextTakeover)
+		deflateParams, deflateOK = negotiateDeflate(extensions, u.NegotiateWindowBits, u.AllowContextTakeover, u.ClientWindowBits)
 	}
 
 	resp := appendSwitchingProtocolsResponse(pool.Get(160+len(selected)), key, selected, deflateParams, deflateOK)

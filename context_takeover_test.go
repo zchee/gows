@@ -118,11 +118,11 @@ func TestContextTakeoverCompressorShrinksRepeatedMessage(t *testing.T) {
 
 	t.Run("with context takeover", func(t *testing.T) {
 		srv := NewServerConn(&scriptConn{}, WithCompressionParams(CompressionParams{ServerContextTakeover: true}))
-		first, err := srv.compressMessage(nil, payload)
+		first, _, err := srv.compressMessage(nil, payload)
 		if err != nil {
 			t.Fatalf("compressMessage(first): %v", err)
 		}
-		second, err := srv.compressMessage(nil, payload)
+		second, _, err := srv.compressMessage(nil, payload)
 		if err != nil {
 			t.Fatalf("compressMessage(second): %v", err)
 		}
@@ -143,11 +143,11 @@ func TestContextTakeoverCompressorShrinksRepeatedMessage(t *testing.T) {
 
 	t.Run("without context takeover", func(t *testing.T) {
 		srv := NewServerConn(&scriptConn{}, WithCompression(true))
-		first, err := srv.compressMessage(nil, payload)
+		first, _, err := srv.compressMessage(nil, payload)
 		if err != nil {
 			t.Fatalf("compressMessage(first): %v", err)
 		}
-		second, err := srv.compressMessage(nil, payload)
+		second, _, err := srv.compressMessage(nil, payload)
 		if err != nil {
 			t.Fatalf("compressMessage(second): %v", err)
 		}
@@ -235,7 +235,7 @@ func TestContextTakeoverWindowContinuityBothDirections(t *testing.T) {
 			c := tt.newConn(&scriptConn{}, WithCompressionParams(tt.params))
 			sizes := make([]int, rounds)
 			for i := range rounds {
-				out, err := c.compressMessage(nil, payload)
+				out, _, err := c.compressMessage(nil, payload)
 				if err != nil {
 					t.Fatalf("compressMessage[%d]: %v", i, err)
 				}
@@ -290,7 +290,7 @@ func TestNegotiateDeflateContextTakeoverAllCombinations(t *testing.T) {
 
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
-			got, ok := negotiateDeflate([]byte(tt.extensions), false, true)
+			got, ok := negotiateDeflate([]byte(tt.extensions), false, true, 0)
 			if !ok {
 				t.Fatalf("negotiateDeflate: ok = false, want true")
 			}
@@ -306,7 +306,7 @@ func TestNegotiateDeflateContextTakeoverAllCombinations(t *testing.T) {
 // even for an offer that would otherwise allow context takeover on both
 // directions.
 func TestNegotiateDeflateContextTakeoverOff(t *testing.T) {
-	got, ok := negotiateDeflate([]byte("permessage-deflate"), false, false)
+	got, ok := negotiateDeflate([]byte("permessage-deflate"), false, false, 0)
 	if !ok {
 		t.Fatalf("negotiateDeflate: ok = false, want true")
 	}
@@ -425,7 +425,7 @@ func TestContextTakeoverBackendPinning(t *testing.T) {
 	if c.deflate.outgoingWindowBits != deflateWindowBits {
 		t.Fatalf("c.deflate.outgoingWindowBits = %d, want %d (pinned at construction)", c.deflate.outgoingWindowBits, deflateWindowBits)
 	}
-	if _, err := c.compressMessage(nil, []byte("still usable after SetDeflateBackend")); err != nil {
+	if _, _, err := c.compressMessage(nil, []byte("still usable after SetDeflateBackend")); err != nil {
 		t.Fatalf("compressMessage after SetDeflateBackend: %v", err)
 	}
 }
@@ -539,7 +539,7 @@ func TestContextTakeoverDecompressionBombStillBounded(t *testing.T) {
 	// are representative, then feed them to a matching context-takeover
 	// decompressor with a small read limit.
 	srv := NewServerConn(&scriptConn{}, WithCompressionParams(CompressionParams{ServerContextTakeover: true}))
-	compressed, err := srv.compressMessage(nil, huge)
+	compressed, _, err := srv.compressMessage(nil, huge)
 	if err != nil {
 		t.Fatalf("compressMessage: %v", err)
 	}
@@ -623,4 +623,278 @@ func TestUpgraderDialerContextTakeoverIntegration(t *testing.T) {
 	}
 	_ = cli.Close(CloseNormalClosure, "")
 	<-done
+}
+
+// --- per-direction window bits plumbing ------------------------------------
+
+// TestContextTakeoverIncomingDictUsesNegotiatedClientMaxWindowBits confirms
+// a server-role Conn with negotiated ClientMaxWindowBits=9 allocates
+// incomingDict with capacity 1<<9 rather than the RFC default 32KB.
+func TestContextTakeoverIncomingDictUsesNegotiatedClientMaxWindowBits(t *testing.T) {
+	c := NewServerConn(&scriptConn{}, WithCompressionParams(CompressionParams{
+		ClientContextTakeover: true,
+		ClientMaxWindowBits:   9,
+	}))
+	if c.deflate == nil || c.deflate.incomingDict == nil {
+		t.Fatalf("deflate/incomingDict = nil, want allocated")
+	}
+	want := 1 << 9
+	if cap(c.deflate.incomingDict) != want {
+		t.Fatalf("cap(incomingDict) = %d, want %d", cap(c.deflate.incomingDict), want)
+	}
+	if c.deflate.incomingWindowBits != 9 {
+		t.Fatalf("incomingWindowBits = %d, want 9", c.deflate.incomingWindowBits)
+	}
+}
+
+// TestSubCeilingOutgoingNoTakeover confirms a negotiated outgoing ceiling
+// below the process-global windowBits allocates a per-Conn writer with
+// outgoingTakeover=false, resets the window per message (identical
+// compressed lengths for identical payloads), and decodes correctly.
+func TestSubCeilingOutgoingNoTakeover(t *testing.T) {
+	withDeflateBackend(t, fakeWindowedBackend, 6, 15)
+
+	params := CompressionParams{ClientMaxWindowBits: 9}
+	cli := NewClientConn(&scriptConn{}, WithCompressionParams(params))
+	if cli.deflate == nil {
+		t.Fatalf("deflate = nil, want allocated for sub-ceiling")
+	}
+	if cli.deflate.outgoingTakeover {
+		t.Fatalf("outgoingTakeover = true, want false for no-takeover sub-ceiling")
+	}
+	if cli.deflate.outgoing == nil {
+		t.Fatalf("outgoing = nil, want per-Conn sub-ceiling writer")
+	}
+	if cli.outgoingWindowCeil != 9 {
+		t.Fatalf("outgoingWindowCeil = %d, want 9", cli.outgoingWindowCeil)
+	}
+
+	payload := []byte("HelloHelloHello")
+	first, _, err := cli.compressMessage(nil, payload)
+	if err != nil {
+		t.Fatalf("compressMessage(first): %v", err)
+	}
+	second, _, err := cli.compressMessage(nil, payload)
+	if err != nil {
+		t.Fatalf("compressMessage(second): %v", err)
+	}
+	if len(first) != len(second) {
+		t.Fatalf("compressed lengths differ (%d vs %d); sub-ceiling no-takeover must Reset per message", len(first), len(second))
+	}
+
+	// Peer is a server with matching client_max_window_bits=9 for its incoming.
+	srv := NewServerConn(&scriptConn{}, WithCompressionParams(CompressionParams{ClientMaxWindowBits: 9}))
+	for i, msg := range [][]byte{first, second} {
+		got, err := srv.decompressMessage(msg)
+		if err != nil || !bytes.Equal(got, payload) {
+			t.Fatalf("decompress[%d] = %q, %v, want %q, nil", i, got, err, payload)
+		}
+	}
+}
+
+// TestSubCeilingOutgoingWithTakeover confirms a sub-ceiling writer with
+// context takeover preserves the window: the second identical message
+// compresses strictly shorter.
+func TestSubCeilingOutgoingWithTakeover(t *testing.T) {
+	withDeflateBackend(t, fakeWindowedBackend, 6, 15)
+
+	params := CompressionParams{ClientContextTakeover: true, ClientMaxWindowBits: 9}
+	cli := NewClientConn(&scriptConn{}, WithCompressionParams(params))
+	if cli.deflate == nil || !cli.deflate.outgoingTakeover || cli.deflate.outgoing == nil {
+		t.Fatalf("want takeover sub-ceiling writer, got deflate=%+v", cli.deflate)
+	}
+
+	payload := []byte("Hello")
+	first, _, err := cli.compressMessage(nil, payload)
+	if err != nil {
+		t.Fatalf("compressMessage(first): %v", err)
+	}
+	second, _, err := cli.compressMessage(nil, payload)
+	if err != nil {
+		t.Fatalf("compressMessage(second): %v", err)
+	}
+	if len(second) >= len(first) {
+		t.Fatalf("second compressed length %d, want < first %d (takeover at sub-ceiling)", len(second), len(first))
+	}
+}
+
+// TestOutgoingDisabledOnBackendRace forces a construction-time race:
+// negotiate a ceiling of 9 under a capable backend, then swap to stdlib
+// (MinWindowBits=15) before Conn construction so outgoingDisabled is set.
+// Messages go out uncompressed (RSV1 clear); incoming compressed still
+// decodes.
+func TestOutgoingDisabledOnBackendRace(t *testing.T) {
+	withDeflateBackend(t, fakeWindowedBackend, defaultDeflateLevel, 9)
+
+	params := CompressionParams{ServerMaxWindowBits: 9, ServerContextTakeover: true}
+	// Race: swap to stdlib after "negotiation" (params already fixed).
+	if err := SetDeflateBackend(DefaultDeflateBackend(), defaultDeflateLevel, deflateWindowBits); err != nil {
+		t.Fatalf("SetDeflateBackend(stdlib): %v", err)
+	}
+
+	sc := &scriptConn{}
+	// Server role so the wire frame is unmasked and easy to inspect.
+	c := NewServerConn(sc, WithCompressionParams(params))
+	if c.deflate == nil || !c.deflate.outgoingDisabled {
+		t.Fatalf("want outgoingDisabled=true after race, got deflate=%+v", c.deflate)
+	}
+	if c.deflate.outgoing != nil {
+		t.Fatalf("outgoing must be nil when outgoingDisabled")
+	}
+
+	payload := bytes.Repeat([]byte{'x'}, defaultCompressMinSize)
+	if err := c.WriteMessage(OpcodeBinary, payload); err != nil {
+		t.Fatalf("WriteMessage: %v", err)
+	}
+	h, n, err := DecodeHeader(sc.out.Bytes())
+	if err != nil {
+		t.Fatalf("DecodeHeader: %v", err)
+	}
+	if h.Rsv&RSV1 != 0 {
+		t.Fatalf("RSV1 set on wire, want clear (uncompressed fallback)")
+	}
+	if !bytes.Equal(sc.out.Bytes()[n:], payload) {
+		t.Fatalf("plain payload mismatch")
+	}
+
+	// Incoming still works with context takeover under stdlib.
+	// (Re-install a usable backend for decompression pool; stdlib is fine.)
+	srv := NewServerConn(&scriptConn{}, WithCompressionParams(CompressionParams{
+		ClientContextTakeover: true,
+		ClientMaxWindowBits:   9,
+	}))
+	// Server's incoming is independent of its own outgoingDisabled.
+	if srv.deflate == nil || srv.deflate.incomingDict == nil {
+		t.Fatalf("server incomingDict nil")
+	}
+	// Compress with a peer stand-in (stdlib full window) and decode.
+	peerCompressed, err := compressPayload(nil, []byte("peer-hello"))
+	if err != nil {
+		t.Fatalf("compressPayload: %v", err)
+	}
+	got, err := srv.decompressMessage(peerCompressed)
+	if err != nil || string(got) != "peer-hello" {
+		t.Fatalf("decompress = %q, %v", got, err)
+	}
+}
+
+// TestPerEmissionCeilingGuard confirms a pooled-path Conn with ceiling 9
+// under a small backend compresses, then after SetDeflateBackend to
+// stdlib (windowBits 15) a WriteMessage goes out uncompressed, and
+// swapping back resumes compression.
+func TestPerEmissionCeilingGuard(t *testing.T) {
+	withDeflateBackend(t, fakeWindowedBackend, defaultDeflateLevel, 9)
+
+	// Pooled path: no takeover, ceiling 9, process windowBits also 9 →
+	// needSubCeilWriter is false (outCeil == cfg.windowBits), so deflate
+	// is nil and the pooled path + per-emission guard applies.
+	params := CompressionParams{ServerMaxWindowBits: 9}
+	sc := &scriptConn{}
+	// Server role so wire frames are unmasked for RSV1 inspection.
+	c := NewServerConn(sc, WithCompressionParams(params))
+	if c.deflate != nil {
+		t.Fatalf("deflate = %+v, want nil (pooled path: ceiling equals active bits)", c.deflate)
+	}
+	if c.outgoingWindowCeil != 9 {
+		t.Fatalf("outgoingWindowCeil = %d, want 9", c.outgoingWindowCeil)
+	}
+
+	payload := bytes.Repeat([]byte{'y'}, defaultCompressMinSize)
+	if err := c.WriteMessage(OpcodeBinary, payload); err != nil {
+		t.Fatalf("WriteMessage (small backend): %v", err)
+	}
+	h, _, err := DecodeHeader(sc.out.Bytes())
+	if err != nil {
+		t.Fatalf("DecodeHeader: %v", err)
+	}
+	if h.Rsv&RSV1 == 0 {
+		t.Fatalf("want RSV1 set under small backend")
+	}
+
+	// Swap to stdlib (windowBits 15 > ceiling 9) → per-emission guard.
+	sc.out.Reset()
+	if err := SetDeflateBackend(DefaultDeflateBackend(), defaultDeflateLevel, deflateWindowBits); err != nil {
+		t.Fatalf("SetDeflateBackend(stdlib): %v", err)
+	}
+	if err := c.WriteMessage(OpcodeBinary, payload); err != nil {
+		t.Fatalf("WriteMessage (stdlib): %v", err)
+	}
+	h, _, err = DecodeHeader(sc.out.Bytes())
+	if err != nil {
+		t.Fatalf("DecodeHeader after swap: %v", err)
+	}
+	if h.Rsv&RSV1 != 0 {
+		t.Fatalf("RSV1 set after stdlib swap, want clear (per-emission guard)")
+	}
+
+	// Swap back → compression resumes.
+	sc.out.Reset()
+	if err := SetDeflateBackend(fakeWindowedBackend, defaultDeflateLevel, 9); err != nil {
+		t.Fatalf("SetDeflateBackend(fake): %v", err)
+	}
+	if err := c.WriteMessage(OpcodeBinary, payload); err != nil {
+		t.Fatalf("WriteMessage (fake again): %v", err)
+	}
+	h, _, err = DecodeHeader(sc.out.Bytes())
+	if err != nil {
+		t.Fatalf("DecodeHeader after restore: %v", err)
+	}
+	if h.Rsv&RSV1 == 0 {
+		t.Fatalf("want RSV1 set after restoring small backend")
+	}
+}
+
+// failOnceConn is a net.Conn whose Write fails once after writing n bytes
+// of the first Write, then succeeds for subsequent Writes. Used to
+// exercise outgoingDisabled on takeover emit failure.
+type failOnceConn struct {
+	scriptConn
+	failAfter int
+	failed    bool
+}
+
+func (f *failOnceConn) Write(p []byte) (int, error) {
+	if !f.failed {
+		f.failed = true
+		n := min(f.failAfter, len(p))
+		if n > 0 {
+			f.out.Write(p[:n])
+		}
+		return n, errors.New("simulated write failure")
+	}
+	return f.scriptConn.Write(p)
+}
+
+// TestOutgoingDisabledOnTakeoverEmitFailure confirms that a failed
+// WriteMessage on a context-takeover Conn sets outgoingDisabled, so a
+// subsequent WriteMessage over a healthy conn goes out uncompressed.
+func TestOutgoingDisabledOnTakeoverEmitFailure(t *testing.T) {
+	withDeflateBackend(t, DefaultDeflateBackend(), 6, deflateWindowBits)
+
+	fc := &failOnceConn{failAfter: 2} // fail mid-frame after a couple of header bytes
+	c := NewServerConn(fc, WithCompressionParams(CompressionParams{ServerContextTakeover: true}))
+	payload := bytes.Repeat([]byte{'z'}, defaultCompressMinSize)
+	err := c.WriteMessage(OpcodeBinary, payload)
+	if err == nil {
+		t.Fatalf("WriteMessage: want error from failOnceConn")
+	}
+	if c.deflate == nil || !c.deflate.outgoingDisabled {
+		t.Fatalf("want outgoingDisabled after emit failure, got deflate=%+v", c.deflate)
+	}
+
+	// Subsequent write over the now-healthy path must go uncompressed.
+	fc.out.Reset()
+	if err := c.WriteMessage(OpcodeBinary, payload); err != nil {
+		t.Fatalf("WriteMessage after disable: %v", err)
+	}
+	h, n, err := DecodeHeader(fc.out.Bytes())
+	if err != nil {
+		t.Fatalf("DecodeHeader: %v", err)
+	}
+	if h.Rsv&RSV1 != 0 {
+		t.Fatalf("RSV1 set after outgoingDisabled, want clear")
+	}
+	if !bytes.Equal(fc.out.Bytes()[n:], payload) {
+		t.Fatalf("payload mismatch after outgoingDisabled")
+	}
 }

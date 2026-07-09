@@ -187,3 +187,107 @@ func TestPreparedMessageBroadcastFreshWindow(t *testing.T) {
 		_ = cliConn.Close()
 	}
 }
+
+// TestWritePreparedMessageOutgoingTakeoverSendsPlain confirms that on a
+// Conn whose outgoing direction has context takeover, WritePreparedMessage
+// sends the plain frame (RSV1 clear) so the peer's sliding dict stays in
+// sync with this Conn's persistent compressor. A subsequent compressMessage
+// message then decodes correctly at a peer maintaining a dict.
+func TestWritePreparedMessageOutgoingTakeoverSendsPlain(t *testing.T) {
+	withDeflateBackend(t, DefaultDeflateBackend(), 6, deflateWindowBits)
+
+	payload := []byte(strings.Repeat("prepared-takeover-payload-", 40))
+	pm, err := NewPreparedMessage(OpcodeBinary, payload)
+	if err != nil {
+		t.Fatalf("NewPreparedMessage: %v", err)
+	}
+	if !pm.hasCompressed {
+		t.Fatalf("hasCompressed = false, want true")
+	}
+
+	sc := &scriptConn{}
+	c := NewServerConn(sc, WithCompressionParams(CompressionParams{ServerContextTakeover: true}))
+	if err := c.WritePreparedMessage(pm); err != nil {
+		t.Fatalf("WritePreparedMessage: %v", err)
+	}
+	h, n, err := DecodeHeader(sc.out.Bytes())
+	if err != nil {
+		t.Fatalf("DecodeHeader: %v", err)
+	}
+	if h.Rsv&RSV1 != 0 {
+		t.Fatalf("RSV1 set, want plain frame under outgoing takeover")
+	}
+	if !bytes.Equal(sc.out.Bytes()[n:], payload) {
+		t.Fatalf("plain payload mismatch")
+	}
+
+	// Follow with a compressMessage-backed WriteMessage; a peer with a
+	// sliding dict (client role, ServerContextTakeover) must still decode.
+	sc.out.Reset()
+	follow := []byte("Hello")
+	// Force compress regardless of size via compressMessage + emit.
+	compressed, _, err := c.compressMessage(nil, follow)
+	if err != nil {
+		t.Fatalf("compressMessage: %v", err)
+	}
+	peer := NewClientConn(&scriptConn{}, WithCompressionParams(CompressionParams{ServerContextTakeover: true}))
+	// The prepared plain frame did not advance either side's deflate
+	// context; the first compressed message is still against a fresh window.
+	got, err := peer.decompressMessage(compressed)
+	if err != nil || string(got) != string(follow) {
+		t.Fatalf("peer decompress after prepared plain = %q, %v, want %q", got, err, follow)
+	}
+}
+
+// TestWritePreparedMessageWriterBusy confirms WritePreparedMessage refuses
+// to run while a NextWriter stream is open (RFC 6455 §5.4).
+func TestWritePreparedMessageWriterBusy(t *testing.T) {
+	pm, err := NewPreparedMessage(OpcodeText, []byte("hi"))
+	if err != nil {
+		t.Fatalf("NewPreparedMessage: %v", err)
+	}
+	c := NewServerConn(&scriptConn{}, WithCompression(true))
+	w, err := c.NextWriter(OpcodeText)
+	if err != nil {
+		t.Fatalf("NextWriter: %v", err)
+	}
+	defer w.Close()
+	if err := c.WritePreparedMessage(pm); !errors.Is(err, ErrWriterBusy) {
+		t.Fatalf("WritePreparedMessage with open NextWriter: err = %v, want ErrWriterBusy", err)
+	}
+}
+
+// TestWritePreparedMessagePrepWindowBitsAboveCeiling confirms a prepared
+// frame compressed at windowBits 15 is sent plain on a Conn whose
+// outgoing ceiling is 9.
+func TestWritePreparedMessagePrepWindowBitsAboveCeiling(t *testing.T) {
+	// Build prepared under default stdlib (windowBits 15).
+	payload := []byte(strings.Repeat("ceil-check-payload-", 40))
+	pm, err := NewPreparedMessage(OpcodeBinary, payload)
+	if err != nil {
+		t.Fatalf("NewPreparedMessage: %v", err)
+	}
+	if pm.prepWindowBits != deflateWindowBits {
+		t.Fatalf("prepWindowBits = %d, want %d", pm.prepWindowBits, deflateWindowBits)
+	}
+
+	withDeflateBackend(t, fakeWindowedBackend, defaultDeflateLevel, 9)
+	sc := &scriptConn{}
+	c := NewServerConn(sc, WithCompressionParams(CompressionParams{ServerMaxWindowBits: 9}))
+	if c.outgoingWindowCeil != 9 {
+		t.Fatalf("outgoingWindowCeil = %d, want 9", c.outgoingWindowCeil)
+	}
+	if err := c.WritePreparedMessage(pm); err != nil {
+		t.Fatalf("WritePreparedMessage: %v", err)
+	}
+	h, n, err := DecodeHeader(sc.out.Bytes())
+	if err != nil {
+		t.Fatalf("DecodeHeader: %v", err)
+	}
+	if h.Rsv&RSV1 != 0 {
+		t.Fatalf("RSV1 set, want plain (prepWindowBits 15 > ceiling 9)")
+	}
+	if !bytes.Equal(sc.out.Bytes()[n:], payload) {
+		t.Fatalf("plain payload mismatch")
+	}
+}

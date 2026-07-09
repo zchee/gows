@@ -48,6 +48,11 @@ import (
 // size (RFC 7692 §7.1.2.2) -- meaningful only when the process's active
 // permessage-deflate backend ([SetDeflateBackend]) is actually
 // configured to compress that small; see there.
+//
+// When [Dialer.ServerWindowBits] is non-zero, the offer also requests
+// that the server's own outgoing compression stay within that window
+// (RFC 7692 §7.1.2.1); a server that cannot honor it declines
+// permessage-deflate rather than failing the handshake.
 func (d *Dialer) deflateOffer() (header string, params extension.DeflateParams) {
 	var b strings.Builder
 	b.WriteString(extension.DeflateExtensionName)
@@ -59,6 +64,10 @@ func (d *Dialer) deflateOffer() (header string, params extension.DeflateParams) 
 	if d.WindowBits != 0 {
 		fmt.Fprintf(&b, "; client_max_window_bits=%d", d.WindowBits)
 		params.ClientMaxWindowBits = d.WindowBits
+	}
+	if d.ServerWindowBits != 0 {
+		fmt.Fprintf(&b, "; server_max_window_bits=%d", d.ServerWindowBits)
+		params.ServerMaxWindowBits = d.ServerWindowBits
 	}
 	return b.String(), params
 }
@@ -117,6 +126,14 @@ func Dial(ctx context.Context, rawURL string) (net.Conn, Handshake, error) {
 func (d *Dialer) Dial(ctx context.Context, rawURL string) (net.Conn, Handshake, error) {
 	if d.WindowBits != 0 && (d.WindowBits < minDeflateWindowBits || d.WindowBits > deflateWindowBits) {
 		return nil, Handshake{}, ErrInvalidWindowBits
+	}
+	if d.ServerWindowBits != 0 && (d.ServerWindowBits < minDeflateWindowBits || d.ServerWindowBits > deflateWindowBits) {
+		return nil, Handshake{}, ErrInvalidWindowBits
+	}
+	// Fail fast before any network I/O when the offer already requests a
+	// client_max_window_bits ceiling the active backend cannot honor.
+	if err := checkWindowBitsSupported(d.WindowBits); err != nil {
+		return nil, Handshake{}, err
 	}
 
 	u, err := url.Parse(rawURL)
@@ -294,7 +311,23 @@ func (d *Dialer) handshake(conn net.Conn, u *url.URL) (Handshake, error) {
 
 	h := Handshake{Subprotocol: selected, Compressed: compressed}
 	if compressed {
-		h.CompressionParams = compressionParamsFromDeflate(agreedParams)
+		cp := compressionParamsFromDeflate(agreedParams)
+		// Client's own outgoing ceiling: response value if present, else the
+		// self-imposed offer (WindowBits); when both present, take the min.
+		switch {
+		case agreedParams.ClientMaxWindowBits > 0 && d.WindowBits != 0:
+			cp.ClientMaxWindowBits = min(agreedParams.ClientMaxWindowBits, d.WindowBits)
+		case agreedParams.ClientMaxWindowBits > 0:
+			cp.ClientMaxWindowBits = agreedParams.ClientMaxWindowBits
+		case d.WindowBits != 0:
+			cp.ClientMaxWindowBits = d.WindowBits
+		}
+		// A response may tighten the ceiling below what the offer-time check
+		// already accepted (e.g. we offered 10, server replied 8).
+		if err := checkWindowBitsSupported(cp.ClientMaxWindowBits); err != nil {
+			return Handshake{}, err
+		}
+		h.CompressionParams = cp
 	}
 	if idx+4 < filled {
 		h.Buffered = append([]byte(nil), data[idx+4:filled]...)

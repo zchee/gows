@@ -28,6 +28,7 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"io"
 	"log"
 	"net"
 	"os"
@@ -53,11 +54,31 @@ const readLimit = 64 << 20 // 64 MiB
 // generous relative to anything sections 1-10 actually exercises.
 const caseTimeout = 30 * time.Second
 
+// streamEcho selects the NextReader/NextWriter streaming echo loop instead
+// of the ReadMessage/WriteMessage one (see echoLoop). Set by -echo.
+var streamEcho bool
+
 func main() {
 	mode := flag.String("mode", "", `"server" or "client"`)
 	addr := flag.String("addr", ":9001", "server mode: address to listen on")
 	server := flag.String("server", "ws://127.0.0.1:9001", "client mode: fuzzingserver base URL")
+	echo := flag.String("echo", "message", `echo loop: "message" (ReadMessage/WriteMessage) or "stream" (NextReader/NextWriter)`)
+	takeover := flag.Bool("takeover", false, "offer/accept permessage-deflate context takeover and honor the negotiated params per connection")
 	flag.Parse()
+
+	if *takeover {
+		upgrader.AllowContextTakeover = true
+		dialer.AllowContextTakeover = true
+	}
+
+	switch *echo {
+	case "message":
+	case "stream":
+		streamEcho = true
+	default:
+		fmt.Fprintf(os.Stderr, "unknown -echo mode %q (want message or stream)\n", *echo)
+		os.Exit(2)
+	}
 
 	switch *mode {
 	case "server":
@@ -110,19 +131,43 @@ func serveConn(conn net.Conn) {
 		return
 	}
 
-	c := gows.NewServerConn(
-		conn,
-		gows.WithBuffered(hs.Buffered),
-		gows.WithReadLimit(readLimit),
-		gows.WithCompression(hs.Compressed),
-	)
+	c := gows.NewServerConn(conn, connOptions(hs)...)
 	// Close is idempotent (safe to call even if ReadMessage/WriteMessage
 	// already tore the Conn down internally), so this alone is enough to
 	// guarantee the pooled buffers and underlying connection are always
 	// released exactly once.
 	defer c.Close(gows.CloseNormalClosure, "")
 
+	echoLoop(c)
+}
+
+// echoLoop echoes every data message on c back with the same opcode until
+// the connection ends. In the default mode each message is reassembled with
+// ReadMessage and sent with WriteMessage (one frame, compression decided per
+// message). With -echo stream, each message is instead streamed through
+// NextReader into NextWriter via io.Copy, exercising the fragmented
+// streaming write path — including NextWriter's streaming permessage-deflate
+// compression when the handshake negotiated it. A mid-copy read error (e.g.
+// the reader's UTF-8 fail-fast tearing the connection down) still Closes the
+// writer so its buffers are released; the connection is already ending, so
+// the Close error is irrelevant.
+func echoLoop(c *gows.Conn) {
 	for {
+		if streamEcho {
+			op, r, err := c.NextReader()
+			if err != nil {
+				return
+			}
+			w, err := c.NextWriter(op)
+			if err != nil {
+				return
+			}
+			_, cerr := io.Copy(w, r)
+			if err := w.Close(); err != nil || cerr != nil {
+				return
+			}
+			continue
+		}
 		op, payload, err := c.ReadMessage()
 		if err != nil {
 			return
@@ -182,12 +227,25 @@ func dialCase(url string) (*gows.Conn, error) {
 	}
 	_ = conn.SetReadDeadline(time.Now().Add(caseTimeout))
 
-	return gows.NewClientConn(
-		conn,
+	return gows.NewClientConn(conn, connOptions(hs)...), nil
+}
+
+// connOptions builds the ConnOptions both roles share. When compression was
+// negotiated the Conn is built with the handshake's actual CompressionParams
+// (not just a bool): with -takeover the peer may legitimately reuse its LZ77
+// window across messages, and a Conn built with only WithCompression would
+// fail to maintain the incoming sliding dictionary those cross-message
+// back-references need. Without -takeover the params are zero-valued and
+// WithCompressionParams is equivalent to WithCompression(true).
+func connOptions(hs gows.Handshake) []gows.ConnOption {
+	opts := []gows.ConnOption{
 		gows.WithBuffered(hs.Buffered),
 		gows.WithReadLimit(readLimit),
-		gows.WithCompression(hs.Compressed),
-	), nil
+	}
+	if hs.Compressed {
+		opts = append(opts, gows.WithCompressionParams(hs.CompressionParams))
+	}
+	return opts
 }
 
 // getCaseCount asks base for the number of cases in the suite: a single
@@ -227,15 +285,8 @@ func runCase(base string, n int) error {
 	}
 	defer c.Close(gows.CloseNormalClosure, "")
 
-	for {
-		op, payload, err := c.ReadMessage()
-		if err != nil {
-			return nil
-		}
-		if err := c.WriteMessage(op, payload); err != nil {
-			return nil
-		}
-	}
+	echoLoop(c)
+	return nil
 }
 
 // updateReports asks base to write out its accumulated report for

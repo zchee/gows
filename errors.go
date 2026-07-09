@@ -74,6 +74,17 @@ var (
 	// RFC 7692 §7.1.2.2's valid range (8-15). [Dialer.Dial] returns this
 	// before dialing anything.
 	ErrInvalidWindowBits = errors.New("gows: Dialer.WindowBits outside the valid range (8-15)")
+	// ErrUnsupportedWindowBits reports that a negotiated (or offered)
+	// client_max_window_bits ceiling is smaller than anything the process's
+	// active permessage-deflate backend can actually compress within
+	// ([SetDeflateBackend]). [Dialer.Dial] returns this (wrapped with the
+	// ceiling, backend name, and its MinWindowBits) either at offer time
+	// — before any network I/O — when [Dialer.WindowBits] alone is already
+	// unachievable, or after a successful handshake whose response tightens
+	// the ceiling further. The connection is not established in either
+	// case; install a backend whose MinWindowBits is at most the desired
+	// ceiling (e.g. via github.com/zchee/gows/flatekp) before dialing.
+	ErrUnsupportedWindowBits = errors.New("gows: negotiated window bits unsupported by the active deflate backend")
 	// ErrInvalidCloseReason indicates a [Conn.Close] call's reason string
 	// was not valid UTF-8, which RFC 6455 §5.5.1 requires for a Close
 	// frame's reason text. Close returns this before sending anything --

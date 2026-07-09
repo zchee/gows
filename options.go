@@ -147,6 +147,20 @@ type CompressionParams struct {
 	// (client-to-server) compression reuses its LZ77 window across
 	// messages.
 	ClientContextTakeover bool
+	// ServerMaxWindowBits is the negotiated ceiling (RFC 7692 §7.1.2.1) on
+	// the SERVER's own outgoing compression window: the
+	// server_max_window_bits value the completed handshake actually carried
+	// in the server's response, or 0 if the response carried none (no
+	// negotiated bound; the RFC default 32KB / 15 bits applies). Valid
+	// non-zero range 8..15.
+	ServerMaxWindowBits int
+	// ClientMaxWindowBits is the mirror for the CLIENT's own outgoing
+	// window (RFC 7692 §7.1.2.2): the client_max_window_bits value the
+	// server's response carried, else — for the client role only — the
+	// valued client_max_window_bits the client itself offered (a
+	// self-imposed bound holds even without an echo), else 0. Valid
+	// non-zero range 8..15.
+	ClientMaxWindowBits int
 }
 
 // defaultDeflateLevel is the compression level compress.go's default
@@ -260,6 +274,25 @@ type Upgrader struct {
 	// and client_no_context_takeover, regardless of what the client's
 	// offer contained.
 	AllowContextTakeover bool
+
+	// ClientWindowBits, when 8-15 (and EnableCompression is also true),
+	// makes [Upgrader.Upgrade] and [Upgrader.UpgradeHTTP] emit
+	// client_max_window_bits in the permessage-deflate response whenever
+	// the client's offer included that parameter at all (bare or valued),
+	// restricting the client's own outgoing compression to
+	// min(ClientWindowBits, offeredValue) where offeredValue only
+	// participates when the offer was valued (RFC 7692 §7.1.2.2: the
+	// response must be equal-or-smaller). When the offer lacks the
+	// parameter entirely, nothing is emitted regardless of this field
+	// (RFC 7692 §7.1.2.2 forbids introducing it unsolicited) and the
+	// server's incoming sliding-window bound stays the RFC default 15.
+	//
+	// The zero value preserves this package's original behavior exactly:
+	// nothing is emitted, even when the offer had the parameter. Any other
+	// non-zero value outside 8-15 is a configuration bug:
+	// Upgrade/UpgradeHTTP fail with [ErrInvalidWindowBits] before reading
+	// from the connection.
+	ClientWindowBits int
 }
 
 // Dialer performs the client side of a WebSocket opening handshake
@@ -299,11 +332,16 @@ type Dialer struct {
 	// WindowBits, if non-zero, must be 8-15 (RFC 7692 §7.1.2.2) and adds
 	// a client_max_window_bits=WindowBits parameter to [Dialer.Dial]'s
 	// permessage-deflate offer, restricting this connection's own
-	// outgoing (client-to-server) compression to that window size --
-	// meaningful only when the process's active permessage-deflate
-	// backend ([SetDeflateBackend]) is actually configured to compress
-	// that small; see there. [Dial] fails with [ErrInvalidWindowBits]
-	// before dialing anything if WindowBits is out of range.
+	// outgoing (client-to-server) compression to that window size. The
+	// ceiling is enforced: [Dial] fails with [ErrUnsupportedWindowBits]
+	// before any network I/O when the process's active permessage-deflate
+	// backend ([SetDeflateBackend]) cannot compress within it (stdlib
+	// compress/flate is 15-only; see github.com/zchee/gows/flatekp for a
+	// backend that can go smaller), and the negotiated ceiling -- which
+	// the server's response may tighten further -- is honored by this
+	// connection's own compressor thereafter. [Dial] fails with
+	// [ErrInvalidWindowBits] before dialing anything if WindowBits is out
+	// of range.
 	//
 	// The zero value adds no window-bits restriction to the offer,
 	// matching this package's original behavior exactly.
@@ -324,6 +362,20 @@ type Dialer struct {
 	// behavior exactly: the offer always requests no-context-takeover on
 	// both directions.
 	AllowContextTakeover bool
+
+	// ServerWindowBits, if non-zero, must be 8-15 (RFC 7692 §7.1.2.1) and
+	// adds a server_max_window_bits=ServerWindowBits parameter to
+	// [Dialer.Dial]'s permessage-deflate offer, requesting that the
+	// server's own outgoing compression stay within 2^N bytes of LZ77
+	// history. A server that cannot compress within that ceiling must
+	// decline permessage-deflate (or this offer element); the connection
+	// then simply proceeds uncompressed — never a handshake failure from
+	// this Dialer's side. [Dial] fails with [ErrInvalidWindowBits] before
+	// dialing anything if ServerWindowBits is out of range.
+	//
+	// The zero value adds no server_max_window_bits restriction to the
+	// offer, matching this package's original behavior exactly.
+	ServerWindowBits int
 }
 
 // Handshake describes a completed WebSocket opening handshake, returned

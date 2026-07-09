@@ -87,7 +87,7 @@ func TestNegotiateDeflate(t *testing.T) {
 
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
-			got, ok := negotiateDeflate([]byte(tt.extensions), tt.negotiateWindowBits, tt.allowContextTakeover)
+			got, ok := negotiateDeflate([]byte(tt.extensions), tt.negotiateWindowBits, tt.allowContextTakeover, 0)
 			if ok != tt.wantOK {
 				t.Fatalf("ok = %v, want %v (got=%+v)", ok, tt.wantOK, got)
 			}
@@ -225,7 +225,7 @@ func TestNegotiateDeflateWindowBits(t *testing.T) {
 
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
-			got, ok := negotiateDeflate([]byte(tt.extensions), tt.negotiateWindowBits, false)
+			got, ok := negotiateDeflate([]byte(tt.extensions), tt.negotiateWindowBits, false, 0)
 			if ok != tt.wantOK {
 				t.Fatalf("ok = %v, want %v (got=%+v)", ok, tt.wantOK, got)
 			}
@@ -480,6 +480,12 @@ func TestDialWindowBitsOffer(t *testing.T) {
 
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
+			// WindowBits < 15 requires a backend whose MinWindowBits is at most
+			// the offered ceiling; otherwise Dial fails with
+			// ErrUnsupportedWindowBits before dialing (deliberate fail-fast).
+			if tt.windowBits != 0 && tt.windowBits < deflateWindowBits {
+				withDeflateBackend(t, fakeWindowedBackend, defaultDeflateLevel, tt.windowBits)
+			}
 			serverConn, clientConn := net.Pipe()
 			reqCh := make(chan []byte, 1)
 			go func() {
@@ -969,5 +975,232 @@ func BenchmarkConnWriteMessageCompressed(b *testing.B) {
 		if err := c.WriteMessage(OpcodeBinary, payload); err != nil {
 			b.Fatal(err)
 		}
+	}
+}
+
+// --- client_max_window_bits emission (Upgrader.ClientWindowBits) ----------
+
+// TestNegotiateDeflateClientWindowBits exercises negotiateDeflate's
+// client_max_window_bits emission policy: emit only when the offer
+// included the parameter and ClientWindowBits is set; min with a valued
+// offer; never emit above a valued offer; never emit when the offer
+// lacks the parameter; never use a valued offer as a dict-size hint when
+// ClientWindowBits is zero.
+func TestNegotiateDeflateClientWindowBits(t *testing.T) {
+	tests := map[string]struct {
+		extensions       string
+		clientWindowBits int
+		wantOK           bool
+		want             extension.DeflateParams
+	}{
+		"success: bare offer emits ClientWindowBits": {
+			extensions:       "permessage-deflate; client_max_window_bits",
+			clientWindowBits: 10,
+			wantOK:           true,
+			want: extension.DeflateParams{
+				ServerNoContextTakeover: true, ClientNoContextTakeover: true,
+				ClientMaxWindowBits: 10,
+			},
+		},
+		"success: valued offer below ClientWindowBits uses min": {
+			extensions:       "permessage-deflate; client_max_window_bits=8",
+			clientWindowBits: 10,
+			wantOK:           true,
+			want: extension.DeflateParams{
+				ServerNoContextTakeover: true, ClientNoContextTakeover: true,
+				ClientMaxWindowBits: 8,
+			},
+		},
+		"success: valued offer above ClientWindowBits uses ClientWindowBits": {
+			extensions:       "permessage-deflate; client_max_window_bits=12",
+			clientWindowBits: 10,
+			wantOK:           true,
+			want: extension.DeflateParams{
+				ServerNoContextTakeover: true, ClientNoContextTakeover: true,
+				ClientMaxWindowBits: 10,
+			},
+		},
+		"success: offer without param emits nothing despite ClientWindowBits": {
+			extensions:       "permessage-deflate",
+			clientWindowBits: 10,
+			wantOK:           true,
+			want: extension.DeflateParams{
+				ServerNoContextTakeover: true, ClientNoContextTakeover: true,
+			},
+		},
+		"success: ClientWindowBits zero leaves valued offer unused (hint deliberately unused)": {
+			extensions:       "permessage-deflate; client_max_window_bits=10",
+			clientWindowBits: 0,
+			wantOK:           true,
+			want: extension.DeflateParams{
+				ServerNoContextTakeover: true, ClientNoContextTakeover: true,
+			},
+		},
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			got, ok := negotiateDeflate([]byte(tt.extensions), false, false, tt.clientWindowBits)
+			if ok != tt.wantOK {
+				t.Fatalf("ok = %v, want %v (got=%+v)", ok, tt.wantOK, got)
+			}
+			if ok && got != tt.want {
+				t.Fatalf("params = %+v, want %+v", got, tt.want)
+			}
+		})
+	}
+}
+
+// TestUpgradeClientWindowBits drives full Upgrade handshakes asserting
+// wire emission of client_max_window_bits and Handshake.CompressionParams
+// population, plus fail-fast for out-of-range ClientWindowBits.
+func TestUpgradeClientWindowBits(t *testing.T) {
+	const base = "GET / HTTP/1.1\r\n" +
+		"Host: example.com\r\n" +
+		"Upgrade: websocket\r\n" +
+		"Connection: Upgrade\r\n" +
+		"Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n" +
+		"Sec-WebSocket-Version: 13\r\n"
+
+	tests := map[string]struct {
+		clientWindowBits int
+		extHeader        string
+		wantExt          string // substring of response Extensions header, "" = absent
+		wantClientBits   int
+		wantErr          error
+	}{
+		"success: bare offer emits 10": {
+			clientWindowBits: 10,
+			extHeader:        "permessage-deflate; client_max_window_bits",
+			wantExt:          "client_max_window_bits=10",
+			wantClientBits:   10,
+		},
+		"success: valued offer 8 min rule": {
+			clientWindowBits: 10,
+			extHeader:        "permessage-deflate; client_max_window_bits=8",
+			wantExt:          "client_max_window_bits=8",
+			wantClientBits:   8,
+		},
+		"success: valued offer 12 capped at 10": {
+			clientWindowBits: 10,
+			extHeader:        "permessage-deflate; client_max_window_bits=12",
+			wantExt:          "client_max_window_bits=10",
+			wantClientBits:   10,
+		},
+		"success: offer without param emits nothing": {
+			clientWindowBits: 10,
+			extHeader:        "permessage-deflate",
+			wantExt:          "",
+			wantClientBits:   0,
+		},
+		"success: ClientWindowBits zero ignores valued offer": {
+			clientWindowBits: 0,
+			extHeader:        "permessage-deflate; client_max_window_bits=10",
+			wantExt:          "",
+			wantClientBits:   0,
+		},
+		"error: ClientWindowBits too low": {
+			clientWindowBits: 7,
+			wantErr:          ErrInvalidWindowBits,
+		},
+		"error: ClientWindowBits too high": {
+			clientWindowBits: 16,
+			wantErr:          ErrInvalidWindowBits,
+		},
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			u := &Upgrader{EnableCompression: true, ClientWindowBits: tt.clientWindowBits}
+			if tt.wantErr != nil {
+				sc := &scriptConn{in: []byte(base + "\r\n")}
+				_, err := u.Upgrade(sc)
+				if !errors.Is(err, tt.wantErr) {
+					t.Fatalf("Upgrade err = %v, want %v", err, tt.wantErr)
+				}
+				if sc.pos != 0 {
+					t.Fatalf("Upgrade consumed %d bytes of the conn before failing; want 0 (config bug before read)", sc.pos)
+				}
+				return
+			}
+			req := base + "Sec-WebSocket-Extensions: " + tt.extHeader + "\r\n\r\n"
+			sc := &scriptConn{in: []byte(req)}
+			hs, err := u.Upgrade(sc)
+			if err != nil {
+				t.Fatalf("Upgrade: %v", err)
+			}
+			if !hs.Compressed {
+				t.Fatalf("Compressed = false, want true")
+			}
+			if hs.CompressionParams.ClientMaxWindowBits != tt.wantClientBits {
+				t.Fatalf("ClientMaxWindowBits = %d, want %d", hs.CompressionParams.ClientMaxWindowBits, tt.wantClientBits)
+			}
+			resp := sc.out.String()
+			if tt.wantExt == "" {
+				if strings.Contains(resp, "client_max_window_bits") {
+					t.Fatalf("response unexpectedly contains client_max_window_bits: %q", resp)
+				}
+			} else if !strings.Contains(resp, tt.wantExt) {
+				t.Fatalf("response missing %q: %q", tt.wantExt, resp)
+			}
+		})
+	}
+}
+
+// TestUpgradeServerMaxWindowBitsPopulatesParams confirms that when the
+// response echoes server_max_window_bits, Handshake.CompressionParams
+// carries it (plumbing added with the window-bits fields).
+func TestUpgradeServerMaxWindowBitsPopulatesParams(t *testing.T) {
+	withDeflateBackend(t, fakeWindowedBackend, defaultDeflateLevel, 10)
+	const req = "GET / HTTP/1.1\r\n" +
+		"Host: example.com\r\n" +
+		"Upgrade: websocket\r\n" +
+		"Connection: Upgrade\r\n" +
+		"Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n" +
+		"Sec-WebSocket-Version: 13\r\n" +
+		"Sec-WebSocket-Extensions: permessage-deflate; server_max_window_bits=12\r\n" +
+		"\r\n"
+	sc := &scriptConn{in: []byte(req)}
+	u := &Upgrader{EnableCompression: true, NegotiateWindowBits: true}
+	hs, err := u.Upgrade(sc)
+	if err != nil {
+		t.Fatalf("Upgrade: %v", err)
+	}
+	if hs.CompressionParams.ServerMaxWindowBits != 10 {
+		t.Fatalf("ServerMaxWindowBits = %d, want 10 (active bits echoed)", hs.CompressionParams.ServerMaxWindowBits)
+	}
+}
+
+// TestDialClientMaxWindowBitsMinOfOfferAndResponse confirms that with a
+// capable backend, WindowBits=10 plus a server response of
+// client_max_window_bits=9 yields CompressionParams.ClientMaxWindowBits==9
+// (min of offer and response).
+func TestDialClientMaxWindowBitsMinOfOfferAndResponse(t *testing.T) {
+	withDeflateBackend(t, fakeWindowedBackend, defaultDeflateLevel, 15)
+
+	serverConn, clientConn := net.Pipe()
+	go func() {
+		req := readRawHeaderBlockCompress(t, serverConn)
+		resp := "HTTP/1.1 101 Switching Protocols\r\n" +
+			"Upgrade: websocket\r\n" +
+			"Connection: Upgrade\r\n" +
+			"Sec-WebSocket-Accept: " + acceptFromRawRequest(t, req) + "\r\n" +
+			"Sec-WebSocket-Extensions: permessage-deflate; server_no_context_takeover; " +
+			"client_no_context_takeover; client_max_window_bits=9\r\n\r\n"
+		serverConn.Write([]byte(resp))
+	}()
+
+	d := &Dialer{
+		EnableCompression: true,
+		WindowBits:        10,
+		NetDial: func(ctx context.Context, network, addr string) (net.Conn, error) {
+			return clientConn, nil
+		},
+	}
+	conn, hs, err := d.Dial(t.Context(), "ws://example.invalid/")
+	if err != nil {
+		t.Fatalf("Dial: %v", err)
+	}
+	defer conn.Close()
+	if hs.CompressionParams.ClientMaxWindowBits != 9 {
+		t.Fatalf("ClientMaxWindowBits = %d, want 9 (min of offer 10 and response 9)", hs.CompressionParams.ClientMaxWindowBits)
 	}
 }
