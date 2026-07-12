@@ -27,12 +27,18 @@ type Opcode byte
 // reserved for future non-control and control frames respectively;
 // [DecodeHeader] rejects them with [ErrReservedOpcode].
 const (
+	// OpcodeContinuation identifies a continuation frame.
 	OpcodeContinuation Opcode = 0x0
-	OpcodeText         Opcode = 0x1
-	OpcodeBinary       Opcode = 0x2
-	OpcodeClose        Opcode = 0x8
-	OpcodePing         Opcode = 0x9
-	OpcodePong         Opcode = 0xA
+	// OpcodeText identifies a text data frame.
+	OpcodeText Opcode = 0x1
+	// OpcodeBinary identifies a binary data frame.
+	OpcodeBinary Opcode = 0x2
+	// OpcodeClose identifies a close control frame.
+	OpcodeClose Opcode = 0x8
+	// OpcodePing identifies a ping control frame.
+	OpcodePing Opcode = 0x9
+	// OpcodePong identifies a pong control frame.
+	OpcodePong Opcode = 0xA
 )
 
 // IsControl reports whether op identifies a control frame (Close, Ping,
@@ -59,8 +65,11 @@ func (op Opcode) IsData() bool { return op == OpcodeText || op == OpcodeBinary }
 // set should reject undeclared bits themselves, e.g.
 // "if h.Rsv & ^negotiatedMask != 0 { failConnection() }".
 const (
+	// RSV1 is the mask for the first reserved header bit.
 	RSV1 byte = 0x4
+	// RSV2 is the mask for the second reserved header bit.
 	RSV2 byte = 0x2
+	// RSV3 is the mask for the third reserved header bit.
 	RSV3 byte = 0x1
 )
 
@@ -289,21 +298,36 @@ type CloseCode uint16
 // Registry". See [ValidCloseCode] for which of these (and which other
 // codes) are permitted on the wire.
 const (
-	CloseNormalClosure           CloseCode = 1000
-	CloseGoingAway               CloseCode = 1001
-	CloseProtocolError           CloseCode = 1002
-	CloseUnsupportedData         CloseCode = 1003
-	CloseNoStatusReceived        CloseCode = 1005 // Reserved; never sent on the wire. See ParseCloseBody.
-	CloseAbnormalClosure         CloseCode = 1006 // Reserved; never sent on the wire.
+	// CloseNormalClosure indicates that the connection fulfilled its purpose.
+	CloseNormalClosure CloseCode = 1000
+	// CloseGoingAway indicates that an endpoint is going away.
+	CloseGoingAway CloseCode = 1001
+	// CloseProtocolError indicates that an endpoint encountered a protocol error.
+	CloseProtocolError CloseCode = 1002
+	// CloseUnsupportedData indicates receipt of an unsupported data type.
+	CloseUnsupportedData CloseCode = 1003
+	// CloseNoStatusReceived is the reserved sentinel for a missing status code.
+	CloseNoStatusReceived CloseCode = 1005 // Reserved; never sent on the wire. See ParseCloseBody.
+	// CloseAbnormalClosure is the reserved sentinel for an abnormal closure.
+	CloseAbnormalClosure CloseCode = 1006 // Reserved; never sent on the wire.
+	// CloseInvalidFramePayloadData indicates inconsistent message data.
 	CloseInvalidFramePayloadData CloseCode = 1007
-	ClosePolicyViolation         CloseCode = 1008
-	CloseMessageTooBig           CloseCode = 1009
-	CloseMandatoryExtension      CloseCode = 1010
-	CloseInternalServerErr       CloseCode = 1011
-	CloseServiceRestart          CloseCode = 1012
-	CloseTryAgainLater           CloseCode = 1013
-	CloseBadGateway              CloseCode = 1014
-	CloseTLSHandshake            CloseCode = 1015 // Reserved; never sent on the wire.
+	// ClosePolicyViolation indicates receipt of a message that violates policy.
+	ClosePolicyViolation CloseCode = 1008
+	// CloseMessageTooBig indicates receipt of a message that is too large.
+	CloseMessageTooBig CloseCode = 1009
+	// CloseMandatoryExtension indicates that a required extension was not negotiated.
+	CloseMandatoryExtension CloseCode = 1010
+	// CloseInternalServerErr indicates an unexpected server condition.
+	CloseInternalServerErr CloseCode = 1011
+	// CloseServiceRestart indicates that the service is restarting.
+	CloseServiceRestart CloseCode = 1012
+	// CloseTryAgainLater indicates a temporary service condition.
+	CloseTryAgainLater CloseCode = 1013
+	// CloseBadGateway indicates an invalid response from an upstream server.
+	CloseBadGateway CloseCode = 1014
+	// CloseTLSHandshake is the reserved sentinel for a failed TLS handshake.
+	CloseTLSHandshake CloseCode = 1015 // Reserved; never sent on the wire.
 )
 
 // ValidCloseCode reports whether c is a close code permitted to appear

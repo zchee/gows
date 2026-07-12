@@ -50,7 +50,9 @@ const defaultMaxHeaderBytes = 8192
 // a new one.
 type DeflateWriter interface {
 	io.Writer
+	// Reset discards the writer state and directs future output to dst.
 	Reset(dst io.Writer)
+	// Flush forces buffered compressed data to the destination.
 	Flush() error
 }
 
@@ -61,6 +63,7 @@ type DeflateWriter interface {
 // reader afterward without allocating a new one.
 type DeflateReader interface {
 	io.Reader
+	// Reset discards the reader state and reads a new stream from r.
 	Reset(r io.Reader, dict []byte) error
 }
 
