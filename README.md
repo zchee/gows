@@ -51,24 +51,17 @@ the one open, unresolved gap.
   [`writer.go`](writer.go)'s `WriteMessage` doc comment.
 - **permessage-deflate (RFC 7692)**, negotiated via
   `Upgrader.EnableCompression` / `Dialer.EnableCompression`, with a
-  pluggable compressor backend: `compress.go` never calls
-  `compress/flate` directly, only through two package-level function
-  variables, so swapping backends is a one-place change (see
+  pluggable compressor backend, direction-specific window negotiation,
+  trusted valued/bare `client_max_window_bits` handling, and opt-in context
+  takeover. The root module defaults to stdlib `compress/flate`; the optional
+  klauspost backend lives in the separate zero-impact `flatekp/` module (see
   [`options.go`](options.go)'s "permessage-deflate backend seam" comment).
-  Ships on stdlib `compress/flate` at level 1 (`BestSpeed`) by default —
-  chosen because level 6's `Writer.Reset` cost (~11.6µs, measured) would
-  dominate small-message overhead under this phase's no-context-takeover,
-  pool-and-reset-per-message model. A backend study
-  ([`.omc/research/deflate-study.md`](.omc/research/deflate-study.md))
-  found `klauspost/compress/flate` faster at every measured encode/decode
-  size and level, with no ratio tradeoff at level 1 — not yet adopted in
-  core (would cost the zero-dependency property), tracked as a possible
-  future submodule/build-tag opt-in.
-- **Autobahn|Testsuite conformance**: sections 1-10 plus 12-13
-  (permessage-deflate), **517 cases, server and client modes, `Failed=0`
-  in both**, UTF-8 validation on (the default) throughout — see
+- **Autobahn|Testsuite evidence**: the repository preserves earlier canonical
+  server/client results as dated historical evidence — see
   [`.omc/research/autobahn-phase2.md`](.omc/research/autobahn-phase2.md) and
-  [`.omc/research/autobahn-phase4.md`](.omc/research/autobahn-phase4.md).
+  [`.omc/research/autobahn-phase4.md`](.omc/research/autobahn-phase4.md). The
+  v0.4 feature-specific server/client 517-case matrix is
+  **SKIPPED-RESIDUAL**, not pass evidence; see [Conformance](#conformance).
 - **93.9% statement coverage** across the core module and `internal/*`
   packages (≥85% required), and **1,461,410,711 combined fuzz executions**
   across four targets (`FuzzMask`, `FuzzValidator`, `FuzzDecodeHeader`,
@@ -355,39 +348,46 @@ module (`go build`/`go vet`, clean) as part of writing this document.
 
 ## Conformance
 
-Autobahn|Testsuite: sections 1-10 (framing, fragmentation, UTF-8 handling,
-close handling, limits) plus 12-13 (permessage-deflate), **517 cases total,
-`Failed=0` in both server and client modes**, UTF-8 validation on
-throughout. Every non-`OK` case is either `INFORMATIONAL`/`NON-STRICT`
-(spec-defined-as-implementation-specific behavior) or `UNIMPLEMENTED`
-(the `*_max_window_bits` negotiation variants — the current backend only
-accepts window-bits-15 offers server-side and doesn't request a specific
-window size client-side; both documented, judge-accepted outcomes, not
-protocol bugs). Full per-case breakdown, including the exact reasoning for
-every non-`OK` result:
-[`.omc/research/autobahn-phase2.md`](.omc/research/autobahn-phase2.md),
+The signed v0.4 baseline is commit
+`87fa6330c9bbe1de642a9da6defb5e1ff2a73619`. Its active implementation
+includes:
+
+- `NextReader` and `NextWriter` streaming message APIs;
+- opt-in context takeover;
+- valued and bare `client_max_window_bits` offers, including the trusted
+  server hint path; and
+- a zero-dependency core module with the optional klauspost backend isolated
+  in the separate `github.com/zchee/gows/flatekp` module.
+
+The repository retains canonical Autobahn reports from earlier v0.1-v0.3
+gates as dated historical evidence:
+[`.omc/research/autobahn-phase2.md`](.omc/research/autobahn-phase2.md) and
 [`.omc/research/autobahn-phase4.md`](.omc/research/autobahn-phase4.md).
+Their 517-case counts and verdicts describe those recorded runs; they are not
+evidence that the v0.4 feature-specific matrix ran.
+
+The v0.4 feature server/client 517-case matrix is **SKIPPED-RESIDUAL**. Docker,
+OrbStack, and those feature runs were not executed for the signed v0.4
+delivery, and this residual is not pass evidence. The signed delivery instead
+retains the completed non-container root, race, purego, `flatekp`, benchmark,
+review, and UltraQA evidence under `.omx/artifacts/`.
 
 ## Non-goals and deferred work
 
-- **`NextReader`/`NextWriter` (gorilla-style streaming API)**: rejected as
-  a first-class API. Their semantics assume a `bufio`-backed connection and
-  conflict with the zero-copy design goal here; a `compat/gorilla` shim
-  remains a possibility for a later phase but is not implemented.
-- **`klauspost/compress/flate` backend**: `.omc/research/deflate-study.md`
-  found it decisively faster than stdlib `compress/flate` at every
-  measured encode/decode size and level, with no compression-ratio
-  tradeoff at level 1. Not adopted in the core module (it would cost the
-  zero-dependency property); `compress.go`'s backend seam (two
-  package-level function variables) already supports swapping to it via a
-  build tag or a separate submodule without touching call sites — planned,
-  not yet done.
+- **gorilla compatibility surface**: the streaming APIs are implemented, but
+  a broader `compat/gorilla` package is deferred until there is demonstrated
+  demand. It would create a long-lived compatibility contract beyond the
+  current API.
+- **klauspost in the core module**: the optional backend is implemented in
+  `flatekp/`, a separate Go module. It is intentionally not imported by the
+  root module, which remains zero-dependency.
 - **Event-loop / reactor mode**: a `gowsnet` package spike driving the
   frame codec over an epoll/kqueue reactor instead of goroutine-per-connection,
-  targeting ~600MB-1GB memory at 1M connections (gobwas-class), is scoped
-  as a stretch phase (project plan §Phase 6) contingent on a
-  user decision after the benchmark work above. Not started; the current
-  connection model is goroutine-per-connection throughout.
+  is deferred to a separate deliberate design phase. It has not started; the
+  current connection model is goroutine-per-connection throughout.
+- **16 KiB performance tuning**: prior syscall-pacing and `MSG_WAITALL`
+  experiments did not produce an accepted improvement. Further work requires
+  a new falsifiable hypothesis and controlled benchmark evidence.
 
 ## License
 
