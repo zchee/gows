@@ -119,9 +119,6 @@ func (c *Conn) readMessage() (Opcode, []byte, error) {
 				if err != nil {
 					return 0, nil, err
 				}
-				if c.msgIsText && !c.skipUTF8 && !utf8x.Valid(p) {
-					return c.failData(CloseInvalidFramePayloadData, "invalid UTF-8 in text message")
-				}
 				return h.Opcode, p, nil
 			}
 			inMessage = true
@@ -166,6 +163,15 @@ func (c *Conn) readMessage() (Opcode, []byte, error) {
 // readHeader decodes the next frame header, reading more bytes as needed. A
 // malformed header fails the connection with a 1002 protocol error.
 func (c *Conn) readHeader() (Header, error) {
+	return c.readHeaderWithPartialEOF(false)
+}
+
+// readHeaderWithPartialEOF optionally distinguishes transport EOF at a clean
+// frame boundary from EOF after some, but not all, header bytes arrived. The
+// streaming entry point needs that distinction before ioError tears down the
+// connection and clears the read-buffer window; ReadMessage deliberately
+// retains its historical bare-EOF behavior.
+func (c *Conn) readHeaderWithPartialEOF(promotePartialEOF bool) (Header, error) {
 	for {
 		if c.r1-c.r0 >= 2 {
 			h, n, err := DecodeHeader(c.rbuf[c.r0:c.r1])
@@ -178,6 +184,9 @@ func (c *Conn) readHeader() (Header, error) {
 			}
 		}
 		if err := c.fillOnce(); err != nil {
+			if promotePartialEOF && errors.Is(err, io.EOF) && c.r1-c.r0 > 0 {
+				err = io.ErrUnexpectedEOF
+			}
 			return Header{}, c.ioError(err)
 		}
 	}
@@ -191,14 +200,31 @@ func (c *Conn) readContiguousPayload(h Header) ([]byte, error) {
 	if int64(n) > c.readLimit {
 		return nil, c.failClose(CloseMessageTooBig, "message exceeds read limit")
 	}
-	if err := c.ensure(n); err != nil {
-		return nil, c.ioError(err)
+	processed := 0
+	key := h.MaskKey
+	validateUTF8 := c.msgIsText && !c.skipUTF8
+	for processed < n {
+		available := min(c.r1-c.r0, n)
+		if processed < available {
+			chunk := c.rbuf[c.r0+processed : c.r0+available]
+			if h.Masked {
+				key = mask.Mask(chunk, key)
+			}
+			if validateUTF8 && !c.utf8v.Feed(chunk) {
+				return nil, c.failClose(CloseInvalidFramePayloadData, "invalid UTF-8 in text message")
+			}
+			processed = available
+			continue
+		}
+		if err := c.fillOnce(); err != nil {
+			return nil, c.ioError(err)
+		}
+	}
+	if validateUTF8 && !c.utf8v.Done() {
+		return nil, c.failClose(CloseInvalidFramePayloadData, "incomplete UTF-8 sequence at message end")
 	}
 	p := c.rbuf[c.r0 : c.r0+n]
 	c.r0 += n
-	if h.Masked {
-		mask.Mask(p, h.MaskKey)
-	}
 	return p, nil
 }
 
@@ -600,7 +626,7 @@ func (c *Conn) NextReader() (Opcode, io.Reader, error) {
 // Continuation frame with no message in progress is a protocol error.
 func (c *Conn) readDataFrameHeader() (Opcode, Header, error) {
 	for {
-		h, err := c.readHeader()
+		h, err := c.readHeaderWithPartialEOF(true)
 		if err != nil {
 			return 0, Header{}, err
 		}
@@ -700,15 +726,15 @@ func (r *messageReader) Read(p []byte) (int, error) {
 				return 0, io.EOF
 			}
 			if err := r.nextFrame(); err != nil {
-				r.err = err
-				return 0, err
+				r.err = r.promoteIncompleteEOF(err)
+				return 0, r.err
 			}
 			continue
 		}
 		n, err := r.readFrameChunk(p)
 		if err != nil {
-			r.err = err
-			return 0, err
+			r.err = r.promoteIncompleteEOF(err)
+			return 0, r.err
 		}
 		if n > 0 {
 			return n, nil
@@ -716,6 +742,18 @@ func (r *messageReader) Read(p []byte) (int, error) {
 		// A transport that returned zero bytes without an error: retry rather
 		// than surface a spurious (0, nil) to the caller.
 	}
+}
+
+// promoteIncompleteEOF distinguishes a cleanly completed message from a
+// transport EOF encountered while its declared payload or continuation chain
+// is still incomplete. The lower-level read path has already torn down the
+// connection; replace its sticky EOF with the streaming-specific error.
+func (r *messageReader) promoteIncompleteEOF(err error) error {
+	if !errors.Is(err, io.EOF) {
+		return err
+	}
+	r.c.readErr = io.ErrUnexpectedEOF
+	return io.ErrUnexpectedEOF
 }
 
 // nextFrame advances the stream to the next payload-bearing continuation
