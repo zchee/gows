@@ -98,10 +98,11 @@ func (u *Upgrader) UpgradeHTTP(w http.ResponseWriter, r *http.Request) (net.Conn
 	}
 
 	var deflateParams extension.DeflateParams
+	var clientWindowBitsHint int
 	var deflateOK bool
 	if u.EnableCompression {
 		if extValue := r.Header.Get("Sec-WebSocket-Extensions"); extValue != "" {
-			deflateParams, deflateOK = negotiateDeflate([]byte(extValue), u.NegotiateWindowBits, u.AllowContextTakeover, u.ClientWindowBits)
+			deflateParams, clientWindowBitsHint, deflateOK = negotiateDeflateWithHint([]byte(extValue), u.NegotiateWindowBits, u.AllowContextTakeover, u.ClientWindowBits)
 		}
 	}
 
@@ -132,6 +133,9 @@ func (u *Upgrader) UpgradeHTTP(w http.ResponseWriter, r *http.Request) (net.Conn
 	}
 	if deflateOK {
 		hs.CompressionParams = compressionParamsFromDeflate(deflateParams)
+		if u.TrustClientWindowBitsHint && deflateParams.ClientMaxWindowBits == 0 {
+			hs.CompressionParams.ClientMaxWindowBitsHint = clientWindowBitsHint
+		}
 	}
 	return conn, hs, nil
 }

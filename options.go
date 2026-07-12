@@ -138,6 +138,11 @@ type DeflateBackend struct {
 // original permessage-deflate behavior: no-context-takeover in both
 // directions, identical to a [Conn] built with only [WithCompression]
 // and no [WithCompressionParams] call at all.
+//
+// Use keyed literals when constructing CompressionParams. As with any
+// exported Go struct, adding fields in a future release can break external
+// positional composite literals even when the new fields have compatible
+// zero values.
 type CompressionParams struct {
 	// ServerContextTakeover reports whether the server's own outgoing
 	// (server-to-client) compression reuses its LZ77 window across
@@ -161,6 +166,15 @@ type CompressionParams struct {
 	// self-imposed bound holds even without an echo), else 0. Valid
 	// non-zero range 8..15.
 	ClientMaxWindowBits int
+	// ClientMaxWindowBitsHint is a server-local, non-negotiated ceiling
+	// copied from a valued client_max_window_bits offer when
+	// [Upgrader.TrustClientWindowBitsHint] is enabled and the response did
+	// not emit that parameter. Valid values are 8..15; zero and invalid
+	// values are treated as absent. Client-role connections ignore it.
+	//
+	// This field is intentionally distinct from ClientMaxWindowBits: an
+	// offer-side hint is not a binding RFC 7692 response parameter.
+	ClientMaxWindowBitsHint int
 }
 
 // defaultDeflateLevel is the compression level compress.go's default
@@ -275,6 +289,22 @@ type Upgrader struct {
 	// offer contained.
 	AllowContextTakeover bool
 
+	// TrustClientWindowBitsHint, when true, lets a server-role [Conn]
+	// retain at most 2^N bytes of incoming context-takeover dictionary when
+	// the client offered valued client_max_window_bits=N but the response
+	// omitted that parameter. Bare, absent, and invalid offers are ignored,
+	// and an actually emitted ClientWindowBits value always takes precedence.
+	// This changes only local [CompressionParams.ClientMaxWindowBitsHint]
+	// state; it never changes the handshake response bytes.
+	//
+	// This is a deliberately non-strict RFC 7692 trust optimization. With
+	// no client_max_window_bits response parameter, a conforming peer may
+	// use the default 32KB window despite its earlier hint. Such output can
+	// fail decompression and terminate the connection. Use ClientWindowBits
+	// to negotiate a binding wire ceiling when that risk is unacceptable.
+	// The zero value preserves the RFC-strict 32KB incoming ceiling.
+	TrustClientWindowBitsHint bool
+
 	// ClientWindowBits, when 8-15 (and EnableCompression is also true),
 	// makes [Upgrader.Upgrade] and [Upgrader.UpgradeHTTP] emit
 	// client_max_window_bits in the permessage-deflate response whenever
@@ -346,6 +376,18 @@ type Dialer struct {
 	// The zero value adds no window-bits restriction to the offer,
 	// matching this package's original behavior exactly.
 	WindowBits int
+
+	// OfferClientMaxWindowBits, when true, adds one bare
+	// client_max_window_bits parameter to the permessage-deflate offer,
+	// allowing the server to select a valued 8..15 response ceiling for
+	// this client's outgoing compressor. Response omission keeps the RFC
+	// default 15. A bare response remains invalid.
+	//
+	// WindowBits and OfferClientMaxWindowBits are mutually exclusive;
+	// [Dialer.Dial] returns [ErrConflictingClientWindowBits] before URL
+	// parsing or network I/O when both are set, even if compression is
+	// disabled. The zero value preserves the original request bytes.
+	OfferClientMaxWindowBits bool
 
 	// AllowContextTakeover, when true (and EnableCompression is also
 	// true), makes [Dialer.Dial]'s offer omit server_no_context_takeover

@@ -64,6 +64,9 @@ func (d *Dialer) deflateOffer() (header string, params extension.DeflateParams) 
 	if d.WindowBits != 0 {
 		fmt.Fprintf(&b, "; client_max_window_bits=%d", d.WindowBits)
 		params.ClientMaxWindowBits = d.WindowBits
+	} else if d.OfferClientMaxWindowBits {
+		b.WriteString("; client_max_window_bits")
+		params.ClientMaxWindowBits = -1
 	}
 	if d.ServerWindowBits != 0 {
 		fmt.Fprintf(&b, "; server_max_window_bits=%d", d.ServerWindowBits)
@@ -124,6 +127,9 @@ func Dial(ctx context.Context, rawURL string) (net.Conn, Handshake, error) {
 // once per connection, not once per message) and allocates freely to
 // keep its implementation straightforward.
 func (d *Dialer) Dial(ctx context.Context, rawURL string) (net.Conn, Handshake, error) {
+	if d.WindowBits != 0 && d.OfferClientMaxWindowBits {
+		return nil, Handshake{}, ErrConflictingClientWindowBits
+	}
 	if d.WindowBits != 0 && (d.WindowBits < minDeflateWindowBits || d.WindowBits > deflateWindowBits) {
 		return nil, Handshake{}, ErrInvalidWindowBits
 	}

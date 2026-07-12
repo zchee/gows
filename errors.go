@@ -70,10 +70,18 @@ var (
 	// wraps a more specific internal/extension error; see the wrapped
 	// error's text for which condition failed.
 	ErrInvalidCompressionResponse = errors.New("gows: handshake response's Sec-WebSocket-Extensions (permessage-deflate) is invalid")
-	// ErrInvalidWindowBits indicates [Dialer.WindowBits] was set outside
-	// RFC 7692 §7.1.2.2's valid range (8-15). [Dialer.Dial] returns this
-	// before dialing anything.
-	ErrInvalidWindowBits = errors.New("gows: Dialer.WindowBits outside the valid range (8-15)")
+	// ErrInvalidWindowBits indicates a non-zero numeric public window-bits
+	// configuration field was set outside RFC 7692's valid range (8-15).
+	// This includes [Dialer.WindowBits], [Dialer.ServerWindowBits], and
+	// [Upgrader.ClientWindowBits]. Dial validates its fields before dialing;
+	// Upgrade reports an invalid ClientWindowBits while processing the
+	// handshake, before emitting a successful response.
+	ErrInvalidWindowBits = errors.New("gows: window bits outside the valid range (8-15)")
+	// ErrConflictingClientWindowBits indicates that [Dialer.WindowBits]
+	// and [Dialer.OfferClientMaxWindowBits] were both set. They encode the
+	// mutually exclusive valued and bare client_max_window_bits offer
+	// forms. [Dialer.Dial] returns this before URL parsing or network I/O.
+	ErrConflictingClientWindowBits = errors.New("gows: conflicting valued and bare client_max_window_bits offers")
 	// ErrUnsupportedWindowBits reports that a negotiated (or offered)
 	// client_max_window_bits ceiling is smaller than anything the process's
 	// active permessage-deflate backend can actually compress within

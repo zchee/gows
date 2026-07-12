@@ -1,0 +1,390 @@
+{
+  "version": 1,
+  "source_run_id": "20260712T120330Z-baseline",
+  "modes": {
+    "server": {
+      "agent": "gows",
+      "total_cases": 517,
+      "prefixes": [
+        "13.3.",
+        "13.5."
+      ],
+      "inventory": {
+        "13.3.1": {
+          "behavior": "UNIMPLEMENTED",
+          "behaviorClose": "OK"
+        },
+        "13.3.2": {
+          "behavior": "UNIMPLEMENTED",
+          "behaviorClose": "OK"
+        },
+        "13.3.3": {
+          "behavior": "UNIMPLEMENTED",
+          "behaviorClose": "OK"
+        },
+        "13.3.4": {
+          "behavior": "UNIMPLEMENTED",
+          "behaviorClose": "OK"
+        },
+        "13.3.5": {
+          "behavior": "UNIMPLEMENTED",
+          "behaviorClose": "OK"
+        },
+        "13.3.6": {
+          "behavior": "UNIMPLEMENTED",
+          "behaviorClose": "OK"
+        },
+        "13.3.7": {
+          "behavior": "UNIMPLEMENTED",
+          "behaviorClose": "OK"
+        },
+        "13.3.8": {
+          "behavior": "UNIMPLEMENTED",
+          "behaviorClose": "OK"
+        },
+        "13.3.9": {
+          "behavior": "UNIMPLEMENTED",
+          "behaviorClose": "OK"
+        },
+        "13.3.10": {
+          "behavior": "UNIMPLEMENTED",
+          "behaviorClose": "OK"
+        },
+        "13.3.11": {
+          "behavior": "UNIMPLEMENTED",
+          "behaviorClose": "OK"
+        },
+        "13.3.12": {
+          "behavior": "UNIMPLEMENTED",
+          "behaviorClose": "OK"
+        },
+        "13.3.13": {
+          "behavior": "UNIMPLEMENTED",
+          "behaviorClose": "OK"
+        },
+        "13.3.14": {
+          "behavior": "UNIMPLEMENTED",
+          "behaviorClose": "OK"
+        },
+        "13.3.15": {
+          "behavior": "UNIMPLEMENTED",
+          "behaviorClose": "OK"
+        },
+        "13.3.16": {
+          "behavior": "UNIMPLEMENTED",
+          "behaviorClose": "OK"
+        },
+        "13.3.17": {
+          "behavior": "UNIMPLEMENTED",
+          "behaviorClose": "OK"
+        },
+        "13.3.18": {
+          "behavior": "UNIMPLEMENTED",
+          "behaviorClose": "OK"
+        },
+        "13.5.1": {
+          "behavior": "UNIMPLEMENTED",
+          "behaviorClose": "OK"
+        },
+        "13.5.2": {
+          "behavior": "UNIMPLEMENTED",
+          "behaviorClose": "OK"
+        },
+        "13.5.3": {
+          "behavior": "UNIMPLEMENTED",
+          "behaviorClose": "OK"
+        },
+        "13.5.4": {
+          "behavior": "UNIMPLEMENTED",
+          "behaviorClose": "OK"
+        },
+        "13.5.5": {
+          "behavior": "UNIMPLEMENTED",
+          "behaviorClose": "OK"
+        },
+        "13.5.6": {
+          "behavior": "UNIMPLEMENTED",
+          "behaviorClose": "OK"
+        },
+        "13.5.7": {
+          "behavior": "UNIMPLEMENTED",
+          "behaviorClose": "OK"
+        },
+        "13.5.8": {
+          "behavior": "UNIMPLEMENTED",
+          "behaviorClose": "OK"
+        },
+        "13.5.9": {
+          "behavior": "UNIMPLEMENTED",
+          "behaviorClose": "OK"
+        },
+        "13.5.10": {
+          "behavior": "UNIMPLEMENTED",
+          "behaviorClose": "OK"
+        },
+        "13.5.11": {
+          "behavior": "UNIMPLEMENTED",
+          "behaviorClose": "OK"
+        },
+        "13.5.12": {
+          "behavior": "UNIMPLEMENTED",
+          "behaviorClose": "OK"
+        },
+        "13.5.13": {
+          "behavior": "UNIMPLEMENTED",
+          "behaviorClose": "OK"
+        },
+        "13.5.14": {
+          "behavior": "UNIMPLEMENTED",
+          "behaviorClose": "OK"
+        },
+        "13.5.15": {
+          "behavior": "UNIMPLEMENTED",
+          "behaviorClose": "OK"
+        },
+        "13.5.16": {
+          "behavior": "UNIMPLEMENTED",
+          "behaviorClose": "OK"
+        },
+        "13.5.17": {
+          "behavior": "UNIMPLEMENTED",
+          "behaviorClose": "OK"
+        },
+        "13.5.18": {
+          "behavior": "UNIMPLEMENTED",
+          "behaviorClose": "OK"
+        }
+      },
+      "targets": [
+        "13.3.1",
+        "13.3.2",
+        "13.3.3",
+        "13.3.4",
+        "13.3.5",
+        "13.3.6",
+        "13.3.7",
+        "13.3.8",
+        "13.3.9",
+        "13.3.10",
+        "13.3.11",
+        "13.3.12",
+        "13.3.13",
+        "13.3.14",
+        "13.3.15",
+        "13.3.16",
+        "13.3.17",
+        "13.3.18",
+        "13.5.1",
+        "13.5.2",
+        "13.5.3",
+        "13.5.4",
+        "13.5.5",
+        "13.5.6",
+        "13.5.7",
+        "13.5.8",
+        "13.5.9",
+        "13.5.10",
+        "13.5.11",
+        "13.5.12",
+        "13.5.13",
+        "13.5.14",
+        "13.5.15",
+        "13.5.16",
+        "13.5.17",
+        "13.5.18"
+      ]
+    },
+    "client": {
+      "agent": "gows",
+      "total_cases": 517,
+      "prefixes": [
+        "13.3.",
+        "13.5."
+      ],
+      "inventory": {
+        "13.3.1": {
+          "behavior": "UNIMPLEMENTED",
+          "behaviorClose": "OK"
+        },
+        "13.3.2": {
+          "behavior": "UNIMPLEMENTED",
+          "behaviorClose": "OK"
+        },
+        "13.3.3": {
+          "behavior": "UNIMPLEMENTED",
+          "behaviorClose": "OK"
+        },
+        "13.3.4": {
+          "behavior": "UNIMPLEMENTED",
+          "behaviorClose": "OK"
+        },
+        "13.3.5": {
+          "behavior": "UNIMPLEMENTED",
+          "behaviorClose": "OK"
+        },
+        "13.3.6": {
+          "behavior": "UNIMPLEMENTED",
+          "behaviorClose": "OK"
+        },
+        "13.3.7": {
+          "behavior": "UNIMPLEMENTED",
+          "behaviorClose": "OK"
+        },
+        "13.3.8": {
+          "behavior": "UNIMPLEMENTED",
+          "behaviorClose": "OK"
+        },
+        "13.3.9": {
+          "behavior": "UNIMPLEMENTED",
+          "behaviorClose": "OK"
+        },
+        "13.3.10": {
+          "behavior": "UNIMPLEMENTED",
+          "behaviorClose": "OK"
+        },
+        "13.3.11": {
+          "behavior": "UNIMPLEMENTED",
+          "behaviorClose": "OK"
+        },
+        "13.3.12": {
+          "behavior": "UNIMPLEMENTED",
+          "behaviorClose": "OK"
+        },
+        "13.3.13": {
+          "behavior": "UNIMPLEMENTED",
+          "behaviorClose": "OK"
+        },
+        "13.3.14": {
+          "behavior": "UNIMPLEMENTED",
+          "behaviorClose": "OK"
+        },
+        "13.3.15": {
+          "behavior": "UNIMPLEMENTED",
+          "behaviorClose": "OK"
+        },
+        "13.3.16": {
+          "behavior": "UNIMPLEMENTED",
+          "behaviorClose": "OK"
+        },
+        "13.3.17": {
+          "behavior": "UNIMPLEMENTED",
+          "behaviorClose": "OK"
+        },
+        "13.3.18": {
+          "behavior": "UNIMPLEMENTED",
+          "behaviorClose": "OK"
+        },
+        "13.5.1": {
+          "behavior": "UNIMPLEMENTED",
+          "behaviorClose": "OK"
+        },
+        "13.5.2": {
+          "behavior": "UNIMPLEMENTED",
+          "behaviorClose": "OK"
+        },
+        "13.5.3": {
+          "behavior": "UNIMPLEMENTED",
+          "behaviorClose": "OK"
+        },
+        "13.5.4": {
+          "behavior": "UNIMPLEMENTED",
+          "behaviorClose": "OK"
+        },
+        "13.5.5": {
+          "behavior": "UNIMPLEMENTED",
+          "behaviorClose": "OK"
+        },
+        "13.5.6": {
+          "behavior": "UNIMPLEMENTED",
+          "behaviorClose": "OK"
+        },
+        "13.5.7": {
+          "behavior": "UNIMPLEMENTED",
+          "behaviorClose": "OK"
+        },
+        "13.5.8": {
+          "behavior": "UNIMPLEMENTED",
+          "behaviorClose": "OK"
+        },
+        "13.5.9": {
+          "behavior": "UNIMPLEMENTED",
+          "behaviorClose": "OK"
+        },
+        "13.5.10": {
+          "behavior": "UNIMPLEMENTED",
+          "behaviorClose": "OK"
+        },
+        "13.5.11": {
+          "behavior": "UNIMPLEMENTED",
+          "behaviorClose": "OK"
+        },
+        "13.5.12": {
+          "behavior": "UNIMPLEMENTED",
+          "behaviorClose": "OK"
+        },
+        "13.5.13": {
+          "behavior": "UNIMPLEMENTED",
+          "behaviorClose": "OK"
+        },
+        "13.5.14": {
+          "behavior": "UNIMPLEMENTED",
+          "behaviorClose": "OK"
+        },
+        "13.5.15": {
+          "behavior": "UNIMPLEMENTED",
+          "behaviorClose": "OK"
+        },
+        "13.5.16": {
+          "behavior": "UNIMPLEMENTED",
+          "behaviorClose": "OK"
+        },
+        "13.5.17": {
+          "behavior": "UNIMPLEMENTED",
+          "behaviorClose": "OK"
+        },
+        "13.5.18": {
+          "behavior": "UNIMPLEMENTED",
+          "behaviorClose": "OK"
+        }
+      },
+      "targets": [
+        "13.3.1",
+        "13.3.2",
+        "13.3.3",
+        "13.3.4",
+        "13.3.5",
+        "13.3.6",
+        "13.3.7",
+        "13.3.8",
+        "13.3.9",
+        "13.3.10",
+        "13.3.11",
+        "13.3.12",
+        "13.3.13",
+        "13.3.14",
+        "13.3.15",
+        "13.3.16",
+        "13.3.17",
+        "13.3.18",
+        "13.5.1",
+        "13.5.2",
+        "13.5.3",
+        "13.5.4",
+        "13.5.5",
+        "13.5.6",
+        "13.5.7",
+        "13.5.8",
+        "13.5.9",
+        "13.5.10",
+        "13.5.11",
+        "13.5.12",
+        "13.5.13",
+        "13.5.14",
+        "13.5.15",
+        "13.5.16",
+        "13.5.17",
+        "13.5.18"
+      ]
+    }
+  }
+}

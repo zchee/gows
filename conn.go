@@ -221,27 +221,27 @@ func WithCompression(enabled bool) ConnOption {
 //     consequential level/backend tradeoff for the no-context-takeover
 //     path).
 //   - Incoming (decompressing the peer's messages) is much cheaper: only
-//     a growing/sliding dictionary buffer, capped at 32 KB (the RFC 7692
-//     default window) of the most recently decompressed plaintext -- not
-//     a persistent decompressor (see decompressMessage's doc for why one
-//     isn't needed). This cap is always 32 KB, never smaller, regardless
-//     of what backend/window bits this process's own [SetDeflateBackend]
-//     has active: gows negotiates no bound at all on what window the
-//     *peer* actually compresses with (this package only ever restricts
-//     or offers a bound for its *own* outgoing direction -- see
-//     [Upgrader.NegotiateWindowBits]/[Dialer.WindowBits]), so assuming
-//     anything smaller than the RFC maximum here would risk truncating a
-//     fully compliant peer's genuine cross-message back-references,
-//     corrupting decode.
+//     a growing/sliding dictionary buffer of the most recently decompressed
+//     plaintext, not a persistent decompressor. Its default cap is 32 KiB
+//     (15 bits). An actual peer-direction max-window-bits value emitted in
+//     the handshake response sets a smaller binding cap. A server may also
+//     explicitly opt into [Upgrader.TrustClientWindowBitsHint], which
+//     carries a valid valued offer into
+//     [CompressionParams.ClientMaxWindowBitsHint] as a server-local cap;
+//     zero or invalid hints use the 32 KiB default, and client-role Conns
+//     ignore the hint. The trusted hint is not negotiated wire state: when
+//     the response omitted client_max_window_bits, a conforming peer may
+//     still use the full RFC window. Such a stream can fail decompression
+//     if it references history beyond the trusted local cap.
 //
 // A server or client handling many concurrent context-takeover
 // connections should budget roughly 1 MB (compress/flate's default
-// level) for the outgoing side plus a fixed 32 KB for the incoming side,
-// per negotiated direction per connection -- neither shrinks with a
-// smaller-window backend (e.g. github.com/zchee/gows/flatekp): the
-// outgoing side because a smaller window does not shrink compress/flate's
-// own internal tables (sized independently of the window actually
-// negotiated), and the incoming side per the paragraph above. For high
+// level) for the outgoing side plus up to 32 KiB for the incoming side,
+// per negotiated direction per connection. A smaller-window backend
+// (e.g. github.com/zchee/gows/flatekp) does not itself shrink either
+// allocation: the outgoing side's internal tables are sized independently,
+// while the incoming cap changes only through the peer-direction response
+// bound or the server's explicit trusted-hint policy described above. For high
 // connection counts, prefer leaving context takeover off (the default)
 // and accepting the lower compression ratio of a fresh window per
 // message.

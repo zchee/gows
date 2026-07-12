@@ -386,6 +386,47 @@ func TestIntegrationEchoFlatekpBothEnds(t *testing.T) {
 	<-done
 }
 
+func TestIntegrationBareClientMaxWindowBitsSub15(t *testing.T) {
+	withGowsDeflateBackend(t, flatekp.Backend(), 6, 9)
+
+	srvConn, cliConn := net.Pipe()
+	serverResult := make(chan struct {
+		hs  gows.Handshake
+		err error
+	}, 1)
+	go func() {
+		u := &gows.Upgrader{EnableCompression: true, NegotiateWindowBits: true, ClientWindowBits: 9, AllowContextTakeover: true}
+		hs, err := u.Upgrade(srvConn)
+		serverResult <- struct {
+			hs  gows.Handshake
+			err error
+		}{hs, err}
+	}()
+	d := &gows.Dialer{
+		EnableCompression: true, OfferClientMaxWindowBits: true, ServerWindowBits: 9, AllowContextTakeover: true,
+		NetDial: func(context.Context, string, string) (net.Conn, error) { return cliConn, nil },
+	}
+	conn, clientHS, err := d.Dial(t.Context(), "ws://example.invalid/")
+	if err != nil {
+		t.Fatalf("Dial: %v", err)
+	}
+	defer conn.Close()
+	server := <-serverResult
+	if server.err != nil {
+		t.Fatalf("Upgrade: %v", server.err)
+	}
+	if clientHS.CompressionParams.ClientMaxWindowBits != 9 || clientHS.CompressionParams.ServerMaxWindowBits != 9 {
+		t.Fatalf("client negotiated params = %+v, want both window ceilings 9", clientHS.CompressionParams)
+	}
+	srv := gows.NewServerConn(srvConn, gows.WithCompressionParams(server.hs.CompressionParams))
+	cli := gows.NewClientConn(conn, gows.WithCompressionParams(clientHS.CompressionParams))
+	done := runServerEchoLoop(srv)
+	echoRoundTrip(t, cli, gows.OpcodeBinary, []byte(strings.Repeat("bare sub-15 takeover payload ", 80)))
+	echoRoundTrip(t, cli, gows.OpcodeBinary, []byte(strings.Repeat("bare sub-15 takeover payload ", 80)))
+	_ = cli.Close(gows.CloseNormalClosure, "")
+	<-done
+}
+
 // TestMixedBackendWireCompatibility is this task's "mixed
 // (flatekp server <-> stdlib-default client)" scenario, at the level
 // the claim actually needs proving at: gows.SetDeflateBackend is a

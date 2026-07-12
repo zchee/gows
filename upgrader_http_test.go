@@ -59,8 +59,11 @@ func TestUpgradeHTTPSuccess(t *testing.T) {
 			"Sec-WebSocket-Version: 13\r\n\r\n",
 	))
 
-	if !bytes.HasPrefix(resp, []byte("HTTP/1.1 101 Switching Protocols\r\n")) {
-		t.Fatalf("response = %q, want 101 status line prefix", resp)
+	wantResp := "HTTP/1.1 101 Switching Protocols\r\n" +
+		"Upgrade: websocket\r\nConnection: Upgrade\r\n" +
+		"Sec-WebSocket-Accept: s3pPLMBiTxaQ9kYGzzhZRbK+xOo=\r\n\r\n"
+	if string(resp) != wantResp {
+		t.Fatalf("raw response mismatch\n got: %q\nwant: %q", resp, wantResp)
 	}
 
 	select {
@@ -73,6 +76,135 @@ func TestUpgradeHTTPSuccess(t *testing.T) {
 	}
 	if gotHS.Path != "/chat" || gotHS.Query != "x=1" {
 		t.Errorf("Path/Query = %q/%q, want /chat / x=1", gotHS.Path, gotHS.Query)
+	}
+}
+
+func TestUpgradeHTTPTrustedClientWindowBitsHint(t *testing.T) {
+	result := make(chan gows.Handshake, 1)
+	u := &gows.Upgrader{EnableCompression: true, TrustClientWindowBitsHint: true}
+	srv := startUpgradeHTTPServer(t, u, func(conn net.Conn, hs gows.Handshake, err error) {
+		if err != nil {
+			t.Errorf("UpgradeHTTP: %v", err)
+		}
+		result <- hs
+		if conn != nil {
+			conn.Close()
+		}
+	})
+	defer srv.Close()
+
+	addr := srv.Listener.Addr().String()
+	resp := dialAndExchange(t, addr, []byte(
+		"GET / HTTP/1.1\r\nHost: "+addr+"\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n"+
+			"Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\nSec-WebSocket-Version: 13\r\n"+
+			"Sec-WebSocket-Extensions: permessage-deflate; client_max_window_bits=9\r\n\r\n",
+	))
+	wantResp := "HTTP/1.1 101 Switching Protocols\r\n" +
+		"Upgrade: websocket\r\nConnection: Upgrade\r\n" +
+		"Sec-WebSocket-Accept: s3pPLMBiTxaQ9kYGzzhZRbK+xOo=\r\n" +
+		"Sec-WebSocket-Extensions: permessage-deflate; server_no_context_takeover; client_no_context_takeover\r\n\r\n"
+	if string(resp) != wantResp {
+		t.Fatalf("raw trusted-hint response mismatch\n got: %q\nwant: %q", resp, wantResp)
+	}
+	select {
+	case hs := <-result:
+		if hs.CompressionParams.ClientMaxWindowBits != 0 || hs.CompressionParams.ClientMaxWindowBitsHint != 9 {
+			t.Fatalf("wire/hint = %d/%d, want 0/9", hs.CompressionParams.ClientMaxWindowBits, hs.CompressionParams.ClientMaxWindowBitsHint)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("UpgradeHTTP result did not arrive")
+	}
+}
+
+func TestUpgradeDeflateResponseAndStateParity(t *testing.T) {
+	const requestPrefix = "GET / HTTP/1.1\r\n" +
+		"Host: example.invalid\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n" +
+		"Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\nSec-WebSocket-Version: 13\r\n"
+	const responsePrefix = "HTTP/1.1 101 Switching Protocols\r\n" +
+		"Upgrade: websocket\r\nConnection: Upgrade\r\n" +
+		"Sec-WebSocket-Accept: s3pPLMBiTxaQ9kYGzzhZRbK+xOo=\r\n" +
+		"Sec-WebSocket-Extensions: permessage-deflate; server_no_context_takeover; client_no_context_takeover"
+
+	tests := map[string]struct {
+		u          gows.Upgrader
+		extension  string
+		wantSuffix string
+		wantParams gows.CompressionParams
+	}{
+		"valued trusted no echo": {
+			u:          gows.Upgrader{EnableCompression: true, TrustClientWindowBitsHint: true},
+			extension:  "permessage-deflate; client_max_window_bits=9",
+			wantSuffix: "\r\n\r\n",
+			wantParams: gows.CompressionParams{ClientMaxWindowBitsHint: 9},
+		},
+		"bare emits configured value": {
+			u:          gows.Upgrader{EnableCompression: true, ClientWindowBits: 10},
+			extension:  "permessage-deflate; client_max_window_bits",
+			wantSuffix: "; client_max_window_bits=10\r\n\r\n",
+			wantParams: gows.CompressionParams{ClientMaxWindowBits: 10},
+		},
+		"parameter absent emits none": {
+			u:          gows.Upgrader{EnableCompression: true, ClientWindowBits: 10, TrustClientWindowBitsHint: true},
+			extension:  "permessage-deflate",
+			wantSuffix: "\r\n\r\n",
+		},
+		"emitted min takes precedence": {
+			u:          gows.Upgrader{EnableCompression: true, ClientWindowBits: 10, TrustClientWindowBitsHint: true},
+			extension:  "permessage-deflate; client_max_window_bits=9",
+			wantSuffix: "; client_max_window_bits=9\r\n\r\n",
+			wantParams: gows.CompressionParams{ClientMaxWindowBits: 9},
+		},
+	}
+
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			request := []byte(requestPrefix + "Sec-WebSocket-Extensions: " + tt.extension + "\r\n\r\n")
+			wantResponse := responsePrefix + tt.wantSuffix
+
+			directServer, directPeer := net.Pipe()
+			directResult := make(chan externalUpgradeResult, 1)
+			go func() {
+				hs, err := tt.u.Upgrade(directServer)
+				directResult <- externalUpgradeResult{conn: directServer, hs: hs, err: err}
+			}()
+			if _, err := directPeer.Write(request); err != nil {
+				t.Fatalf("direct request write: %v", err)
+			}
+			directResponse := readRawHeaderBlock(t, directPeer)
+			direct := <-directResult
+			directPeer.Close()
+			directServer.Close()
+			if direct.err != nil {
+				t.Fatalf("Upgrade: %v", direct.err)
+			}
+
+			httpResult := make(chan externalUpgradeResult, 1)
+			srv := startUpgradeHTTPServer(t, &tt.u, func(conn net.Conn, hs gows.Handshake, err error) {
+				httpResult <- externalUpgradeResult{conn: conn, hs: hs, err: err}
+				if conn != nil {
+					conn.Close()
+				}
+			})
+			httpResponse := dialAndExchange(t, srv.Listener.Addr().String(), request)
+			http := <-httpResult
+			srv.Close()
+			if http.err != nil {
+				t.Fatalf("UpgradeHTTP: %v", http.err)
+			}
+
+			if got := string(directResponse); got != wantResponse {
+				t.Fatalf("direct raw response mismatch\n got: %q\nwant: %q", got, wantResponse)
+			}
+			if got := string(httpResponse); got != wantResponse {
+				t.Fatalf("HTTP raw response mismatch\n got: %q\nwant: %q", got, wantResponse)
+			}
+			if !bytes.Equal(directResponse, httpResponse) {
+				t.Fatalf("direct/HTTP raw response differ: %q / %q", directResponse, httpResponse)
+			}
+			if direct.hs.CompressionParams != tt.wantParams || http.hs.CompressionParams != tt.wantParams {
+				t.Fatalf("direct/HTTP params = %+v / %+v, want %+v", direct.hs.CompressionParams, http.hs.CompressionParams, tt.wantParams)
+			}
+		})
 	}
 }
 

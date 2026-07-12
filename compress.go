@@ -349,6 +349,9 @@ func newDeflateState(client bool, p CompressionParams) *deflateState {
 		outField, inField = p.ClientMaxWindowBits, p.ServerMaxWindowBits
 	} else {
 		outField, inField = p.ServerMaxWindowBits, p.ClientMaxWindowBits
+		if inField == 0 && p.ClientMaxWindowBitsHint >= minDeflateWindowBits && p.ClientMaxWindowBitsHint <= deflateWindowBits {
+			inField = p.ClientMaxWindowBitsHint
+		}
 	}
 	outCeil := effectiveWindowBits(outField)
 	inBits := effectiveWindowBits(inField)

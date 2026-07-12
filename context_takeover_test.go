@@ -510,6 +510,54 @@ func TestContextTakeoverIncomingDictNotBoundToOutgoingWindowBits(t *testing.T) {
 	}
 }
 
+// TestTrustedClientWindowBitsHintRejectsLargerConformingHistory documents
+// the opt-in risk: with no binding response parameter, the same full-window
+// peer stream is RFC-conforming and succeeds by default, but may fail when
+// the server trusts a smaller offer-side hint.
+func TestTrustedClientWindowBitsHintRejectsLargerConformingHistory(t *testing.T) {
+	var buf bytes.Buffer
+	peer, err := flate.NewWriter(&buf, 6)
+	if err != nil {
+		t.Fatalf("flate.NewWriter: %v", err)
+	}
+	compressMsg := func(p string) []byte {
+		buf.Reset()
+		if _, err := peer.Write([]byte(p)); err != nil {
+			t.Fatalf("peer Write: %v", err)
+		}
+		if err := peer.Flush(); err != nil {
+			t.Fatalf("peer Flush: %v", err)
+		}
+		out := buf.Bytes()
+		return append([]byte(nil), out[:len(out)-len(deflateFlushTail)]...)
+	}
+	const probe = "TRUSTED-HINT-DISTANCE-PROBE-1234567890-"
+	first := probe + strings.Repeat("independent-filler-", 180)
+	second := probe
+	if len(first) <= 1<<10 {
+		t.Fatalf("setup: first message %d must exceed hinted 1KB", len(first))
+	}
+	c1, c2 := compressMsg(first), compressMsg(second)
+
+	decode := func(hint int) error {
+		c := NewServerConn(&scriptConn{}, WithCompressionParams(CompressionParams{
+			ClientContextTakeover:   true,
+			ClientMaxWindowBitsHint: hint,
+		}))
+		if got, err := c.decompressMessage(c1); err != nil || string(got) != first {
+			t.Fatalf("first decode hint=%d: len=%d err=%v", hint, len(got), err)
+		}
+		_, err := c.decompressMessage(c2)
+		return err
+	}
+	if err := decode(0); err != nil {
+		t.Fatalf("default 32KB dictionary rejected conforming stream: %v", err)
+	}
+	if err := decode(10); err == nil {
+		t.Fatal("trusted 1KB hint unexpectedly accepted a >1KB back-reference")
+	}
+}
+
 // --- zero-value regression: WithCompressionParams's zero value ------------
 
 // TestCompressionParamsZeroValueMatchesWithCompression confirms the zero
@@ -644,6 +692,34 @@ func TestContextTakeoverIncomingDictUsesNegotiatedClientMaxWindowBits(t *testing
 	}
 	if c.deflate.incomingWindowBits != 9 {
 		t.Fatalf("incomingWindowBits = %d, want 9", c.deflate.incomingWindowBits)
+	}
+}
+
+func TestClientMaxWindowBitsHintPrecedenceAndRole(t *testing.T) {
+	tests := []struct {
+		name   string
+		client bool
+		params CompressionParams
+		want   int
+	}{
+		{"server valid hint", false, CompressionParams{ClientContextTakeover: true, ClientMaxWindowBitsHint: 9}, 9},
+		{"server emitted wins", false, CompressionParams{ClientContextTakeover: true, ClientMaxWindowBits: 10, ClientMaxWindowBitsHint: 9}, 10},
+		{"server invalid low absent", false, CompressionParams{ClientContextTakeover: true, ClientMaxWindowBitsHint: 7}, 15},
+		{"server invalid high absent", false, CompressionParams{ClientContextTakeover: true, ClientMaxWindowBitsHint: 16}, 15},
+		{"client ignores hint", true, CompressionParams{ServerContextTakeover: true, ClientMaxWindowBitsHint: 9}, 15},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var c *Conn
+			if tt.client {
+				c = NewClientConn(&scriptConn{}, WithCompressionParams(tt.params))
+			} else {
+				c = NewServerConn(&scriptConn{}, WithCompressionParams(tt.params))
+			}
+			if c.deflate == nil || c.deflate.incomingWindowBits != tt.want || cap(c.deflate.incomingDict) != 1<<tt.want {
+				t.Fatalf("deflate = %+v, want incoming bits %d", c.deflate, tt.want)
+			}
+		})
 	}
 }
 

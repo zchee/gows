@@ -408,6 +408,16 @@ func TestDialCompressionNegotiation(t *testing.T) {
 			serverExtHeader: "permessage-deflate; not_a_real_param",
 			wantErr:         ErrInvalidCompressionResponse,
 		},
+		"server response bare client max": {
+			enableClient:    true,
+			serverExtHeader: "permessage-deflate; server_no_context_takeover; client_no_context_takeover; client_max_window_bits",
+			wantErr:         ErrInvalidCompressionResponse,
+		},
+		"server response unsolicited valued client max": {
+			enableClient:    true,
+			serverExtHeader: "permessage-deflate; server_no_context_takeover; client_no_context_takeover; client_max_window_bits=15",
+			wantErr:         ErrInvalidCompressionResponse,
+		},
 		"client never offered: EnableCompression off": {
 			enableClient:    false,
 			serverExtHeader: "permessage-deflate",
@@ -418,6 +428,7 @@ func TestDialCompressionNegotiation(t *testing.T) {
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
 			serverConn, clientConn := net.Pipe()
+			peerClosed := make(chan error, 1)
 
 			go func() {
 				req := readRawHeaderBlockCompress(t, serverConn)
@@ -429,7 +440,12 @@ func TestDialCompressionNegotiation(t *testing.T) {
 					resp += "Sec-WebSocket-Extensions: " + tt.serverExtHeader + "\r\n"
 				}
 				resp += "\r\n"
-				serverConn.Write([]byte(resp))
+				_, _ = serverConn.Write([]byte(resp))
+				if tt.wantErr != nil {
+					_ = serverConn.SetReadDeadline(time.Now().Add(3 * time.Second))
+					_, err := serverConn.Read(make([]byte, 1))
+					peerClosed <- err
+				}
 			}()
 
 			d := &Dialer{
@@ -440,8 +456,19 @@ func TestDialCompressionNegotiation(t *testing.T) {
 			}
 			conn, hs, err := d.Dial(t.Context(), "ws://example.invalid/")
 			if tt.wantErr != nil {
+				if conn != nil {
+					t.Fatalf("Dial conn = %v, want nil", conn)
+				}
 				if !errors.Is(err, tt.wantErr) {
 					t.Fatalf("Dial err = %v, want %v", err, tt.wantErr)
+				}
+				select {
+				case closeErr := <-peerClosed:
+					if closeErr == nil {
+						t.Fatal("peer read succeeded, want client-side close")
+					}
+				case <-time.After(3 * time.Second):
+					t.Fatal("peer did not observe client-side close")
 				}
 				return
 			}
@@ -465,6 +492,7 @@ func TestDialCompressionNegotiation(t *testing.T) {
 func TestDialWindowBitsOffer(t *testing.T) {
 	tests := map[string]struct {
 		windowBits int
+		bare       bool
 		wantOffer  string
 	}{
 		"zero value: no window-bits restriction offered": {
@@ -475,6 +503,10 @@ func TestDialWindowBitsOffer(t *testing.T) {
 			windowBits: 10,
 			wantOffer: "permessage-deflate; server_no_context_takeover; client_no_context_takeover; " +
 				"client_max_window_bits=10\r\n",
+		},
+		"bare window bits offered": {
+			bare:      true,
+			wantOffer: "permessage-deflate; server_no_context_takeover; client_no_context_takeover; client_max_window_bits\r\n",
 		},
 	}
 
@@ -499,8 +531,9 @@ func TestDialWindowBitsOffer(t *testing.T) {
 			}()
 
 			d := &Dialer{
-				EnableCompression: true,
-				WindowBits:        tt.windowBits,
+				EnableCompression:        true,
+				WindowBits:               tt.windowBits,
+				OfferClientMaxWindowBits: tt.bare,
 				NetDial: func(ctx context.Context, network, addr string) (net.Conn, error) {
 					return clientConn, nil
 				},
@@ -512,8 +545,9 @@ func TestDialWindowBitsOffer(t *testing.T) {
 			defer conn.Close()
 
 			req := <-reqCh
-			if !bytes.Contains(req, []byte("Sec-WebSocket-Extensions: "+tt.wantOffer)) {
-				t.Errorf("request missing expected offer %q: %q", tt.wantOffer, req)
+			wantLine := []byte("Sec-WebSocket-Extensions: " + tt.wantOffer)
+			if bytes.Count(req, wantLine) != 1 {
+				t.Errorf("request exact offer line count = %d, want 1; line=%q request=%q", bytes.Count(req, wantLine), wantLine, req)
 			}
 		})
 	}
@@ -1140,6 +1174,89 @@ func TestUpgradeClientWindowBits(t *testing.T) {
 				}
 			} else if !strings.Contains(resp, tt.wantExt) {
 				t.Fatalf("response missing %q: %q", tt.wantExt, resp)
+			}
+		})
+	}
+}
+
+func TestUpgradeTrustedClientWindowBitsHint(t *testing.T) {
+	const base = "GET / HTTP/1.1\r\n" +
+		"Host: example.com\r\n" +
+		"Upgrade: websocket\r\n" +
+		"Connection: Upgrade\r\n" +
+		"Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n" +
+		"Sec-WebSocket-Version: 13\r\n"
+	tests := map[string]struct {
+		trust, takeover bool
+		clientBits      int
+		ext             string
+		wantWire        int
+		wantHint        int
+		wantIncoming    int
+		wantDict        bool
+	}{
+		"opt out valued":            {ext: "permessage-deflate; client_max_window_bits=9", takeover: true, wantIncoming: 15, wantDict: true},
+		"trusted valued":            {trust: true, ext: "permessage-deflate; client_max_window_bits=9", takeover: true, wantHint: 9, wantIncoming: 9, wantDict: true},
+		"trusted bare":              {trust: true, ext: "permessage-deflate; client_max_window_bits", takeover: true, wantIncoming: 15, wantDict: true},
+		"trusted absent":            {trust: true, ext: "permessage-deflate", takeover: true, wantIncoming: 15, wantDict: true},
+		"emitted wins":              {trust: true, ext: "permessage-deflate; client_max_window_bits=9", takeover: true, clientBits: 8, wantWire: 8, wantIncoming: 8, wantDict: true},
+		"no takeover no allocation": {trust: true, ext: "permessage-deflate; client_max_window_bits=9", wantHint: 9},
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			req := base + "Sec-WebSocket-Extensions: " + tt.ext + "\r\n\r\n"
+			sc := &scriptConn{in: []byte(req)}
+			u := &Upgrader{EnableCompression: true, AllowContextTakeover: tt.takeover, ClientWindowBits: tt.clientBits, TrustClientWindowBitsHint: tt.trust}
+			hs, err := u.Upgrade(sc)
+			if err != nil {
+				t.Fatalf("Upgrade: %v", err)
+			}
+			if hs.CompressionParams.ClientMaxWindowBits != tt.wantWire || hs.CompressionParams.ClientMaxWindowBitsHint != tt.wantHint {
+				t.Fatalf("params wire/hint = %d/%d, want %d/%d", hs.CompressionParams.ClientMaxWindowBits, hs.CompressionParams.ClientMaxWindowBitsHint, tt.wantWire, tt.wantHint)
+			}
+			if tt.wantWire == 0 && strings.Contains(sc.out.String(), "client_max_window_bits=") {
+				t.Fatalf("trusted hint changed response bytes: %q", sc.out.String())
+			}
+			c := NewServerConn(&scriptConn{}, WithCompressionParams(hs.CompressionParams))
+			if !tt.wantDict {
+				if c.deflate != nil {
+					t.Fatalf("deflate = %+v, want nil", c.deflate)
+				}
+				return
+			}
+			if c.deflate == nil || c.deflate.incomingDict == nil || c.deflate.incomingWindowBits != tt.wantIncoming || cap(c.deflate.incomingDict) != 1<<tt.wantIncoming {
+				t.Fatalf("incoming state = %+v, want bits/cap %d/%d", c.deflate, tt.wantIncoming, 1<<tt.wantIncoming)
+			}
+		})
+	}
+}
+
+func TestUpgradeResponseBytesFrozen(t *testing.T) {
+	const base = "GET / HTTP/1.1\r\n" +
+		"Host: example.com\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n" +
+		"Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\nSec-WebSocket-Version: 13\r\n"
+	const prefix = "HTTP/1.1 101 Switching Protocols\r\n" +
+		"Upgrade: websocket\r\nConnection: Upgrade\r\n" +
+		"Sec-WebSocket-Accept: s3pPLMBiTxaQ9kYGzzhZRbK+xOo=\r\n"
+	for name, tt := range map[string]struct {
+		u    Upgrader
+		ext  string
+		want string
+	}{
+		"zero default": {want: prefix + "\r\n"},
+		"trusted valued hint no echo": {
+			u:    Upgrader{EnableCompression: true, TrustClientWindowBitsHint: true},
+			ext:  "Sec-WebSocket-Extensions: permessage-deflate; client_max_window_bits=9\r\n",
+			want: prefix + "Sec-WebSocket-Extensions: permessage-deflate; server_no_context_takeover; client_no_context_takeover\r\n\r\n",
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			sc := &scriptConn{in: []byte(base + tt.ext + "\r\n")}
+			if _, err := tt.u.Upgrade(sc); err != nil {
+				t.Fatalf("Upgrade: %v", err)
+			}
+			if got := sc.out.String(); got != tt.want {
+				t.Fatalf("raw response mismatch\n got: %q\nwant: %q", got, tt.want)
 			}
 		})
 	}

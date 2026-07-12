@@ -1,0 +1,77 @@
+// Copyright 2026 The gows Authors.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+package main
+
+import (
+	"encoding/json"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+)
+
+func TestCompareAllCasesAndRejectCompensatingStatusChange(t *testing.T) {
+	dir := t.TempDir()
+	base := cases()
+	current := cases()
+	bp := write(t, dir, "base", base)
+	cp := write(t, dir, "current", current)
+	if err := compare(bp, cp, "gows"); err != nil {
+		t.Fatal(err)
+	}
+	current["1.1.1"] = result{"FAILED", "OK"}
+	current["1.1.2"] = result{"OK", "FAILED"}
+	cp = write(t, dir, "compensating", current)
+	err := compare(bp, cp, "gows")
+	if err == nil || !strings.Contains(err.Error(), "case 1.1.1 changed") {
+		t.Fatalf("error=%v", err)
+	}
+}
+
+func cases() map[string]result {
+	m := make(map[string]result, 517)
+	for i := 1; i <= 517; i++ {
+		m["1.1."+fmtInt(i)] = result{"OK", "OK"}
+	}
+	return m
+}
+
+func fmtInt(n int) string {
+	if n == 0 {
+		return "0"
+	}
+	var b [20]byte
+	i := len(b)
+	for n > 0 {
+		i--
+		b[i] = byte('0' + n%10)
+		n /= 10
+	}
+	return string(b[i:])
+}
+
+func write(t *testing.T, dir, name string, cases map[string]result) string {
+	t.Helper()
+	raw := map[string]map[string]map[string]string{"gows": {}}
+	for id, r := range cases {
+		raw["gows"][id] = map[string]string{"behavior": r.Behavior, "behaviorClose": r.BehaviorClose}
+	}
+	b, _ := json.Marshal(raw)
+	p := filepath.Join(dir, name+".json")
+	if err := os.WriteFile(p, b, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return p
+}

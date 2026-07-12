@@ -77,19 +77,17 @@
 // back a match may reference, a cheap int32 comparison, not how large
 // the encoder's own working set is.
 //
-// gows's own incoming-side sliding-window dictionary (see
-// WithCompressionParams) does not shrink with a negotiated window either
-// -- but for an entirely different, non-negotiable reason: gows never
-// negotiates any bound on what window the *peer* actually compresses
-// with (this backend's windowBits only ever configures this process's
-// own outgoing compressor), so the incoming dictionary must always
-// assume the RFC 7692 maximum (32KB) regardless of this backend's own
-// configuration, or a fully compliant peer's genuine cross-message
-// back-references could be truncated, corrupting decode. Installing
-// this backend at a smaller windowBits therefore only ever affects this
-// process's own *sending* direction's negotiation eligibility (see
-// gows.Upgrader.NegotiateWindowBits/gows.Dialer.WindowBits); it does not
-// reduce memory on either the sending or the receiving side.
+// This fixed writer allocation is distinct from gows's incoming-side
+// sliding dictionary (see [gows.WithCompressionParams]). Installing this
+// backend at a smaller windowBits does not itself shrink that dictionary:
+// the peer-direction max-window-bits value actually emitted in the
+// handshake response can set a smaller binding cap, and a server may
+// separately opt into [gows.Upgrader.TrustClientWindowBitsHint] to use a
+// valued offer as a non-negotiated local cap. The latter can reject an
+// otherwise conforming peer that uses history beyond the hint when the
+// response omitted client_max_window_bits. Thus the backend writer's
+// working set remains fixed, while gows's incoming dictionary can shrink
+// only through response negotiation or that explicit trust policy.
 package flatekp
 
 import (

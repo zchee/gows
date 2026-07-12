@@ -215,6 +215,7 @@ func TestDialFakeServerRejections(t *testing.T) {
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
 			serverConn, clientConn := net.Pipe()
+			peerClosed := make(chan error, 1)
 
 			go func() {
 				req := readRawHeaderBlock(t, serverConn)
@@ -225,7 +226,10 @@ func TestDialFakeServerRejections(t *testing.T) {
 						key = string(sc.Value())
 					}
 				}
-				serverConn.Write([]byte(tt.respond(t, key)))
+				_, _ = serverConn.Write([]byte(tt.respond(t, key)))
+				_ = serverConn.SetReadDeadline(time.Now().Add(3 * time.Second))
+				_, err := serverConn.Read(make([]byte, 1))
+				peerClosed <- err
 			}()
 
 			d := &gows.Dialer{
@@ -233,9 +237,20 @@ func TestDialFakeServerRejections(t *testing.T) {
 					return clientConn, nil
 				},
 			}
-			_, _, err := d.Dial(t.Context(), "ws://example.invalid/")
+			conn, _, err := d.Dial(t.Context(), "ws://example.invalid/")
+			if conn != nil {
+				t.Fatalf("Dial conn = %v, want nil on validation failure", conn)
+			}
 			if !errors.Is(err, tt.wantErr) {
 				t.Fatalf("Dial: err = %v, want %v", err, tt.wantErr)
+			}
+			select {
+			case closeErr := <-peerClosed:
+				if closeErr == nil {
+					t.Fatal("peer read succeeded, want client-side close")
+				}
+			case <-time.After(3 * time.Second):
+				t.Fatal("peer did not observe client-side close")
 			}
 		})
 	}
@@ -475,6 +490,7 @@ func TestDialServerWindowBitsOffer(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			serverConn, clientConn := net.Pipe()
 			reqCh := make(chan []byte, 1)
+			peerClosed := make(chan error, 1)
 			go func() {
 				req := readRawHeaderBlock(t, serverConn)
 				reqCh <- req
@@ -488,7 +504,12 @@ func TestDialServerWindowBitsOffer(t *testing.T) {
 					"Connection: Upgrade\r\n" +
 					"Sec-WebSocket-Accept: " + accept + "\r\n" +
 					"Sec-WebSocket-Extensions: " + ext + "\r\n\r\n"
-				serverConn.Write([]byte(resp))
+				_, _ = serverConn.Write([]byte(resp))
+				if tt.wantErr != nil {
+					_ = serverConn.SetReadDeadline(time.Now().Add(3 * time.Second))
+					_, err := serverConn.Read(make([]byte, 1))
+					peerClosed <- err
+				}
 			}()
 
 			d := &gows.Dialer{
@@ -500,6 +521,9 @@ func TestDialServerWindowBitsOffer(t *testing.T) {
 			}
 			conn, hs, err := d.Dial(t.Context(), "ws://example.invalid/")
 			if tt.wantErr != nil {
+				if conn != nil {
+					t.Fatalf("Dial conn = %v, want nil", conn)
+				}
 				if !errors.Is(err, tt.wantErr) {
 					t.Fatalf("Dial err = %v, want %v", err, tt.wantErr)
 				}
@@ -510,6 +534,14 @@ func TestDialServerWindowBitsOffer(t *testing.T) {
 					if !errors.Is(err, gows.ErrInvalidCompressionResponse) {
 						t.Fatalf("want ErrInvalidCompressionResponse wrap, got %v", err)
 					}
+				}
+				select {
+				case closeErr := <-peerClosed:
+					if closeErr == nil {
+						t.Fatal("peer read succeeded, want client-side close")
+					}
+				case <-time.After(3 * time.Second):
+					t.Fatal("peer did not observe client-side close")
 				}
 				return
 			}
@@ -565,6 +597,95 @@ func TestDialUnsupportedWindowBitsBeforeDial(t *testing.T) {
 	_, _, err := d.Dial(t.Context(), "ws://example.invalid/")
 	if !errors.Is(err, gows.ErrUnsupportedWindowBits) {
 		t.Fatalf("Dial err = %v, want ErrUnsupportedWindowBits", err)
+	}
+}
+
+func TestDialConflictingClientWindowBitsBeforeAnything(t *testing.T) {
+	for _, enabled := range []bool{false, true} {
+		d := &gows.Dialer{
+			EnableCompression: enabled, WindowBits: 15, OfferClientMaxWindowBits: true,
+			NetDial: func(context.Context, string, string) (net.Conn, error) {
+				t.Fatal("NetDial called")
+				return nil, nil
+			},
+		}
+		_, _, err := d.Dial(t.Context(), ":// malformed")
+		if !errors.Is(err, gows.ErrConflictingClientWindowBits) {
+			t.Fatalf("compression=%v err=%v, want conflict", enabled, err)
+		}
+	}
+}
+
+func TestDialBareClientMaxWindowBits(t *testing.T) {
+	for _, responseBits := range []int{0, 15} {
+		t.Run(strconv.Itoa(responseBits), func(t *testing.T) {
+			serverConn, clientConn := net.Pipe()
+			reqCh := make(chan []byte, 1)
+			go func() {
+				req := readRawHeaderBlock(t, serverConn)
+				reqCh <- req
+				ext := "permessage-deflate; server_no_context_takeover; client_no_context_takeover"
+				if responseBits != 0 {
+					ext += "; client_max_window_bits=" + strconv.Itoa(responseBits)
+				}
+				resp := "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: " + mustAcceptFromRequest(t, req) + "\r\nSec-WebSocket-Extensions: " + ext + "\r\n\r\n"
+				_, _ = serverConn.Write([]byte(resp))
+			}()
+			d := &gows.Dialer{EnableCompression: true, OfferClientMaxWindowBits: true, NetDial: func(context.Context, string, string) (net.Conn, error) { return clientConn, nil }}
+			conn, hs, err := d.Dial(t.Context(), "ws://example.invalid/")
+			if err != nil {
+				t.Fatalf("Dial: %v", err)
+			}
+			defer conn.Close()
+			req := <-reqCh
+			if got := bytes.Count(req, []byte("client_max_window_bits")); got != 1 || bytes.Contains(req, []byte("client_max_window_bits=")) {
+				t.Fatalf("bare request count/form invalid: %q", req)
+			}
+			if hs.CompressionParams.ClientMaxWindowBits != responseBits {
+				t.Fatalf("ClientMaxWindowBits=%d, want %d", hs.CompressionParams.ClientMaxWindowBits, responseBits)
+			}
+		})
+	}
+}
+
+func TestDialBareClientMaxWindowBitsResponseFailuresClose(t *testing.T) {
+	for name, responseParam := range map[string]string{
+		"bare response":        "; client_max_window_bits",
+		"invalid low response": "; client_max_window_bits=7",
+		"unsupported response": "; client_max_window_bits=9",
+	} {
+		t.Run(name, func(t *testing.T) {
+			serverConn, clientConn := net.Pipe()
+			closed := make(chan error, 1)
+			go func() {
+				req := readRawHeaderBlock(t, serverConn)
+				resp := "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: " + mustAcceptFromRequest(t, req) + "\r\nSec-WebSocket-Extensions: permessage-deflate; server_no_context_takeover; client_no_context_takeover" + responseParam + "\r\n\r\n"
+				_, _ = serverConn.Write([]byte(resp))
+				one := make([]byte, 1)
+				_, err := serverConn.Read(one)
+				closed <- err
+			}()
+			d := &gows.Dialer{EnableCompression: true, OfferClientMaxWindowBits: true, NetDial: func(context.Context, string, string) (net.Conn, error) { return clientConn, nil }}
+			conn, _, err := d.Dial(t.Context(), "ws://example.invalid/")
+			if conn != nil || err == nil {
+				t.Fatalf("Dial = %v, %v, want nil conn/error", conn, err)
+			}
+			want := gows.ErrInvalidCompressionResponse
+			if name == "unsupported response" {
+				want = gows.ErrUnsupportedWindowBits
+			}
+			if !errors.Is(err, want) {
+				t.Fatalf("err=%v, want %v", err, want)
+			}
+			select {
+			case closeErr := <-closed:
+				if closeErr == nil {
+					t.Fatal("peer read succeeded, want closed connection")
+				}
+			case <-time.After(3 * time.Second):
+				t.Fatal("established connection was not closed")
+			}
+		})
 	}
 }
 
