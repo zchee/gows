@@ -22,12 +22,63 @@ jobs:
           cache: true
 
       - name: Run benchmarks
-        run: go test -bench=. -benchmem -count=6 ./internal/... | tee bench.out
+        shell: bash
+        run: |
+          set -o pipefail
+
+          root_command="go test -run='^$' -bench='^Benchmark(Upgrade|Conn)' -benchmem -count=6 ."
+          internal_command="go test -run='^$' -bench=. -benchmem -count=6 ./internal/..."
+
+          {
+            printf 'timestamp_utc=%s\n' "$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
+            printf 'commit=%s\n' "$(git rev-parse HEAD)"
+            if test -n "$(git status --porcelain=v1)"; then
+              printf 'git_dirty=true\n'
+            else
+              printf 'git_dirty=false\n'
+            fi
+            printf 'runner_os=%s\n' "${RUNNER_OS:-unknown}"
+            printf 'runner_arch=%s\n' "${RUNNER_ARCH:-unknown}"
+            printf 'decision_policy=diagnostic_only\n'
+            printf 'performance_decision_requirement=controlled_comparable_benchstat_rerun\n'
+            printf 'streaming_benchmark=not_added_no_named_diagnostic_gap\n'
+            printf 'uname=' && uname -a
+            printf 'go_version=' && go version
+            printf '\n[go env]\n'
+            go env
+            printf '\n[cpu]\n'
+            lscpu
+            printf '\n[commands]\nroot=%s\ninternal=%s\n' \
+              "$root_command" "$internal_command"
+          } > bench-metadata.txt 2>&1
+
+          set +e
+          go test -run='^$' -bench='^Benchmark(Upgrade|Conn)' -benchmem -count=6 . \
+            2>&1 | tee bench-root.out
+          root_status=${PIPESTATUS[0]}
+          go test -run='^$' -bench=. -benchmem -count=6 ./internal/... \
+            2>&1 | tee bench-internal.out
+          internal_status=${PIPESTATUS[0]}
+          set -e
+
+          {
+            printf 'command\texit_status\n'
+            printf 'root\t%s\n' "$root_status"
+            printf 'internal\t%s\n' "$internal_status"
+          } > bench-status.tsv
+
+          if (( root_status != 0 || internal_status != 0 )); then
+            exit 1
+          fi
 
       - name: Upload benchmark results
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: bench-results
-          path: bench.out
+          path: |
+            bench-metadata.txt
+            bench-status.tsv
+            bench-root.out
+            bench-internal.out
           if-no-files-found: warn
