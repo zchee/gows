@@ -15,6 +15,7 @@
 package gows
 
 import (
+	"encoding/binary"
 	"errors"
 	"io"
 	"net"
@@ -33,11 +34,11 @@ import (
 // it. Close's internal teardown returns the read and reassembly buffers to
 // the shared pool, so a payload slice from a prior ReadMessage call may be
 // silently overwritten by an unrelated connection's data the instant Close
-// returns -- not just reused by this Conn. For a message that arrives as a
-// single frame no larger than the read buffer the slice aliases the internal
-// read buffer with no copy; larger or fragmented messages are reassembled
-// into a growable buffer. Either way the steady-state cost is zero
-// allocations.
+// returns -- not just reused by this Conn. For a bounded, uncompressed message
+// that arrives as one frame, the read buffer may grow to hold the complete
+// frame and the returned payload aliases it without a copy. Larger, compressed,
+// or fragmented messages are reassembled into a growable buffer. Either way
+// the steady-state cost is zero allocations.
 //
 // ReadMessage transparently handles interleaved control frames: it answers a
 // Ping with a Pong, ignores Pongs, and on a Close frame completes the closing
@@ -108,6 +109,9 @@ func (c *Conn) readMessage() (Opcode, []byte, error) {
 			}
 			c.msgIsText = h.Opcode == OpcodeText
 			c.msgCompressed = h.Rsv == RSV1
+			if !c.msgCompressed && h.Fin && h.Length > int64(cap(c.rbuf)) {
+				c.adaptReadBuffer(h)
+			}
 
 			// Zero-copy fast path: a message delivered as a single frame that
 			// fits the read buffer is returned as a subslice of that buffer.
@@ -173,6 +177,26 @@ func (c *Conn) readHeader() (Header, error) {
 // retains its historical bare-EOF behavior.
 func (c *Conn) readHeaderWithPartialEOF(promotePartialEOF bool) (Header, error) {
 	for {
+		// The saturated echo path receives masked, final binary frames with a
+		// 16-bit payload length from the shared gobwas client. Decode that fully
+		// validated shape directly; every other shape retains DecodeHeader's
+		// general protocol checks below.
+		if c.r1-c.r0 >= 8 {
+			b := c.rbuf[c.r0:c.r1]
+			if b[0] == 0x80|byte(OpcodeBinary) && b[1] == 0x80|126 {
+				length := binary.BigEndian.Uint16(b[2:4])
+				if length > 125 { // Preserve the minimal-length requirement.
+					c.r0 += 8
+					return Header{
+						Fin:     true,
+						Opcode:  OpcodeBinary,
+						Masked:  true,
+						MaskKey: binary.LittleEndian.Uint32(b[4:8]),
+						Length:  int64(length),
+					}, nil
+				}
+			}
+		}
 		if c.r1-c.r0 >= 2 {
 			h, n, err := DecodeHeader(c.rbuf[c.r0:c.r1])
 			if err == nil {
@@ -200,9 +224,26 @@ func (c *Conn) readContiguousPayload(h Header) ([]byte, error) {
 	if int64(n) > c.readLimit {
 		return nil, c.failClose(CloseMessageTooBig, "message exceeds read limit")
 	}
+	validateUTF8 := c.msgIsText && !c.skipUTF8
+	if c.r1-c.r0 >= n {
+		p := c.rbuf[c.r0 : c.r0+n]
+		if h.Masked {
+			mask.Mask(p, h.MaskKey)
+		}
+		if validateUTF8 {
+			if !c.utf8v.Feed(p) {
+				return nil, c.failClose(CloseInvalidFramePayloadData, "invalid UTF-8 in text message")
+			}
+			if !c.utf8v.Done() {
+				return nil, c.failClose(CloseInvalidFramePayloadData, "incomplete UTF-8 sequence at message end")
+			}
+		}
+		c.r0 += n
+		return p, nil
+	}
+
 	processed := 0
 	key := h.MaskKey
-	validateUTF8 := c.msgIsText && !c.skipUTF8
 	for processed < n {
 		available := min(c.r1-c.r0, n)
 		if processed < available {
@@ -220,10 +261,10 @@ func (c *Conn) readContiguousPayload(h Header) ([]byte, error) {
 			return nil, c.ioError(err)
 		}
 	}
+	p := c.rbuf[c.r0 : c.r0+n]
 	if validateUTF8 && !c.utf8v.Done() {
 		return nil, c.failClose(CloseInvalidFramePayloadData, "incomplete UTF-8 sequence at message end")
 	}
-	p := c.rbuf[c.r0 : c.r0+n]
 	c.r0 += n
 	return p, nil
 }
@@ -236,11 +277,11 @@ func (c *Conn) readContiguousPayload(h Header) ([]byte, error) {
 // Bytes already sitting in the read buffer are drained with a plain append --
 // that data is already resident in memory, so there is nothing to gain by
 // routing it anywhere else. Once the read buffer is exhausted and more of
-// this frame's payload remains on the wire (the common case once h.Length
-// exceeds the read buffer's capacity, e.g. any message bigger than the
-// default 4096-byte buffer), looping fillOnce (read into rbuf, up to
-// cap(rbuf) bytes at a time) plus an append per refill would double-buffer
-// every remaining byte through rbuf before it lands in msgBuf. Instead,
+// this frame's payload remains on the wire (for messages above the adaptive
+// single-frame bound and for fragmented messages), looping fillOnce (read into
+// rbuf, up to cap(rbuf) bytes at a time) plus an append per refill would
+// double-buffer every remaining byte through rbuf before it lands in msgBuf.
+// Instead,
 // readFramePayload grows msgBuf once to its final size for this frame and
 // reads the remainder directly into it, halving the memory traffic for the
 // part of a large frame that doesn't fit in the read buffer.
@@ -421,7 +462,9 @@ func (c *Conn) ensure(n int) error {
 // fillOnce reads once from the connection into the read buffer, compacting the
 // unconsumed bytes to the front first when the buffer tail is exhausted.
 func (c *Conn) fillOnce() error {
-	if c.r1 == len(c.rbuf) {
+	if c.r0 == c.r1 {
+		c.r0, c.r1 = 0, 0
+	} else if c.r1 == len(c.rbuf) {
 		// ensure/readFramePayload only reach here with a window shorter than
 		// the buffer (they never request more than cap(rbuf) contiguous
 		// bytes, and consume as they go), so r0 > 0 and compaction frees room.

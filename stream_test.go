@@ -1317,8 +1317,9 @@ func (c *choppyConn) SetWriteDeadline(_ time.Time) error { return nil }
 
 // choppedInvalidTextFrame builds a single masked Text frame of total bytes
 // whose payload is ASCII except for one invalid UTF-8 octet at badAt (chosen
-// beyond the read buffer so it lands in the direct read path, not the buffered
-// drain), then chops the wire bytes into chopSize-byte segments. The invalid
+// beyond the initial read buffer so it lands after an adaptive refill, not the
+// bytes already present with the header), then chops the wire bytes into
+// chopSize-byte segments. The invalid
 // octet sits well before the final chop, so a fail-fast reader must reply 1007
 // before the whole frame is served.
 func choppedInvalidTextFrame(total, badAt, chopSize int) (frame []byte, chops [][]byte) {
@@ -1333,14 +1334,15 @@ func choppedInvalidTextFrame(total, badAt, chopSize int) (frame []byte, chops []
 
 // TestReadMessageUTF8FailFastMidFrame reproduces Autobahn 6.4.3/6.4.4: a large
 // Text frame arrives in delayed chops with an invalid UTF-8 octet in an
-// early-middle chop, beyond the read buffer so it exercises the direct read
-// path. ReadMessage must fail the connection with 1007 as soon as that chop is
-// validated -- before the whole frame has been read off the wire.
+// early-middle chop, beyond the initial read buffer so it exercises validation
+// across adaptive refills. ReadMessage must fail the connection with 1007 as
+// soon as that chop is validated -- before the whole frame has been read off
+// the wire.
 func TestReadMessageUTF8FailFastMidFrame(t *testing.T) {
 	t.Parallel()
 
-	// badAt (5000) is well past the 4096-byte read buffer, so the invalid
-	// octet is validated in the beyond-rbuf direct path rather than the drain.
+	// badAt (5000) is well past the initial 4096-byte read buffer, so the
+	// invalid octet is validated after at least one adaptive refill.
 	frame, chops := choppedInvalidTextFrame(10000, 5000, 512)
 	cc := newChoppyConn(chops)
 	c := NewServerConn(cc)

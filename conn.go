@@ -32,7 +32,9 @@ const (
 	defaultWriteBufferSize = 4096     // fragment size for streaming NextWriter output.
 	defaultReadLimit       = 32 << 20 // 32 MiB
 	defaultCloseTimeout    = 5 * time.Second
-	defaultCompressMinSize = 512 // bytes; RFC 7692 negotiated but below this, sent uncompressed.
+	defaultCompressMinSize = 512      // bytes; RFC 7692 negotiated but below this, sent uncompressed.
+	maxAdaptiveReadSize    = 16 << 10 // largest single-frame payload that may grow rbuf.
+	maxCoalescedWriteSize  = 2 << 10  // largest server payload copied to avoid small writev overhead.
 )
 
 // Conn is a WebSocket connection layered over a net.Conn, implementing the
@@ -80,10 +82,11 @@ type Conn struct {
 	// --- write side (serialized by wmu) ---
 	wmu       sync.Mutex
 	whdr      []byte         // header encode scratch
-	wpay      []byte         // client-role masked-payload scratch
+	wpay      []byte         // client masked payload / server small-frame coalescing scratch
 	wcomp     []byte         // compression output scratch
 	wclose    []byte         // close-body encode scratch
 	wiov      [2][]byte      // writev scratch (header, payload)
+	wbufs     net.Buffers    // mutable slice header consumed by Buffers.WriteTo
 	closeSent bool           // a Close frame has been written (guarded by wmu)
 	msgWriter *messageWriter // open NextWriter stream, if any (guarded by wmu); nil on the WriteMessage-only hot path
 
@@ -114,16 +117,38 @@ type connConfig struct {
 	compressionParams CompressionParams
 }
 
-// WithReadBufferSize sets the size of the connection read buffer, which bounds
-// the largest single frame served through [Conn.ReadMessage]'s zero-copy fast
-// path; larger messages are reassembled into a growable buffer instead. A
-// non-positive size selects the default (4096 bytes).
+// WithReadBufferSize sets the initial size of the connection read buffer. For
+// bounded, uncompressed single-frame messages, [Conn.ReadMessage] may grow the
+// buffer for payloads up to 16 KiB so later messages of the same size remain a
+// one-read, zero-copy operation. Larger or fragmented messages are reassembled
+// into a separate growable buffer. A non-positive size selects the default
+// (4096 bytes).
 func WithReadBufferSize(n int) ConnOption {
 	return func(c *connConfig) {
 		if n > 0 {
 			c.readBufSize = n
 		}
 	}
+}
+
+// adaptReadBuffer grows rbuf just enough to keep a bounded single-frame
+// payload contiguous. The old oversized-message path already allocates and
+// retains a msgBuf for this payload; replacing rbuf with one exact-size buffer
+// instead avoids retaining both buffers and lets subsequent frames arrive in
+// one Read without a reassembly copy.
+func (c *Conn) adaptReadBuffer(h Header) {
+	if h.Length > c.readLimit ||
+		h.Length <= int64(cap(c.rbuf)) ||
+		h.Length > maxAdaptiveReadSize {
+		return
+	}
+
+	next := make([]byte, int(h.Length)+MaxHeaderSize)
+	unread := copy(next, c.rbuf[c.r0:c.r1])
+	pool.Put(c.rbuf)
+	c.rbuf = next
+	c.r0 = 0
+	c.r1 = unread
 }
 
 // WithReadLimit sets the maximum reassembled message size, in bytes. A message

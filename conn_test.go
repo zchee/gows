@@ -245,7 +245,7 @@ func TestReadMessageLargeFrameDirectRead(t *testing.T) {
 		size  int
 		chunk int // scriptConn per-Read byte cap; 0 means unlimited
 	}{
-		"one byte over the read buffer, unlimited chunks":            {size: defaultReadBufferSize + 1, chunk: 0},
+		"one byte over the adaptive bound, unlimited chunks":         {size: maxAdaptiveReadSize + 1, chunk: 0},
 		"large message, unlimited chunks":                            {size: 20000, chunk: 0},
 		"large message, chunk size misaligned with mask width (37B)": {size: 20000, chunk: 37},
 		"large message, chunk size misaligned with mask width (3B)":  {size: 20000, chunk: 3},
@@ -323,6 +323,10 @@ func TestReadMessageProtocolErrors(t *testing.T) {
 		},
 		"reserved opcode": {
 			in:       frameBytes(true, Opcode(0x3), 0, true, testKey, []byte("x")),
+			wantCode: CloseProtocolError,
+		},
+		"non-minimal 16-bit length": {
+			in:       []byte{0x82, 0xfe, 0, 100, 1, 2, 3, 4},
 			wantCode: CloseProtocolError,
 		},
 		"data while awaiting continuation": {

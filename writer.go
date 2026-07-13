@@ -29,19 +29,47 @@ import (
 // (typically [OpcodeText] or [OpcodeBinary]). It writes exactly one frame with
 // Fin set; it never mutates p.
 //
-// On the server role the header and payload are written with a single
-// scatter-gather write ([net.Buffers], i.e. writev where the OS supports it),
-// so p is transmitted without a copy — steady-state cost is at most one
-// allocation. On the client role RFC 6455 §5.1 requires masking; p is copied
-// into an internal buffer and masked there so the caller's slice is left
-// untouched.
+// On the server role, small messages are coalesced into reusable scratch and
+// sent with one Write; larger messages use a single scatter-gather write
+// ([net.Buffers], i.e. writev where the OS supports it) without copying p.
+// Both paths have zero steady-state allocations. On the client role RFC 6455
+// §5.1 requires masking; p is copied into internal scratch and masked there so
+// the caller's slice is left untouched.
 //
 // WriteMessage serializes with every other frame write on the connection
 // (including the automatic ping/close replies issued by the read path); at
 // most one WriteMessage may be in flight at a time.
 func (c *Conn) WriteMessage(op Opcode, p []byte) error {
 	c.wmu.Lock()
-	defer c.wmu.Unlock()
+	var err error
+	if c.client || c.compression {
+		err = c.writeMessageLocked(op, p)
+	} else if c.closeSent || c.tornDown.Load() {
+		err = errWriteClosed
+	} else if c.msgWriter != nil {
+		err = ErrWriterBusy
+	} else {
+		h := Header{
+			Fin:    true,
+			Opcode: op,
+			Length: int64(len(p)),
+		}
+		c.whdr = AppendHeader(c.whdr[:0], h)
+		if len(p) <= maxCoalescedWriteSize {
+			c.wpay = append(c.wpay[:0], c.whdr...)
+			c.wpay = append(c.wpay, p...)
+			_, err = c.conn.Write(c.wpay)
+		} else {
+			c.wiov[0], c.wiov[1] = c.whdr, p
+			c.wbufs = c.wiov[:]
+			_, err = c.wbufs.WriteTo(c.conn)
+		}
+	}
+	c.wmu.Unlock()
+	return err
+}
+
+func (c *Conn) writeMessageLocked(op Opcode, p []byte) error {
 	// closeSent covers graceful/protocol closes; tornDown additionally covers
 	// the I/O-error path, which tears down without sending a Close frame.
 	if c.closeSent || c.tornDown.Load() {
@@ -148,8 +176,15 @@ func (c *Conn) emitFrameLocked(op Opcode, fin bool, rsv byte, payload []byte) er
 	}
 
 	if !c.client {
-		// Server role: no masking, no payload copy.
+		// Server role: avoid writev's fixed cost for small frames; larger
+		// payloads stay zero-copy through scatter/gather.
 		c.whdr = AppendHeader(c.whdr[:0], h)
+		if len(payload) <= maxCoalescedWriteSize {
+			c.wpay = append(c.wpay[:0], c.whdr...)
+			c.wpay = append(c.wpay, payload...)
+			_, err := c.conn.Write(c.wpay)
+			return err
+		}
 		return c.writev(c.whdr, payload)
 	}
 
@@ -173,12 +208,14 @@ func (c *Conn) writev(a, b []byte) error {
 		_, err := c.conn.Write(a)
 		return err
 	}
-	// Slice the fixed backing array rather than a growable field: net.Buffers'
-	// WriteTo consumes (nils out) the slice it is given, so reusing a field
-	// would reallocate every call; the array field is reused instead.
+	// WriteTo consumes both the elements and slice header it receives. Reset a
+	// Conn-owned header over the fixed backing array on every call: a local
+	// net.Buffers value escapes through WriteTo's io.Writer dispatch and costs
+	// one 24-byte allocation per message, while this field is already part of
+	// the heap-resident Conn.
 	c.wiov[0], c.wiov[1] = a, b
-	bufs := net.Buffers(c.wiov[:])
-	_, err := bufs.WriteTo(c.conn)
+	c.wbufs = c.wiov[:]
+	_, err := c.wbufs.WriteTo(c.conn)
 	return err
 }
 

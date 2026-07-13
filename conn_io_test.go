@@ -53,6 +53,97 @@ func (l *loopConn) SetDeadline(_ time.Time) error      { return nil }
 func (l *loopConn) SetReadDeadline(_ time.Time) error  { return nil }
 func (l *loopConn) SetWriteDeadline(_ time.Time) error { return nil }
 
+type readCountingConn struct {
+	*scriptConn
+	reads int
+}
+
+func (c *readCountingConn) Read(p []byte) (int, error) {
+	c.reads++
+	return c.scriptConn.Read(p)
+}
+
+type writeCountingConn struct {
+	*scriptConn
+	writes int
+}
+
+func (c *writeCountingConn) Write(p []byte) (int, error) {
+	c.writes++
+	return c.scriptConn.Write(p)
+}
+
+func TestReadMessageAdaptsLargeSingleFrameBuffer(t *testing.T) {
+	t.Parallel()
+
+	const size = 16 << 10
+	payload := bytes.Repeat([]byte{0x7f}, size)
+	frame := clientFrame(true, OpcodeBinary, payload)
+	wire := &readCountingConn{scriptConn: &scriptConn{in: append(append([]byte(nil), frame...), frame...)}}
+	c := NewServerConn(wire, WithReadBufferSize(defaultReadBufferSize))
+
+	for i := range 2 {
+		op, got, err := c.ReadMessage()
+		if err != nil {
+			t.Fatalf("ReadMessage %d: %v", i, err)
+		}
+		if op != OpcodeBinary || !bytes.Equal(got, payload) {
+			t.Fatalf("message %d: op=%v len=%d, want binary len=%d", i, op, len(got), len(payload))
+		}
+	}
+
+	if wire.reads != 3 {
+		t.Fatalf("underlying reads = %d, want 3", wire.reads)
+	}
+	if cap(c.rbuf) < size+MaxHeaderSize {
+		t.Fatalf("read buffer capacity = %d, want at least %d", cap(c.rbuf), size+MaxHeaderSize)
+	}
+	if c.msgBuf != nil {
+		t.Fatalf("reassembly buffer retained with adaptive zero-copy: cap=%d", cap(c.msgBuf))
+	}
+}
+
+func TestAdaptReadBufferBounds(t *testing.T) {
+	t.Parallel()
+
+	tests := map[string]struct {
+		readLimit int64
+		payload   int64
+	}{
+		"read limit": {readLimit: 8 << 10, payload: 16 << 10},
+		"size cap":   {readLimit: defaultReadLimit, payload: maxAdaptiveReadSize + 1},
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			c := NewServerConn(&scriptConn{}, WithReadLimit(tt.readLimit))
+			before := cap(c.rbuf)
+			c.adaptReadBuffer(Header{Fin: true, Opcode: OpcodeBinary, Masked: true, Length: tt.payload})
+			if got := cap(c.rbuf); got != before {
+				t.Fatalf("read buffer capacity = %d, want unchanged %d", got, before)
+			}
+		})
+	}
+}
+
+func TestWriteMessageServerSmallFrameSingleWrite(t *testing.T) {
+	t.Parallel()
+
+	payload := bytes.Repeat([]byte{0x5a}, 1024)
+	wire := &writeCountingConn{scriptConn: &scriptConn{}}
+	c := NewServerConn(wire)
+	if err := c.WriteMessage(OpcodeBinary, payload); err != nil {
+		t.Fatalf("WriteMessage: %v", err)
+	}
+	if wire.writes != 1 {
+		t.Fatalf("underlying writes = %d, want 1", wire.writes)
+	}
+	frames := parseFrames(t, wire.out.Bytes())
+	if len(frames) != 1 || frames[0].h.Opcode != OpcodeBinary || !bytes.Equal(frames[0].payload, payload) {
+		t.Fatalf("frame mismatch: frames=%d", len(frames))
+	}
+}
+
 // --- write-side correctness -------------------------------------------------
 
 func TestWriteMessageServerRole(t *testing.T) {
@@ -274,6 +365,23 @@ func TestReadMessageZeroAllocs(t *testing.T) {
 	}
 }
 
+func TestReadMessage16KBZeroAllocs(t *testing.T) {
+	frame := clientFrame(true, OpcodeBinary, bytes.Repeat([]byte{0x7f}, 16<<10))
+	c := NewServerConn(&loopConn{frame: frame})
+	for range 8 {
+		if _, _, err := c.ReadMessage(); err != nil {
+			t.Fatalf("warmup: %v", err)
+		}
+	}
+	allocs := testing.AllocsPerRun(500, func() {
+		_, _, _ = c.ReadMessage()
+	})
+	t.Logf("ReadMessage 16 KiB allocs/op = %v (race=%v)", allocs, raceEnabledInternal)
+	if !raceEnabledInternal && allocs != 0 {
+		t.Errorf("ReadMessage 16 KiB allocs/op = %v, want 0", allocs)
+	}
+}
+
 func TestWriteMessageServerAllocs(t *testing.T) {
 	c := NewServerConn(&loopConn{frame: []byte{0x00}})
 	payload := bytes.Repeat([]byte{0x41}, 1024)
@@ -286,8 +394,8 @@ func TestWriteMessageServerAllocs(t *testing.T) {
 		_ = c.WriteMessage(OpcodeBinary, payload)
 	})
 	t.Logf("server WriteMessage allocs/op = %v (race=%v)", allocs, raceEnabledInternal)
-	if !raceEnabledInternal && allocs > 1 {
-		t.Errorf("server WriteMessage allocs/op = %v, want <= 1 (AC3)", allocs)
+	if !raceEnabledInternal && allocs != 0 {
+		t.Errorf("server WriteMessage allocs/op = %v, want 0", allocs)
 	}
 }
 
@@ -317,13 +425,21 @@ func BenchmarkConnWriteMessage(b *testing.B) {
 	}
 }
 
-// BenchmarkConnReadMessage16KB and BenchmarkConnReadMessage64KB exercise a
-// single-frame message larger than the default 4096-byte read buffer, i.e.
-// the reassembly path in readFramePayload rather than ReadMessage's
-// zero-copy single-frame fast path (see reader.go's readFramePayload doc:
-// once the read buffer is exhausted mid-frame, the remainder is read
-// directly into the reassembly buffer instead of being double-buffered
-// through rbuf first).
+func BenchmarkConnWriteMessage16KB(b *testing.B) {
+	c := NewServerConn(&loopConn{frame: []byte{0x00}})
+	payload := bytes.Repeat([]byte{0x41}, 16<<10)
+	b.SetBytes(int64(len(payload)))
+	b.ReportAllocs()
+	for b.Loop() {
+		if err := c.WriteMessage(OpcodeBinary, payload); err != nil {
+			b.Fatal(err)
+		}
+	}
+}
+
+// BenchmarkConnReadMessage16KB exercises adaptive zero-copy growth for a
+// bounded single frame. BenchmarkConnReadMessage64KB remains above that bound
+// and exercises readFramePayload's direct-to-reassembly path.
 func BenchmarkConnReadMessage16KB(b *testing.B) {
 	const size = 16 << 10
 	frame := clientFrame(true, OpcodeBinary, bytes.Repeat([]byte{0x7f}, size))
