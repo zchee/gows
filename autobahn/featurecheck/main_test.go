@@ -18,12 +18,13 @@ import (
 	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/go-json-experiment/json"
 )
 
 func TestFeatureCheck(t *testing.T) {

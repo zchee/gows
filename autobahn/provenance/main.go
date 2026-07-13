@@ -18,7 +18,6 @@ package main
 import (
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
 	"flag"
 	"fmt"
 	"os"
@@ -29,6 +28,9 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/go-json-experiment/json"
+	"github.com/go-json-experiment/json/jsontext"
 )
 
 type sidecar struct {
@@ -155,7 +157,7 @@ func main() {
 	if err != nil {
 		fatal(err)
 	}
-	var report map[string]map[string]json.RawMessage
+	var report map[string]map[string]jsontext.Value
 	if err := json.Unmarshal(b, &report); err != nil {
 		fatal(err)
 	}
@@ -206,7 +208,7 @@ func main() {
 			"allow_context_takeover": true,
 		}
 	}
-	out, err := json.MarshalIndent(p, "", "  ")
+	out, err := json.Marshal(p, jsontext.WithIndent("  "))
 	if err != nil {
 		fatal(err)
 	}

@@ -19,7 +19,6 @@ package main
 import (
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
@@ -30,6 +29,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/go-json-experiment/json"
 )
 
 type caseResult struct {

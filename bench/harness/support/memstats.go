@@ -2,13 +2,15 @@ package support
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"net"
 	"net/http"
 	"net/http/pprof"
 	"runtime"
 	"time"
+
+	"github.com/go-json-experiment/json"
+	"github.com/go-json-experiment/json/jsontext"
 )
 
 // MemSnapshot is the subset of runtime.MemStats the harness cares about for
@@ -47,7 +49,8 @@ func StartDebugServer(addr string) (*http.Server, <-chan error) {
 			Goroutines: runtime.NumGoroutine(),
 		}
 		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(snap)
+		enc := jsontext.NewEncoder(w)
+		_ = json.MarshalEncode(enc, snap)
 	})
 	mux.HandleFunc("/debug/pprof/", pprof.Index)
 	mux.HandleFunc("/debug/pprof/cmdline", pprof.Cmdline)
@@ -83,7 +86,8 @@ func FetchMemSnapshot(ctx context.Context, debugAddr string) (MemSnapshot, error
 		return MemSnapshot{}, fmt.Errorf("support: unexpected status %s from %s", resp.Status, debugAddr)
 	}
 	var snap MemSnapshot
-	if err := json.NewDecoder(resp.Body).Decode(&snap); err != nil {
+	dec := jsontext.NewDecoder(resp.Body)
+	if err := json.UnmarshalDecode(dec, &snap); err != nil {
 		return MemSnapshot{}, err
 	}
 	return snap, nil

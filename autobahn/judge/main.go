@@ -24,7 +24,6 @@
 package main
 
 import (
-	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -32,6 +31,8 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+
+	"github.com/go-json-experiment/json"
 )
 
 // caseResult mirrors the fields judge cares about in one entry of

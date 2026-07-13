@@ -6,6 +6,7 @@ require (
 	github.com/antlabs/quickws v0.2.2
 	github.com/coder/websocket v1.8.15
 	github.com/fasthttp/websocket v1.5.12
+	github.com/go-json-experiment/json v0.0.0-20260623181947-01eb4420fa68
 	github.com/gobwas/ws v1.4.0
 	github.com/gorilla/websocket v1.5.3
 	github.com/klauspost/compress v1.18.6
