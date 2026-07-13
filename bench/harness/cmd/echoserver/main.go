@@ -46,6 +46,7 @@ var runners = map[string]runner{
 	"gows-noutf8":  runGows,
 	"gows-rbuf1k":  runGows,
 	"gows-rbuf16k": runGows,
+	"gows-serve":   runGows,
 }
 
 // knownLibs returns the registered -lib names in sorted order, so the flag
@@ -91,6 +92,7 @@ func main() {
 	if v, ok := gowsVariants[*lib]; ok {
 		cfg.readBufSize = v.readBufSize
 		cfg.skipUTF8 = v.skipUTF8
+		cfg.useServe = v.useServe
 	}
 	if *traceFile != "" {
 		cfg.tracer = newTraceController(*traceFile, *traceDelay, *traceDuration)

@@ -49,6 +49,16 @@
       "warmup": "2s",
       "duration": "5s",
       "repetitions": 10
+    },
+    {
+      "name": "binary-1k-200-inflight8",
+      "primary": false,
+      "payload_bytes": 1024,
+      "connections": 200,
+      "inflight": 8,
+      "warmup": "2s",
+      "duration": "5s",
+      "repetitions": 10
     }
   ]
 }

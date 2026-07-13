@@ -20,6 +20,9 @@ type serverConfig struct {
 	readBufSize int
 	// skipUTF8 opts gows out of UTF-8 validation; meaningful only for gows.
 	skipUTF8 bool
+	// useServe selects gows's drain-and-coalesce Serve loop instead of the
+	// classic ReadMessage/WriteMessage pull loop; meaningful only for gows.
+	useServe bool
 	// notsentLowat is the TCP_NOTSENT_LOWAT value (bytes) applied to every
 	// accepted connection before the WebSocket upgrade; 0 disables it.
 	notsentLowat int

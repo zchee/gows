@@ -37,6 +37,10 @@ type gowsVariant struct {
 	readBufSize int
 	// skipUTF8 opts out of gows's default UTF-8 validation.
 	skipUTF8 bool
+	// useServe selects the drain-and-coalesce echo loop ([gows.Conn.Serve] +
+	// [gows.Conn.WriteMessageBuffered]) instead of the classic
+	// ReadMessage/WriteMessage pull loop.
+	useServe bool
 }
 
 // gowsVariants enumerates every -lib name served by runGows. "gows" and
@@ -51,6 +55,7 @@ var gowsVariants = map[string]gowsVariant{
 	"gows-noutf8":  {readBufSize: bufferSize, skipUTF8: true},
 	"gows-rbuf1k":  {readBufSize: rbuf1kSize},
 	"gows-rbuf16k": {readBufSize: 16 * 1024},
+	"gows-serve":   {readBufSize: bufferSize, useServe: true},
 }
 
 // runGows serves an echo using gows's zero-copy raw net.Conn upgrade path (no
@@ -99,6 +104,16 @@ func serveGowsConn(conn net.Conn, cfg serverConfig) {
 		opts = append(opts, gows.WithSkipUTF8Validation(true))
 	}
 	c := gows.NewServerConn(conn, opts...)
+
+	if cfg.useServe {
+		// Drain-and-coalesce loop: Serve consumes every complete message
+		// resident in the read buffer per round and flushes the buffered
+		// replies in one write before blocking for more data.
+		_ = c.Serve(func(op gows.Opcode, p []byte) error {
+			return c.WriteMessageBuffered(op, p)
+		})
+		return
+	}
 
 	for {
 		op, msg, err := c.ReadMessage()
