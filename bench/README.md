@@ -184,3 +184,111 @@ Already executed once against the 8481C — see
 - Local darwin/arm64 runs use whatever `ulimit -n` the shell already has;
   this machine's default (524288) comfortably covers `-conns 200` with room
   to scale to the plan's 1k/10k linux targets without change.
+
+## Paired verdict runner (`benchrun` / `benchcmp`)
+
+`benchrun` and `benchcmp` turn a candidate-vs-comparator comparison into a
+machine-checkable verdict: `benchrun` executes a policy's scenario matrix
+under strict host hygiene and records raw samples; `benchcmp` pairs those
+samples, computes deterministic median-bootstrap confidence intervals, applies
+the policy's gate thresholds, and writes `verdict.json`. `loadgen -json`
+emits one JSON result line (the fixed 12-field schema `LoadgenResult`), which
+`benchrun` consumes; the human summary is unchanged when `-json` is absent.
+
+### Policy schema (`harness/policy`)
+
+A policy is JSON with Go duration strings for the windows. The canonical
+darwin/arm64 policy is `harness/policy/darwin-arm64.json` (five primary cells:
+`binary-64b-1k`, `binary-1k-200`, `binary-1k-1k`, `binary-16k-200`,
+`binary-16k-1k`; all warmup `5s`, duration `30s`, 20 repetitions).
+
+```json
+{
+  "candidate": "gows",
+  "comparator": "quickws",
+  "seed": 12648430,
+  "bootstrap": {"replicates": 20000, "confidence": 0.95},
+  "thresholds": {
+    "throughput_lower_bound": 1.0,
+    "throughput_geomean": 1.05,
+    "p99_upper_bound": 1.01,
+    "p999_center_upper_bound": 1.05
+  },
+  "guard": {"max_load1": 6.0, "forbidden_process_patterns": ["echoserver", "loadgen"]},
+  "scenarios": [
+    {"name": "binary-1k-200", "primary": true, "payload_bytes": 1024,
+     "connections": 200, "inflight": 1, "warmup": "5s", "duration": "30s",
+     "repetitions": 20}
+  ]
+}
+```
+
+### Running
+
+```sh
+cd bench
+go build -o /tmp/benchrun ./harness/cmd/benchrun
+go build -o /tmp/benchcmp ./harness/cmd/benchcmp
+
+# Full run (writes results/v-next/darwin-arm64/claude-run-<UTCstamp>-<gitshort>).
+/tmp/benchrun -policy harness/policy/darwin-arm64.json
+# End-to-end sanity pass (warmup 1s / measure 3s / 2 reps per cell).
+/tmp/benchrun -policy harness/policy/darwin-arm64.json -smoke -out /tmp/smoke
+
+/tmp/benchcmp -run /tmp/smoke   # exit 0 pass, 1 gate failure, 2 usage/data error
+```
+
+`benchrun` builds its own `echoserver`/`loadgen` binaries into the run
+directory with `-mod=mod` (so the working-tree `gows` is linked, not the
+vendored snapshot), copies the policy in, and records provenance
+(`meta.json`), before/after environment snapshots (`env-start.json` /
+`env-end.json`), one line per (scenario, library, repetition) in
+`samples.jsonl`, and a `done.json` completion marker. Execution is paired and
+seeded: for each repetition the candidate/comparator order is shuffled with a
+`math/rand/v2` PCG seeded from `policy.seed`, each library gets a fresh
+`echoserver` child process, and the two ports alternate off a base (19301) to
+dodge TIME_WAIT. Any child or JSON-parse failure is written to `errors.log`
+and aborts the run (non-zero exit) — never a silent skip.
+
+### Host-guard behavior
+
+Before spawning anything, `benchrun` enforces three preconditions and aborts
+(non-zero exit, clear message) on any of them:
+
+- **Load average**: `sysctl -n vm.loadavg` `load1` must not exceed
+  `guard.max_load1`.
+- **Foreign processes**: `pgrep -fl` must not match any
+  `guard.forbidden_process_patterns` (benchrun's own pid is excluded; the
+  check runs before its children exist).
+- **Exclusive lock**: `/tmp/gows-benchrun.lock` is created `O_CREATE|O_EXCL`
+  with benchrun's pid. A live holder aborts; a stale lock (dead pid) is
+  removed and retried once. The lock is released on exit, including on
+  `SIGINT`/`SIGTERM`.
+
+### Measurement rule: no `net.Conn` wrapper on gating paths
+
+All resource accounting (CPU seconds, peak RSS) comes **only** from each child
+process's `os.ProcessState.SysUsage().(*syscall.Rusage)` — never from wrapping
+`net.Conn` to count bytes or messages on a path that feeds a gate. Per-message
+and per-connection resource figures in `samples.jsonl`
+(`server_cpu_seconds_per_message`, `server_rss_bytes_per_connection`,
+`client_cpu_seconds_per_message`) are derived from that rusage plus the
+loadgen-reported message count. On darwin `Rusage.Maxrss` is already bytes.
+
+### Verdict and gates (`harness/paired`, `benchcmp`)
+
+For each primary scenario `benchcmp` pairs candidate repetition *i* with
+comparator repetition *i* (equal counts required) and forms candidate/
+comparator ratios. `Bootstrap` resamples the ratio set with replacement, takes
+the **median** as the statistic, and reports the `(1-confidence)/2` percentile
+interval — fully deterministic for a given seed. Gates (all must hold to pass):
+
+- every primary scenario throughput CI lower bound `> throughput_lower_bound`;
+- geomean of the primary throughput centers `>= throughput_geomean`;
+- every primary p99 CI upper bound `<= p99_upper_bound`;
+- every primary p999 center `<= p999_center_upper_bound`.
+
+`verdict.json` records `pass`, the throughput `geomean`, per-scenario centers/
+intervals/gate outcomes, the resource ratio centers, the thresholds, and the
+`policy_sha256`. A `-smoke` run (short windows, 2 reps) is sanity evidence
+only — never a gating measurement.

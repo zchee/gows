@@ -18,6 +18,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/go-json-experiment/json"
 	"github.com/gobwas/ws"
 	"github.com/gobwas/ws/wsutil"
 	"github.com/zchee/gows/bench/harness/support"
@@ -52,6 +53,7 @@ func main() {
 	duration := flag.Duration("duration", 15*time.Second, "measurement duration")
 	warmup := flag.Duration("warmup", 3*time.Second, "warmup duration before measurement starts")
 	rate := flag.Int("rate", 0, "target aggregate messages/sec across all connections (0 = saturate)")
+	jsonOut := flag.Bool("json", false, "emit one machine-readable JSON result line to stdout and suppress the human summary")
 	flag.Parse()
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
@@ -82,6 +84,7 @@ func main() {
 		phase      atomic.Int32 // 0=warmup, 1=measure, 2=done
 		totalMsgs  atomic.Int64
 		totalBytes atomic.Int64
+		totalErrs  atomic.Int64
 	)
 
 	var perConnInterval time.Duration
@@ -98,7 +101,7 @@ func main() {
 		wg.Add(1)
 		go func(c *connRW, rec *support.Recorder) {
 			defer wg.Done()
-			runConn(c, payload, perConnInterval, stopCh, &phase, rec, &totalMsgs, &totalBytes)
+			runConn(c, payload, perConnInterval, stopCh, &phase, rec, &totalMsgs, &totalBytes, &totalErrs)
 		}(c, rec)
 	}
 
@@ -146,10 +149,34 @@ func main() {
 	msgsPerSec := float64(msgs) / measureElapsed.Seconds()
 	mbPerSec := float64(bytes) / measureElapsed.Seconds() / (1024 * 1024)
 
+	if *jsonOut {
+		result := support.LoadgenResult{
+			Connections:                 *conns,
+			PayloadBytes:                *payloadSize,
+			Inflight:                    1,
+			WarmupNanoseconds:           warmup.Nanoseconds(),
+			DurationNanoseconds:         measureElapsed.Nanoseconds(),
+			Messages:                    msgs,
+			ThroughputMessagesPerSecond: msgsPerSec,
+			P50Nanoseconds:              pct.P50.Nanoseconds(),
+			P90Nanoseconds:              pct.P90.Nanoseconds(),
+			P99Nanoseconds:              pct.P99.Nanoseconds(),
+			P999Nanoseconds:             pct.P999.Nanoseconds(),
+			Errors:                      int(totalErrs.Load()),
+		}
+		line, err := json.Marshal(result)
+		if err != nil {
+			log.Fatalf("loadgen: marshal json result: %v", err)
+		}
+		fmt.Printf("%s\n", line)
+		return
+	}
+
 	fmt.Printf("addr=%s conns=%d payload=%dB duration=%s\n", *addr, *conns, *payloadSize, measureElapsed)
 	fmt.Printf("throughput: %.0f msg/s, %.2f MB/s\n", msgsPerSec, mbPerSec)
 	fmt.Printf("latency: p50=%s p90=%s p99=%s p999=%s min=%s max=%s (n=%d)\n",
 		pct.P50, pct.P90, pct.P99, pct.P999, pct.Min, pct.Max, pct.N)
+	fmt.Printf("errors: %d\n", totalErrs.Load())
 	fmt.Printf("server mallocs delta: %d (%.2f/msg), total_alloc delta: %d bytes\n",
 		after.Mallocs-before.Mallocs, float64(after.Mallocs-before.Mallocs)/float64(max(msgs, 1)),
 		after.TotalAlloc-before.TotalAlloc)
@@ -166,7 +193,7 @@ func runConn(
 	stopCh <-chan struct{},
 	phase *atomic.Int32,
 	rec *support.Recorder,
-	totalMsgs, totalBytes *atomic.Int64,
+	totalMsgs, totalBytes, totalErrs *atomic.Int64,
 ) {
 	buf := make([]byte, len(payloadTemplate))
 	var ticker *time.Ticker
@@ -192,10 +219,16 @@ func runConn(
 		copy(buf, payloadTemplate)
 		start := time.Now()
 		if err := wsutil.WriteClientMessage(c, ws.OpBinary, buf); err != nil {
+			if phase.Load() == 1 {
+				totalErrs.Add(1)
+			}
 			return
 		}
 		resp, _, err := wsutil.ReadServerData(c)
 		if err != nil {
+			if phase.Load() == 1 {
+				totalErrs.Add(1)
+			}
 			return
 		}
 		latency := time.Since(start)
