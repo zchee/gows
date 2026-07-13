@@ -153,6 +153,236 @@ func TestValidate(t *testing.T) {
 	}
 }
 
+func TestResolve(t *testing.T) {
+	overrides := map[string]LibraryOverride{
+		"gows-lowat": {
+			Lib:        "gows",
+			ServerArgs: []string{"-notsent-lowat", "16384"},
+		},
+		"gows-nogtgc": {
+			Lib:      "gows",
+			BuildEnv: []string{"GOEXPERIMENT=nogreenteagc"},
+		},
+		"default-lib": {
+			ServerArgs: []string{"-flag"},
+		},
+	}
+	tests := map[string]struct {
+		overrides map[string]LibraryOverride
+		name      string
+		want      Resolved
+	}{
+		"no overrides map": {
+			overrides: nil,
+			name:      "gows",
+			want:      Resolved{Name: "gows", Lib: "gows"},
+		},
+		"name absent from overrides": {
+			overrides: overrides,
+			name:      "quickws",
+			want:      Resolved{Name: "quickws", Lib: "quickws"},
+		},
+		"server args only reuses default binary": {
+			overrides: overrides,
+			name:      "gows-lowat",
+			want: Resolved{
+				Name:       "gows-lowat",
+				Lib:        "gows",
+				Bin:        "",
+				ServerArgs: []string{"-notsent-lowat", "16384"},
+			},
+		},
+		"build env forces dedicated binary": {
+			overrides: overrides,
+			name:      "gows-nogtgc",
+			want: Resolved{
+				Name:     "gows-nogtgc",
+				Lib:      "gows",
+				Bin:      "gows-nogtgc",
+				BuildEnv: []string{"GOEXPERIMENT=nogreenteagc"},
+			},
+		},
+		"empty lib defaults to name": {
+			overrides: overrides,
+			name:      "default-lib",
+			want: Resolved{
+				Name:       "default-lib",
+				Lib:        "default-lib",
+				ServerArgs: []string{"-flag"},
+			},
+		},
+	}
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			p := Policy{LibraryOverrides: tc.overrides}
+			got := p.Resolve(tc.name)
+			if !reflect.DeepEqual(got, tc.want) {
+				t.Fatalf("Resolve(%q) =\n %+v\nwant\n %+v", tc.name, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestPolicyRoundTripWithOverrides(t *testing.T) {
+	want := validPolicy()
+	want.Candidate = "gows-nogtgc"
+	want.LibraryOverrides = map[string]LibraryOverride{
+		"gows-nogtgc": {
+			Lib:      "gows",
+			BuildEnv: []string{"GOEXPERIMENT=nogreenteagc"},
+		},
+		"gows-lowat": {
+			Lib:        "gows",
+			ServerArgs: []string{"-notsent-lowat", "16384"},
+		},
+	}
+	raw, err := json.Marshal(want)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	got, err := Parse(raw)
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if !reflect.DeepEqual(*got, want) {
+		t.Fatalf("round-trip mismatch:\n got=%+v\nwant=%+v", *got, want)
+	}
+}
+
+func TestValidateOverrides(t *testing.T) {
+	tests := map[string]struct {
+		overrides map[string]LibraryOverride
+		wantErr   bool
+	}{
+		"nil map ok": {overrides: nil},
+		"server args only ok": {
+			overrides: map[string]LibraryOverride{"x": {Lib: "gows", ServerArgs: []string{"-notsent-lowat", "16384"}}},
+		},
+		"valid build env": {
+			overrides: map[string]LibraryOverride{"x": {Lib: "gows", BuildEnv: []string{"GOEXPERIMENT=nogreenteagc"}}},
+		},
+		"build env missing equals": {
+			overrides: map[string]LibraryOverride{"x": {Lib: "gows", BuildEnv: []string{"GOEXPERIMENT"}}},
+			wantErr:   true,
+		},
+		"build env empty key": {
+			overrides: map[string]LibraryOverride{"x": {Lib: "gows", BuildEnv: []string{"=value"}}},
+			wantErr:   true,
+		},
+		"empty name key": {
+			overrides: map[string]LibraryOverride{"": {Lib: "gows"}},
+			wantErr:   true,
+		},
+	}
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			p := validPolicy()
+			p.LibraryOverrides = tc.overrides
+			err := p.Validate()
+			if tc.wantErr && err == nil {
+				t.Fatalf("expected error, got nil")
+			}
+			if !tc.wantErr && err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+		})
+	}
+}
+
+func TestExperimentPolicies(t *testing.T) {
+	// Every experiment isolates one variable in the binary-1k-1k causal cell,
+	// so all five share the same measurement geometry and differ only in
+	// candidate/comparator and any library override.
+	type want struct {
+		candidate  string
+		comparator string
+		overrideOf string   // library_overrides key expected (empty = none).
+		lib        string   // override's real echoserver -lib (when overrideOf set).
+		serverArgs []string // override's server_args (nil when none).
+		buildEnv   []string // override's build_env (nil when none).
+	}
+	tests := map[string]want{
+		"h1-rbuf1k.json":        {candidate: "gows-rbuf1k", comparator: "gows"},
+		"h1-rbuf16k.json":       {candidate: "gows-rbuf16k", comparator: "gows"},
+		"h5-lowat-gows.json":    {candidate: "gows-lowat", comparator: "gows", overrideOf: "gows-lowat", lib: "gows", serverArgs: []string{"-notsent-lowat", "16384"}},
+		"h5-lowat-quickws.json": {candidate: "quickws-lowat", comparator: "quickws", overrideOf: "quickws-lowat", lib: "quickws", serverArgs: []string{"-notsent-lowat", "16384"}},
+		"h2-nogreentea.json":    {candidate: "gows-nogtgc", comparator: "gows", overrideOf: "gows-nogtgc", lib: "gows", buildEnv: []string{"GOEXPERIMENT=nogreenteagc"}},
+	}
+	seeds := map[uint64]string{}
+	for file, w := range tests {
+		t.Run(file, func(t *testing.T) {
+			p, raw, err := Load(filepath.Join("experiments", file))
+			if err != nil {
+				t.Fatalf("load %s: %v", file, err)
+			}
+			if p.Candidate != w.candidate {
+				t.Errorf("candidate = %q, want %q", p.Candidate, w.candidate)
+			}
+			if p.Comparator != w.comparator {
+				t.Errorf("comparator = %q, want %q", p.Comparator, w.comparator)
+			}
+			// The single cell must be the primary binary-1k-1k geometry.
+			if len(p.Scenarios) != 1 {
+				t.Fatalf("scenarios = %d, want 1", len(p.Scenarios))
+			}
+			s := p.Scenarios[0]
+			if !s.Primary {
+				t.Errorf("scenario primary = false, want true")
+			}
+			if s.PayloadBytes != 1024 || s.Connections != 1000 || s.Inflight != 1 {
+				t.Errorf("cell = %dB x %d conns inflight %d, want 1024B x 1000 x 1", s.PayloadBytes, s.Connections, s.Inflight)
+			}
+			if s.Warmup.Duration() != 5*time.Second || s.Duration.Duration() != 30*time.Second || s.Repetitions != 20 {
+				t.Errorf("windows = warmup %v duration %v reps %d, want 5s/30s/20", s.Warmup.Duration(), s.Duration.Duration(), s.Repetitions)
+			}
+			// Resolve must yield the candidate's real lib and arguments.
+			r := p.Resolve(p.Candidate)
+			if w.overrideOf == "" {
+				if len(p.LibraryOverrides) != 0 {
+					t.Errorf("library_overrides = %v, want none", p.LibraryOverrides)
+				}
+				if r.Lib != w.candidate || r.Bin != "" {
+					t.Errorf("resolve identity = %+v, want lib %q bin \"\"", r, w.candidate)
+				}
+			} else {
+				ov, ok := p.LibraryOverrides[w.overrideOf]
+				if !ok {
+					t.Fatalf("missing library_overrides[%q]", w.overrideOf)
+				}
+				if ov.Lib != w.lib {
+					t.Errorf("override lib = %q, want %q", ov.Lib, w.lib)
+				}
+				if !reflect.DeepEqual(ov.ServerArgs, w.serverArgs) {
+					t.Errorf("override server_args = %v, want %v", ov.ServerArgs, w.serverArgs)
+				}
+				if !reflect.DeepEqual(ov.BuildEnv, w.buildEnv) {
+					t.Errorf("override build_env = %v, want %v", ov.BuildEnv, w.buildEnv)
+				}
+				if r.Lib != w.lib {
+					t.Errorf("resolve lib = %q, want %q", r.Lib, w.lib)
+				}
+				// A build_env override needs a dedicated binary; a server_args
+				// override reuses the shared default binary.
+				wantBin := ""
+				if len(w.buildEnv) > 0 {
+					wantBin = w.candidate
+				}
+				if r.Bin != wantBin {
+					t.Errorf("resolve bin = %q, want %q", r.Bin, wantBin)
+				}
+			}
+			// Seeds must be distinct across the experiment set.
+			if prev, dup := seeds[p.Seed]; dup {
+				t.Errorf("seed %d reused by %s and %s", p.Seed, prev, file)
+			}
+			seeds[p.Seed] = file
+			if h := Sum(raw); len(h) != 64 {
+				t.Errorf("policy sum length = %d, want 64", len(h))
+			}
+		})
+	}
+}
+
 func TestCanonicalPolicy(t *testing.T) {
 	raw, err := os.ReadFile(filepath.Join(".", "darwin-arm64.json"))
 	if err != nil {

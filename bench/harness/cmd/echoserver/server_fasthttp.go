@@ -10,8 +10,11 @@ import (
 // runFastHTTP serves a binary echo using fasthttp/websocket's
 // FastHTTPUpgrader over a valyala/fasthttp server, the library's intended
 // integration (it is a gorilla/websocket fork targeting fasthttp; see
-// bench/README.md for the gofiber/contrib equivalence note).
-func runFastHTTP(ctx context.Context, addr string) error {
+// bench/README.md for the gofiber/contrib equivalence note). cfg is ignored:
+// fasthttp.Server.ListenAndServe owns its listener, so the shared newListener
+// accept hooks (-notsent-lowat, -trace-file) do not reach it; the H3/H5
+// experiments only exercise gows and quickws.
+func runFastHTTP(ctx context.Context, addr string, _ serverConfig) error {
 	upgrader := websocket.FastHTTPUpgrader{
 		ReadBufferSize:    bufferSize,
 		WriteBufferSize:   bufferSize,

@@ -142,21 +142,56 @@ func run() error {
 	if err != nil {
 		return err
 	}
+
+	// Resolve candidate and comparator through any library overrides, then
+	// build a dedicated echoserver binary for each override that sets a build
+	// environment (build_env). Overrides that only append server_args reuse the
+	// shared default echoserver binary. With no overrides, resolved is the
+	// identity mapping and no extra binaries are built, so meta.json is
+	// byte-identical to a pre-override run apart from the omitted schema field.
+	resolved := map[string]policy.Resolved{
+		pol.Candidate:  pol.Resolve(pol.Candidate),
+		pol.Comparator: pol.Resolve(pol.Comparator),
+	}
+	binPaths := map[string]string{}
+	var overrideSums map[string]string
+	for _, name := range []string{pol.Candidate, pol.Comparator} {
+		r := resolved[name]
+		if r.Bin == "" {
+			binPaths[name] = echoserverBin
+			continue
+		}
+		bin := filepath.Join(out, "echoserver-"+r.Bin)
+		if err := buildBinaryEnv(ctx, moduleRoot, "/harness/cmd/echoserver", bin, r.BuildEnv); err != nil {
+			return err
+		}
+		sum, err := sha256File(bin)
+		if err != nil {
+			return err
+		}
+		binPaths[name] = bin
+		if overrideSums == nil {
+			overrideSums = map[string]string{}
+		}
+		overrideSums[r.Bin] = sum
+	}
+
 	kernel, _ := commandOutput("uname", "-a")
 	hostname, _ := os.Hostname()
 
 	meta := Meta{
-		GitCommit:        commit,
-		GitDirty:         dirty,
-		GoVersion:        runtime.Version(),
-		Hostname:         hostname,
-		Kernel:           kernel,
-		EchoserverSHA256: echoSum,
-		LoadgenSHA256:    loadSum,
-		PolicySHA256:     policy.Sum(rawPolicy),
-		Seed:             pol.Seed,
-		Smoke:            *smoke,
-		StartedAt:        nowRFC(),
+		GitCommit:              commit,
+		GitDirty:               dirty,
+		GoVersion:              runtime.Version(),
+		Hostname:               hostname,
+		Kernel:                 kernel,
+		EchoserverSHA256:       echoSum,
+		LoadgenSHA256:          loadSum,
+		OverrideBinariesSHA256: overrideSums,
+		PolicySHA256:           policy.Sum(rawPolicy),
+		Seed:                   pol.Seed,
+		Smoke:                  *smoke,
+		StartedAt:              nowRFC(),
 	}
 	if err := writeJSONFile(filepath.Join(out, "meta.json"), meta); err != nil {
 		return err
@@ -170,7 +205,7 @@ func run() error {
 	// 4. Paired randomized execution.
 	samplesPath := filepath.Join(out, "samples.jsonl")
 	errorsPath := filepath.Join(out, "errors.log")
-	count, execErr := execute(ctx, pol, *smoke, echoserverBin, loadgenBin, samplesPath, errorsPath)
+	count, execErr := execute(ctx, pol, *smoke, loadgenBin, binPaths, resolved, samplesPath, errorsPath)
 
 	// Environment snapshot (end) is captured whether or not execution failed.
 	if err := writeJSONFile(filepath.Join(out, "env-end.json"), captureEnv()); err != nil && execErr == nil {
@@ -190,18 +225,22 @@ func run() error {
 }
 
 // Meta is the provenance record written to meta.json before execution starts.
+// OverrideBinariesSHA256 is present only when a policy's library_overrides
+// force a dedicated echoserver build (a build_env override); it is omitted
+// otherwise, so meta.json stays byte-identical for override-free policies.
 type Meta struct {
-	GitCommit        string `json:"git_commit"`
-	GitDirty         bool   `json:"git_dirty"`
-	GoVersion        string `json:"go_version"`
-	Hostname         string `json:"hostname"`
-	Kernel           string `json:"kernel"`
-	EchoserverSHA256 string `json:"echoserver_sha256"`
-	LoadgenSHA256    string `json:"loadgen_sha256"`
-	PolicySHA256     string `json:"policy_sha256"`
-	Seed             uint64 `json:"seed"`
-	Smoke            bool   `json:"smoke"`
-	StartedAt        string `json:"started_at"`
+	GitCommit              string            `json:"git_commit"`
+	GitDirty               bool              `json:"git_dirty"`
+	GoVersion              string            `json:"go_version"`
+	Hostname               string            `json:"hostname"`
+	Kernel                 string            `json:"kernel"`
+	EchoserverSHA256       string            `json:"echoserver_sha256"`
+	LoadgenSHA256          string            `json:"loadgen_sha256"`
+	OverrideBinariesSHA256 map[string]string `json:"override_binaries_sha256,omitzero"`
+	PolicySHA256           string            `json:"policy_sha256"`
+	Seed                   uint64            `json:"seed"`
+	Smoke                  bool              `json:"smoke"`
+	StartedAt              string            `json:"started_at"`
 }
 
 // Done is the run-complete marker written to done.json on success.
@@ -227,7 +266,10 @@ type EnvSnapshot struct {
 // execute runs the whole scenario matrix, appending one sample line per
 // (scenario, library, repetition). It aborts (returning the count so far and
 // a non-nil error) on the first child or parse failure rather than skipping.
-func execute(ctx context.Context, pol *policy.Policy, smoke bool, echoserverBin, loadgenBin, samplesPath, errorsPath string) (int, error) {
+// binPaths maps each policy library name (candidate/comparator) to the
+// echoserver binary that serves it, and resolved carries each name's real
+// echoserver -lib value and any appended server arguments.
+func execute(ctx context.Context, pol *policy.Policy, smoke bool, loadgenBin string, binPaths map[string]string, resolved map[string]policy.Resolved, samplesPath, errorsPath string) (int, error) {
 	sf, err := os.OpenFile(samplesPath, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o644)
 	if err != nil {
 		return 0, fmt.Errorf("open samples file: %w", err)
@@ -261,7 +303,8 @@ func execute(ctx context.Context, pol *policy.Policy, smoke bool, echoserverBin,
 				debugPort := debugPortBase + portToggle
 				portToggle ^= 1
 
-				sample, err := runOne(ctx, echoserverBin, loadgenBin, lib, sc, warmup, duration, rep, orderIdx, serverPort, debugPort)
+				r := resolved[lib]
+				sample, err := runOne(ctx, binPaths[lib], loadgenBin, lib, r.Lib, r.ServerArgs, sc, warmup, duration, rep, orderIdx, serverPort, debugPort)
 				if err != nil {
 					appendError(errorsPath, sc.Name, lib, rep, err)
 					return count, fmt.Errorf("scenario %q lib %q rep %d: %w", sc.Name, lib, rep, err)
@@ -277,12 +320,16 @@ func execute(ctx context.Context, pol *policy.Policy, smoke bool, echoserverBin,
 }
 
 // runOne spawns one echoserver, drives one loadgen JSON run against it, then
-// SIGTERMs the server and collects both children's rusage.
-func runOne(ctx context.Context, echoserverBin, loadgenBin, lib string, sc policy.Scenario, warmup, duration time.Duration, rep, orderIdx, serverPort, debugPort int) (paired.Sample, error) {
+// SIGTERMs the server and collects both children's rusage. name is the
+// policy-facing library name recorded in the sample (an override name such as
+// "gows-lowat" distinct from realLib); realLib is the echoserver -lib value,
+// and serverArgs are appended to the echoserver command line.
+func runOne(ctx context.Context, echoserverBin, loadgenBin, name, realLib string, serverArgs []string, sc policy.Scenario, warmup, duration time.Duration, rep, orderIdx, serverPort, debugPort int) (paired.Sample, error) {
 	serverAddr := fmt.Sprintf("127.0.0.1:%d", serverPort)
 	debugAddr := fmt.Sprintf("127.0.0.1:%d", debugPort)
 
-	srv := exec.CommandContext(ctx, echoserverBin, "-lib", lib, "-addr", serverAddr, "-debug-addr", debugAddr)
+	srvArgs := append([]string{"-lib", realLib, "-addr", serverAddr, "-debug-addr", debugAddr}, serverArgs...)
+	srv := exec.CommandContext(ctx, echoserverBin, srvArgs...)
 	var srvLog bytes.Buffer
 	srv.Stdout = &srvLog
 	srv.Stderr = &srvLog
@@ -344,7 +391,7 @@ func runOne(ctx context.Context, echoserverBin, loadgenBin, lib string, sc polic
 	return paired.Sample{
 		LoadgenResult:               result,
 		Scenario:                    sc.Name,
-		Library:                     lib,
+		Library:                     name,
 		Repetition:                  rep,
 		OrderIndex:                  orderIdx,
 		ServerCPUSeconds:            serverCPU,
@@ -439,13 +486,22 @@ func defaultOutDir(moduleRoot, shortCommit string) string {
 // working-tree gows (via the module's replace directive) is linked rather than
 // the vendored snapshot.
 func buildBinary(ctx context.Context, moduleRoot, pkgSuffix, outPath string) error {
+	return buildBinaryEnv(ctx, moduleRoot, pkgSuffix, outPath, nil)
+}
+
+// buildBinaryEnv compiles a bench command into outPath like buildBinary, but
+// appends extraEnv (KEY=VALUE entries, for example a GOEXPERIMENT setting) to
+// the build environment. This lets a policy's library_overrides produce a
+// distinct echoserver build (hypothesis H2) without a separate source tree.
+func buildBinaryEnv(ctx context.Context, moduleRoot, pkgSuffix, outPath string, extraEnv []string) error {
 	cmd := exec.CommandContext(ctx, "go", "build", "-mod=mod", "-o", outPath, moduleImport+pkgSuffix)
 	cmd.Dir = moduleRoot
 	cmd.Env = append(os.Environ(), "GOFLAGS=-mod=mod")
+	cmd.Env = append(cmd.Env, extraEnv...)
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("build %s: %w: %s", pkgSuffix, err, strings.TrimSpace(stderr.String()))
+		return fmt.Errorf("build %s (env %v): %w: %s", pkgSuffix, extraEnv, err, strings.TrimSpace(stderr.String()))
 	}
 	return nil
 }

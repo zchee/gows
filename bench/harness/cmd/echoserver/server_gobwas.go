@@ -11,8 +11,8 @@ import (
 // runGobwas serves a binary echo using gobwas/ws's zero-copy raw net.Conn
 // upgrade path (no net/http), the library's fastest and idiomatic mode per
 // plan §4.1/§4.2.
-func runGobwas(ctx context.Context, addr string) error {
-	ln, err := net.Listen("tcp", addr)
+func runGobwas(ctx context.Context, addr string, cfg serverConfig) error {
+	ln, err := newListener(addr, cfg)
 	if err != nil {
 		return err
 	}

@@ -21,7 +21,7 @@ func (quickwsEcho) OnClose(*quickws.Conn, error) {}
 
 // runQuickWS serves a binary echo using antlabs/quickws's recommended
 // callback API over net/http Hijack.
-func runQuickWS(ctx context.Context, addr string) error {
+func runQuickWS(ctx context.Context, addr string, cfg serverConfig) error {
 	up := quickws.NewUpgrade(
 		quickws.WithServerCallback(quickwsEcho{}),
 		quickws.WithServerReadTimeout(0),
@@ -36,5 +36,5 @@ func runQuickWS(ctx context.Context, addr string) error {
 		conn.ReadLoop()
 	})
 
-	return serveHTTP(ctx, addr, mux)
+	return serveHTTP(ctx, addr, mux, cfg)
 }

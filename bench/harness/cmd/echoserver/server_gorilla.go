@@ -11,7 +11,7 @@ import (
 // runGorilla serves a binary echo using gorilla/websocket's recommended
 // net/http Hijack-based Upgrader, with WriteBufferPool enabled per plan §8
 // ("each lib's recommended API allowed").
-func runGorilla(ctx context.Context, addr string) error {
+func runGorilla(ctx context.Context, addr string, cfg serverConfig) error {
 	upgrader := websocket.Upgrader{
 		ReadBufferSize:    bufferSize,
 		WriteBufferSize:   bufferSize,
@@ -38,7 +38,7 @@ func runGorilla(ctx context.Context, addr string) error {
 		}
 	})
 
-	return serveHTTP(ctx, addr, mux)
+	return serveHTTP(ctx, addr, mux, cfg)
 }
 
 // gorillaBufferPool implements websocket.BufferPool with sync.Pool, the

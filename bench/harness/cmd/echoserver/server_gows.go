@@ -21,28 +21,46 @@ import (
 	"github.com/zchee/gows"
 )
 
-// runGows serves an echo using gows's zero-copy raw net.Conn upgrade path
-// (no net/http), matching gobwas's integration style. UTF-8 validation is
-// left at gows's default (on) -- unlike every other library in this
-// harness, whose idiomatic default is unvalidated (see plan §4.1) -- since
-// the plan's AC5/AC6 "beats everyone" gate is judged on the validation-ON
-// numbers (plan §8/§13).
-func runGows(ctx context.Context, addr string) error {
-	return runGowsConfig(ctx, addr, false)
+// rbuf1kSize is the read-buffer size for the gows-rbuf1k variant: a 1 KiB
+// payload plus gows's maximum frame-header size ([gows.MaxHeaderSize]), so a
+// full 1 KiB binary frame (header + payload) fits in a single buffered read.
+// This tracks quickws's ~1038-byte default window, isolating read-buffer
+// geometry as the manipulated variable in hypothesis H1.
+const rbuf1kSize = 1024 + gows.MaxHeaderSize
+
+// gowsVariant is one gows echo-server configuration, keyed by -lib name in
+// gowsVariants. Keeping the variants in a table means the read-buffer sweep
+// (hypothesis H1) is data-driven rather than a family of near-identical
+// server functions.
+type gowsVariant struct {
+	// readBufSize is passed to [gows.WithReadBufferSize].
+	readBufSize int
+	// skipUTF8 opts out of gows's default UTF-8 validation.
+	skipUTF8 bool
 }
 
-// runGowsNoUTF8 is runGows with [gows.WithSkipUTF8Validation] set, the
-// harness's paired "validation OFF" reference config (plan §8): published
-// alongside the validation-ON numbers, but not itself the AC5/AC6 gate.
-func runGowsNoUTF8(ctx context.Context, addr string) error {
-	return runGowsConfig(ctx, addr, true)
+// gowsVariants enumerates every -lib name served by runGows. "gows" and
+// "gows-noutf8" keep the harness's shared 4096-byte read buffer (bufferSize);
+// "gows-rbuf1k" and "gows-rbuf16k" are the read-buffer geometry variants for
+// hypothesis H1. UTF-8 validation stays on for every variant except
+// "gows-noutf8" (the paired validation-OFF reference config), matching gows's
+// RFC 6455 §8.1-by-default posture that the AC5/AC6 gate is judged on (plan
+// §8/§13).
+var gowsVariants = map[string]gowsVariant{
+	"gows":         {readBufSize: bufferSize},
+	"gows-noutf8":  {readBufSize: bufferSize, skipUTF8: true},
+	"gows-rbuf1k":  {readBufSize: rbuf1kSize},
+	"gows-rbuf16k": {readBufSize: 16 * 1024},
 }
 
-// runGowsConfig implements both gows variants: net.Listen + [gows.Upgrade]
-// + [gows.NewServerConn], echoing every message back with the opcode it
-// arrived with.
-func runGowsConfig(ctx context.Context, addr string, skipUTF8 bool) error {
-	ln, err := net.Listen("tcp", addr)
+// runGows serves an echo using gows's zero-copy raw net.Conn upgrade path (no
+// net/http), matching gobwas's integration style. The read-buffer size and
+// UTF-8 setting come from cfg, which main populates from the gows variant named
+// by -lib (see gowsVariants). The listener is obtained through newListener so
+// the -notsent-lowat and -trace-file accept hooks apply here identically to the
+// net/http-based backends.
+func runGows(ctx context.Context, addr string, cfg serverConfig) error {
+	ln, err := newListener(addr, cfg)
 	if err != nil {
 		return err
 	}
@@ -59,13 +77,13 @@ func runGowsConfig(ctx context.Context, addr string, skipUTF8 bool) error {
 			}
 			return err
 		}
-		go serveGowsConn(conn, skipUTF8)
+		go serveGowsConn(conn, cfg)
 	}
 }
 
-// serveGowsConn upgrades one accepted connection and runs its echo loop
-// until the peer disconnects or a protocol error tears the connection down.
-func serveGowsConn(conn net.Conn, skipUTF8 bool) {
+// serveGowsConn upgrades one accepted connection and runs its echo loop until
+// the peer disconnects or a protocol error tears the connection down.
+func serveGowsConn(conn net.Conn, cfg serverConfig) {
 	defer conn.Close()
 
 	hs, err := gows.Upgrade(conn)
@@ -74,10 +92,10 @@ func serveGowsConn(conn net.Conn, skipUTF8 bool) {
 	}
 
 	opts := []gows.ConnOption{
-		gows.WithReadBufferSize(bufferSize),
+		gows.WithReadBufferSize(cfg.readBufSize),
 		gows.WithBuffered(hs.Buffered),
 	}
-	if skipUTF8 {
+	if cfg.skipUTF8 {
 		opts = append(opts, gows.WithSkipUTF8Validation(true))
 	}
 	c := gows.NewServerConn(conn, opts...)

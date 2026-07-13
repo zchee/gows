@@ -11,7 +11,7 @@ import (
 // API. coder/websocket does not expose configurable read/write buffer sizes
 // (unlike gorilla/gobwas) — its buffers are managed internally, documented
 // as a caveat in bench/README.md.
-func runCoder(ctx context.Context, addr string) error {
+func runCoder(ctx context.Context, addr string, cfg serverConfig) error {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		conn, err := websocket.Accept(w, r, &websocket.AcceptOptions{
@@ -33,5 +33,5 @@ func runCoder(ctx context.Context, addr string) error {
 		}
 	})
 
-	return serveHTTP(ctx, addr, mux)
+	return serveHTTP(ctx, addr, mux, cfg)
 }

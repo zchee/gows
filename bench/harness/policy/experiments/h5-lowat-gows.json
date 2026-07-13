@@ -1,0 +1,37 @@
+{
+  "candidate": "gows-lowat",
+  "comparator": "gows",
+  "seed": 5000001,
+  "bootstrap": {
+    "replicates": 20000,
+    "confidence": 0.95
+  },
+  "thresholds": {
+    "throughput_lower_bound": 1.0,
+    "throughput_geomean": 1.05,
+    "p99_upper_bound": 1.01,
+    "p999_center_upper_bound": 1.05
+  },
+  "guard": {
+    "max_load1": 6.0,
+    "forbidden_process_patterns": ["echoserver", "loadgen"]
+  },
+  "library_overrides": {
+    "gows-lowat": {
+      "lib": "gows",
+      "server_args": ["-notsent-lowat", "16384"]
+    }
+  },
+  "scenarios": [
+    {
+      "name": "binary-1k-1k",
+      "primary": true,
+      "payload_bytes": 1024,
+      "connections": 1000,
+      "inflight": 1,
+      "warmup": "5s",
+      "duration": "30s",
+      "repetitions": 20
+    }
+  ]
+}
