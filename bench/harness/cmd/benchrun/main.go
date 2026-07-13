@@ -218,6 +218,7 @@ type EnvSnapshot struct {
 	Load5        float64 `json:"load5"`
 	Load15       float64 `json:"load15"`
 	PMSetBattery string  `json:"pmset_batt"`
+	PMSetThermal string  `json:"pmset_therm"`
 	LogicalCPUs  int     `json:"logical_cpus"`
 	MemoryBytes  uint64  `json:"memory_bytes"`
 	CapturedAt   string  `json:"captured_at"`
@@ -308,6 +309,7 @@ func runOne(ctx context.Context, echoserverBin, loadgenBin, lib string, sc polic
 		"-debug-addr", debugAddr,
 		"-conns", strconv.Itoa(sc.Connections),
 		"-payload", strconv.Itoa(sc.PayloadBytes),
+		"-inflight", strconv.Itoa(sc.Inflight),
 		"-duration", duration.String(),
 		"-warmup", warmup.String(),
 		"-rate", "0",
@@ -323,7 +325,6 @@ func runOne(ctx context.Context, echoserverBin, loadgenBin, lib string, sc polic
 	if err := json.Unmarshal(bytes.TrimSpace(lgOut.Bytes()), &result); err != nil {
 		return paired.Sample{}, fmt.Errorf("parse loadgen json %q: %w", strings.TrimSpace(lgOut.String()), err)
 	}
-	clientCPU, clientRSS := rusage(lg.ProcessState)
 
 	if srv.Process != nil {
 		_ = srv.Process.Signal(syscall.SIGTERM)
@@ -335,6 +336,9 @@ func runOne(ctx context.Context, echoserverBin, loadgenBin, lib string, sc polic
 	serverStopped = true
 	serverCPU, serverRSS := rusage(srv.ProcessState)
 
+	// The server's resources come from its process rusage here; the client's
+	// come from loadgen's own getrusage(RUSAGE_SELF), already in result. Both
+	// are process rusage, never a net.Conn counting wrapper.
 	msgs := float64(max(result.Messages, 1))
 	conns := float64(max(sc.Connections, 1))
 	return paired.Sample{
@@ -345,11 +349,9 @@ func runOne(ctx context.Context, echoserverBin, loadgenBin, lib string, sc polic
 		OrderIndex:                  orderIdx,
 		ServerCPUSeconds:            serverCPU,
 		ServerMaxRSSBytes:           serverRSS,
-		ClientCPUSeconds:            clientCPU,
-		ClientMaxRSSBytes:           clientRSS,
 		ServerCPUSecondsPerMessage:  serverCPU / msgs,
 		ServerRSSBytesPerConnection: float64(serverRSS) / conns,
-		ClientCPUSecondsPerMessage:  clientCPU / msgs,
+		ClientCPUSecondsPerMessage:  result.ClientCPUSeconds / msgs,
 	}, nil
 }
 
@@ -467,12 +469,14 @@ func sha256File(path string) (string, error) {
 func captureEnv() EnvSnapshot {
 	l1, l5, l15, _ := readLoadavg()
 	batt, _ := commandOutput("pmset", "-g", "batt")
+	therm, _ := commandOutput("pmset", "-g", "therm")
 	mem, _ := readMemsize()
 	return EnvSnapshot{
 		Load1:        l1,
 		Load5:        l5,
 		Load15:       l15,
 		PMSetBattery: batt,
+		PMSetThermal: therm,
 		LogicalCPUs:  runtime.NumCPU(),
 		MemoryBytes:  mem,
 		CapturedAt:   nowRFC(),

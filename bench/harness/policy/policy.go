@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/go-json-experiment/json"
+	"github.com/zchee/gows/bench/harness/support"
 )
 
 // Duration is a [time.Duration] that marshals to and unmarshals from a Go
@@ -131,6 +132,10 @@ func (p *Policy) Validate() error {
 			return fmt.Errorf("policy: scenario %q: payload_bytes must be > 0, got %d", s.Name, s.PayloadBytes)
 		case s.Connections <= 0:
 			return fmt.Errorf("policy: scenario %q: connections must be > 0, got %d", s.Name, s.Connections)
+		case s.Inflight < 1:
+			return fmt.Errorf("policy: scenario %q: inflight must be >= 1, got %d", s.Name, s.Inflight)
+		case s.Inflight*s.PayloadBytes > support.MaxInflightBytes:
+			return fmt.Errorf("policy: scenario %q: inflight*payload_bytes = %d exceeds the %d-byte pipeline cap", s.Name, s.Inflight*s.PayloadBytes, support.MaxInflightBytes)
 		case s.Repetitions <= 0:
 			return fmt.Errorf("policy: scenario %q: repetitions must be > 0, got %d", s.Name, s.Repetitions)
 		case s.Duration.Duration() <= 0:

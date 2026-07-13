@@ -125,6 +125,17 @@ func TestValidate(t *testing.T) {
 		"zero reps":          {mutate: func(p *Policy) { p.Scenarios[0].Repetitions = 0 }, wantErr: true},
 		"zero duration":      {mutate: func(p *Policy) { p.Scenarios[0].Duration = 0 }, wantErr: true},
 		"no primary":         {mutate: func(p *Policy) { p.Scenarios[0].Primary = false }, wantErr: true},
+		"zero inflight":      {mutate: func(p *Policy) { p.Scenarios[0].Inflight = 0 }, wantErr: true},
+		"negative inflight":  {mutate: func(p *Policy) { p.Scenarios[0].Inflight = -1 }, wantErr: true},
+		"inflight one ok":    {mutate: func(p *Policy) { p.Scenarios[0].Inflight = 1 }, wantErr: false},
+		"inflight payload too big": {mutate: func(p *Policy) {
+			p.Scenarios[0].Inflight = 2048
+			p.Scenarios[0].PayloadBytes = 1024 // 2048*1024 = 2 MiB > 1 MiB cap
+		}, wantErr: true},
+		"inflight payload at cap": {mutate: func(p *Policy) {
+			p.Scenarios[0].Inflight = 8
+			p.Scenarios[0].PayloadBytes = 1024 // 8 KiB, well within the cap
+		}, wantErr: false},
 	}
 
 	for name, tc := range tests {
@@ -154,7 +165,16 @@ func TestCanonicalPolicy(t *testing.T) {
 	if got := len(p.PrimaryScenarios()); got != 5 {
 		t.Fatalf("canonical policy primary scenarios = %d, want 5", got)
 	}
+	if got := len(p.Scenarios); got != 7 {
+		t.Fatalf("canonical policy total scenarios = %d, want 7 (5 primary + 2 experimental)", got)
+	}
+	byName := make(map[string]Scenario, len(p.Scenarios))
+	nonPrimary := 0
 	for _, s := range p.Scenarios {
+		byName[s.Name] = s
+		if !s.Primary {
+			nonPrimary++
+		}
 		if s.Warmup.Duration() != 5*time.Second {
 			t.Errorf("scenario %q warmup = %v, want 5s", s.Name, s.Warmup.Duration())
 		}
@@ -163,6 +183,30 @@ func TestCanonicalPolicy(t *testing.T) {
 		}
 		if s.Repetitions != 20 {
 			t.Errorf("scenario %q repetitions = %d, want 20", s.Name, s.Repetitions)
+		}
+	}
+	if nonPrimary != 2 {
+		t.Fatalf("canonical policy non-primary scenarios = %d, want 2", nonPrimary)
+	}
+	// The experimental pipelined cells must carry their intended inflight
+	// windows and stay off the gate (primary=false).
+	experimental := map[string]int{
+		"binary-1k-200-inflight8": 8,
+		"binary-1k-1k-inflight4":  4,
+	}
+	for name, wantInflight := range experimental {
+		s, ok := byName[name]
+		if !ok {
+			t.Fatalf("canonical policy missing experimental scenario %q", name)
+		}
+		if s.Primary {
+			t.Errorf("scenario %q primary = true, want false (experimental, not gated)", name)
+		}
+		if s.Inflight != wantInflight {
+			t.Errorf("scenario %q inflight = %d, want %d", name, s.Inflight, wantInflight)
+		}
+		if s.PayloadBytes != 1024 {
+			t.Errorf("scenario %q payload_bytes = %d, want 1024", name, s.PayloadBytes)
 		}
 	}
 	// Sum must be stable and non-empty.

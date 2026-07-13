@@ -119,11 +119,16 @@ func evaluate(samples []paired.Sample, pol *policy.Policy, policySum string) (Ve
 	bs := pol.Bootstrap
 	th := pol.Thresholds
 
-	scenarios := make([]ScenarioVerdict, 0, len(primaries))
+	// Every scenario is evaluated and reported, but only primary scenarios
+	// gate the verdict: the pass/fail decision and the throughput geomean are
+	// folded from primaries alone, while non-primary (experimental) cells are
+	// reported with their computed ratios and per-gate outcomes for context
+	// without ever flipping Pass.
+	scenarios := make([]ScenarioVerdict, 0, len(pol.Scenarios))
 	throughputCenters := make([]float64, 0, len(primaries))
 	pass := true
 
-	for _, sc := range primaries {
+	for _, sc := range pol.Scenarios {
 		throughput, err := paired.Ratios(samples, sc.Name, pol.Candidate, pol.Comparator, paired.MetricThroughput)
 		if err != nil {
 			return Verdict{}, err
@@ -158,14 +163,16 @@ func evaluate(samples []paired.Sample, pol *policy.Policy, policySum string) (Ve
 		tPass := tLower > th.ThroughputLowerBound
 		p99Pass := p99Upper <= th.P99UpperBound
 		p999Pass := p999Center <= th.P999CenterUpperBound
-		if !tPass || !p99Pass || !p999Pass {
-			pass = false
+		if sc.Primary {
+			if !tPass || !p99Pass || !p999Pass {
+				pass = false
+			}
+			throughputCenters = append(throughputCenters, tCenter)
 		}
-		throughputCenters = append(throughputCenters, tCenter)
 
 		scenarios = append(scenarios, ScenarioVerdict{
 			Name:                         sc.Name,
-			Primary:                      true,
+			Primary:                      sc.Primary,
 			Repetitions:                  len(throughput),
 			ThroughputCenter:             tCenter,
 			ThroughputLower:              tLower,
@@ -218,12 +225,16 @@ func writeVerdict(path string, v Verdict) error {
 func printSummary(v Verdict) {
 	fmt.Printf("benchcmp: %s vs %s\n", v.Candidate, v.Comparator)
 	for _, s := range v.Scenarios {
-		fmt.Printf("  %-16s throughput=%.4f [%.4f,%.4f] %s  p99=%.4f [%.4f,%.4f] %s  p999=%.4f %s (n=%d)\n",
+		tag := ""
+		if !s.Primary {
+			tag = " (experimental, not gated)"
+		}
+		fmt.Printf("  %-24s throughput=%.4f [%.4f,%.4f] %s  p99=%.4f [%.4f,%.4f] %s  p999=%.4f %s (n=%d)%s\n",
 			s.Name,
 			s.ThroughputCenter, s.ThroughputLower, s.ThroughputUpper, passLabel(s.ThroughputPass),
 			s.P99Center, s.P99Lower, s.P99Upper, passLabel(s.P99Pass),
 			s.P999Center, passLabel(s.P999Pass),
-			s.Repetitions)
+			s.Repetitions, tag)
 	}
 	fmt.Printf("  throughput geomean=%.4f (>= %.4f) %s\n", v.Geomean, v.Thresholds.ThroughputGeomean, passLabel(v.GeomeanPass))
 	fmt.Printf("VERDICT: %s\n", passLabel(v.Pass))

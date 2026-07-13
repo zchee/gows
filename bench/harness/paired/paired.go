@@ -32,10 +32,11 @@ const (
 )
 
 // Sample is one measured (scenario, library, repetition) record as written to
-// samples.jsonl by benchrun. It embeds the loadgen result and adds the run
-// context plus the process-rusage-derived resource metrics. Resource
-// accounting is taken only from each child process's rusage, never by
-// wrapping net.Conn on a gating path.
+// samples.jsonl by benchrun. It embeds the loadgen result (which already
+// carries the client's self-reported CPU seconds and peak RSS) and adds the
+// run context, the server's process-rusage resource metrics, and the derived
+// per-message/per-connection figures. Resource accounting is taken only from
+// process rusage, never by wrapping net.Conn on a gating path.
 type Sample struct {
 	support.LoadgenResult
 	Scenario                    string  `json:"scenario"`
@@ -44,8 +45,6 @@ type Sample struct {
 	OrderIndex                  int     `json:"order_index"`
 	ServerCPUSeconds            float64 `json:"server_cpu_seconds"`
 	ServerMaxRSSBytes           int64   `json:"server_maxrss_bytes"`
-	ClientCPUSeconds            float64 `json:"client_cpu_seconds"`
-	ClientMaxRSSBytes           int64   `json:"client_maxrss_bytes"`
 	ServerCPUSecondsPerMessage  float64 `json:"server_cpu_seconds_per_message"`
 	ServerRSSBytesPerConnection float64 `json:"server_rss_bytes_per_connection"`
 	ClientCPUSecondsPerMessage  float64 `json:"client_cpu_seconds_per_message"`

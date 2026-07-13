@@ -91,14 +91,25 @@ each `harness/cmd/echoserver/server_*.go` file:
     message hot path.
 - `harness/cmd/echoserver`: `-lib {gorilla|coder|gobwas|gws|quickws|fasthttp|nbio|gows|gows-noutf8} -addr :9001 -debug-addr :9101`.
   Plain binary echo: read one message, write the same opcode + payload back.
-- `harness/cmd/loadgen`: `-addr host:port -debug-addr host:port -conns N -payload BYTES -duration DUR -warmup DUR -rate N`.
+- `harness/cmd/loadgen`: `-addr host:port -debug-addr host:port -conns N -payload BYTES -inflight K -duration DUR -warmup DUR -rate N`.
   Drives load using **gobwas/ws's low-level client API** (`ws.Dial` +
   `wsutil.WriteClientMessage`/`wsutil.ReadServerData`) against every server
   under test, so the client side of every comparison is identical. `-rate 0`
   (default) saturates: each connection is a closed request/response loop
   (send, wait for echo, send again) with no artificial throttling; `-rate N`
   spreads a target aggregate messages/sec across all connections via a
-  per-connection ticker.
+  per-connection ticker. `-inflight K` (default 1) keeps K messages
+  outstanding per connection: K=1 is the closed loop above; K>1 pipelines by
+  splitting each connection's synchronous gobwas read and write onto two
+  goroutines (a writer that keeps the window primed and a reader that drains
+  and verifies echoes), so the writer never wedges on a full socket buffer
+  while echoes go unread — a single interleaved goroutine could deadlock there
+  once K*payload exceeds the buffers. Latency is timed from the instant a
+  message is handed to the send path; under saturation that equals the
+  intended send time, so there is no coordinated-omission correction to make.
+  Every echo is verified byte-for-byte against the deterministic payload and a
+  mismatch aborts the run. K*payload is capped at 1 MiB, and `-rate` with
+  K>1 is rejected (open-loop pacing and pipelining measure different things).
 - `internal/thirdparty/{gorilla,coder,gws,gobwas}`: minimal vendored copies
   of each library's unexported (or, for gobwas, exported-but-otherwise-
   identical) masking kernel, used only by `kernels_test.go`. Vendored rather
@@ -192,7 +203,9 @@ machine-checkable verdict: `benchrun` executes a policy's scenario matrix
 under strict host hygiene and records raw samples; `benchcmp` pairs those
 samples, computes deterministic median-bootstrap confidence intervals, applies
 the policy's gate thresholds, and writes `verdict.json`. `loadgen -json`
-emits one JSON result line (the fixed 12-field schema `LoadgenResult`), which
+emits one JSON result line (the fixed-schema `LoadgenResult`: message count,
+window durations, throughput, p50/p90/p99/p999 ns, error count, and the
+client's own `getrusage(RUSAGE_SELF)` CPU seconds and peak RSS), which
 `benchrun` consumes; the human summary is unchanged when `-json` is absent.
 
 ### Policy schema (`harness/policy`)
@@ -200,7 +213,14 @@ emits one JSON result line (the fixed 12-field schema `LoadgenResult`), which
 A policy is JSON with Go duration strings for the windows. The canonical
 darwin/arm64 policy is `harness/policy/darwin-arm64.json` (five primary cells:
 `binary-64b-1k`, `binary-1k-200`, `binary-1k-1k`, `binary-16k-200`,
-`binary-16k-1k`; all warmup `5s`, duration `30s`, 20 repetitions).
+`binary-16k-1k`; all warmup `5s`, duration `30s`, 20 repetitions) plus two
+non-primary experimental cells that exercise the pipelined client
+(`binary-1k-200-inflight8` at inflight 8, `binary-1k-1k-inflight4` at
+inflight 4). Each scenario carries an `inflight` window (>= 1) that `benchrun`
+passes to `loadgen`; the schema rejects `inflight < 1` and any
+`inflight*payload_bytes` above the 1 MiB pipeline cap. Primary cells gate the
+verdict; non-primary cells are evaluated and reported in `verdict.json` for
+context but never flip the pass/fail decision or the throughput geomean.
 
 ```json
 {
@@ -242,8 +262,10 @@ go build -o /tmp/benchcmp ./harness/cmd/benchcmp
 directory with `-mod=mod` (so the working-tree `gows` is linked, not the
 vendored snapshot), copies the policy in, and records provenance
 (`meta.json`), before/after environment snapshots (`env-start.json` /
-`env-end.json`), one line per (scenario, library, repetition) in
-`samples.jsonl`, and a `done.json` completion marker. Execution is paired and
+`env-end.json`: load averages, power via `pmset -g batt`, thermal/throttle
+state via `pmset -g therm`, logical CPU count, memory bytes), one line per
+(scenario, library, repetition) in `samples.jsonl`, and a `done.json`
+completion marker. Execution is paired and
 seeded: for each repetition the candidate/comparator order is shuffled with a
 `math/rand/v2` PCG seeded from `policy.seed`, each library gets a fresh
 `echoserver` child process, and the two ports alternate off a base (19301) to
@@ -267,13 +289,16 @@ Before spawning anything, `benchrun` enforces three preconditions and aborts
 
 ### Measurement rule: no `net.Conn` wrapper on gating paths
 
-All resource accounting (CPU seconds, peak RSS) comes **only** from each child
-process's `os.ProcessState.SysUsage().(*syscall.Rusage)` — never from wrapping
-`net.Conn` to count bytes or messages on a path that feeds a gate. Per-message
-and per-connection resource figures in `samples.jsonl`
-(`server_cpu_seconds_per_message`, `server_rss_bytes_per_connection`,
-`client_cpu_seconds_per_message`) are derived from that rusage plus the
-loadgen-reported message count. On darwin `Rusage.Maxrss` is already bytes.
+All resource accounting (CPU seconds, peak RSS) comes **only** from process
+rusage — never from wrapping `net.Conn` to count bytes or messages on a path
+that feeds a gate. The server figures come from `benchrun` reading the
+echoserver child's `os.ProcessState.SysUsage().(*syscall.Rusage)` after
+SIGTERM; the client figures come from `loadgen`'s own
+`getrusage(RUSAGE_SELF)`, emitted in its `-json` line. Per-message and
+per-connection figures in `samples.jsonl` (`server_cpu_seconds_per_message`,
+`server_rss_bytes_per_connection`, `client_cpu_seconds_per_message`) are
+derived from that rusage plus the loadgen-reported message count. On darwin
+`Rusage.Maxrss` is already bytes.
 
 ### Verdict and gates (`harness/paired`, `benchcmp`)
 

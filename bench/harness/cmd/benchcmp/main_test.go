@@ -134,3 +134,62 @@ func TestEvaluatePairingError(t *testing.T) {
 		t.Fatalf("expected pairing error, got nil")
 	}
 }
+
+// TestEvaluateReportsNonPrimary confirms a non-primary (experimental) scenario
+// is evaluated and reported in the verdict, but never gates the pass/fail
+// decision or the throughput geomean: a badly failing experimental cell leaves
+// an otherwise-passing verdict green.
+func TestEvaluateReportsNonPrimary(t *testing.T) {
+	pol := testPolicy()
+	// Add a second, non-primary scenario alongside the passing primary one.
+	pol.Scenarios = append(pol.Scenarios, policy.Scenario{
+		Name:         "e",
+		Primary:      false,
+		PayloadBytes: 1024,
+		Connections:  200,
+		Inflight:     8,
+		Warmup:       policy.Duration(5 * time.Second),
+		Duration:     policy.Duration(30 * time.Second),
+		Repetitions:  20,
+	})
+
+	reps := pol.Scenarios[0].Repetitions
+	// Primary "s" passes; experimental "e" is far slower with worse tails.
+	samples := append(
+		genSamples("s", reps, 1.06, 0.95, 0.95),
+		genSamples("e", reps, 0.50, 1.50, 1.50)...,
+	)
+
+	v, err := evaluate(samples, pol, "deadbeef")
+	if err != nil {
+		t.Fatalf("evaluate: %v", err)
+	}
+	if !v.Pass {
+		t.Fatalf("Pass = false, want true (experimental cell must not gate; geomean=%.4f)", v.Geomean)
+	}
+	if len(v.Scenarios) != 2 {
+		t.Fatalf("verdict scenarios = %d, want 2 (primary + experimental)", len(v.Scenarios))
+	}
+
+	byName := make(map[string]ScenarioVerdict, len(v.Scenarios))
+	for _, s := range v.Scenarios {
+		byName[s.Name] = s
+	}
+	primary, ok := byName["s"]
+	if !ok || !primary.Primary || !primary.ThroughputPass {
+		t.Fatalf("primary scenario verdict = %+v, want Primary && ThroughputPass", primary)
+	}
+	exp, ok := byName["e"]
+	if !ok {
+		t.Fatalf("experimental scenario missing from verdict")
+	}
+	if exp.Primary {
+		t.Fatalf("experimental scenario Primary = true, want false")
+	}
+	if exp.ThroughputPass {
+		t.Fatalf("experimental scenario ThroughputPass = true, want false (it is slower and should still be reported)")
+	}
+	if exp.Repetitions != reps {
+		t.Fatalf("experimental scenario repetitions = %d, want %d", exp.Repetitions, reps)
+	}
+}

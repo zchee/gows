@@ -1,10 +1,12 @@
 package support
 
 // LoadgenResult is the machine-readable measurement summary loadgen emits as a
-// single JSON line when invoked with -json. Every field is derived from the
-// same Recorder-based computation path as the human-readable summary, so the
-// two outputs never disagree. The schema is fixed (no omitzero): benchrun
-// parses these lines by exact field, so a zero value must still be present.
+// single JSON line when invoked with -json. The latency/throughput fields are
+// derived from the same Recorder-based computation path as the human-readable
+// summary, so the two outputs never disagree; the client resource fields come
+// from the loadgen process's own getrusage(RUSAGE_SELF), never from a net.Conn
+// counting wrapper. The schema is fixed (no omitzero): benchrun parses these
+// lines by exact field, so a zero value must still be present.
 type LoadgenResult struct {
 	Connections                 int     `json:"connections"`
 	PayloadBytes                int     `json:"payload_bytes"`
@@ -18,4 +20,6 @@ type LoadgenResult struct {
 	P99Nanoseconds              int64   `json:"p99_nanoseconds"`
 	P999Nanoseconds             int64   `json:"p999_nanoseconds"`
 	Errors                      int     `json:"errors"`
+	ClientCPUSeconds            float64 `json:"client_cpu_seconds"`
+	ClientMaxRSSBytes           int64   `json:"client_maxrss_bytes"`
 }
