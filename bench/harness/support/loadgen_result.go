@@ -5,9 +5,12 @@ package support
 // derived from the same Recorder-based computation path as the human-readable
 // summary, so the two outputs never disagree; the client resource fields come
 // from the loadgen process's own getrusage(RUSAGE_SELF), never from a net.Conn
-// counting wrapper. The schema is fixed (no omitzero): benchrun parses these
-// lines by exact field, so a zero value must still be present.
+// counting wrapper. Client names the WebSocket client transport that drove the
+// run ("gows" or "gobwas"), so a sample records which client stack produced its
+// figures. The schema is fixed (no omitzero): benchrun parses these lines by
+// exact field, so a zero value must still be present.
 type LoadgenResult struct {
+	Client                      string  `json:"client"`
 	Connections                 int     `json:"connections"`
 	PayloadBytes                int     `json:"payload_bytes"`
 	Inflight                    int     `json:"inflight"`

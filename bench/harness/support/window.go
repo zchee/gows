@@ -1,6 +1,7 @@
 package support
 
 import (
+	"bytes"
 	"fmt"
 	"time"
 )
@@ -19,7 +20,16 @@ const MaxInflightBytes = 1 << 20
 // message, so a correct echo server always returns expected exactly; any
 // difference in length or content is a server- or transport-level corruption
 // that must fail the run rather than be silently counted as throughput.
+//
+// The common case (a correct echo) is decided by a single [bytes.Equal], which
+// dispatches to the runtime's SIMD memequal and is far cheaper than a scalar
+// byte loop on the per-message hot path. Only a genuine mismatch pays for the
+// descriptive length/content diagnosis, so verification is neither weakened nor
+// its length+content guarantee relaxed.
 func VerifyEcho(expected, got []byte) error {
+	if bytes.Equal(expected, got) {
+		return nil
+	}
 	if len(got) != len(expected) {
 		return fmt.Errorf("echo length mismatch: got %d bytes, want %d", len(got), len(expected))
 	}

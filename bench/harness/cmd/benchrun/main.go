@@ -63,10 +63,16 @@ func run() error {
 	policyPath := flag.String("policy", "", "path to the policy JSON file (required)")
 	outFlag := flag.String("out", "", "run output directory (default results/v-next/darwin-arm64/claude-run-<UTCstamp>-<gitshort>)")
 	smoke := flag.Bool("smoke", false, "override every scenario to warmup 1s / measure 3s / 2 reps for an end-to-end sanity pass")
+	client := flag.String("client", "gows", "loadgen client transport for every run: gows (default) or gobwas")
 	flag.Parse()
 
 	if *policyPath == "" {
 		return errors.New("-policy is required")
+	}
+	switch *client {
+	case "gows", "gobwas":
+	default:
+		return fmt.Errorf("-client must be \"gows\" or \"gobwas\", got %q", *client)
 	}
 	pol, rawPolicy, err := policy.Load(*policyPath)
 	if err != nil {
@@ -185,6 +191,7 @@ func run() error {
 		GoVersion:              runtime.Version(),
 		Hostname:               hostname,
 		Kernel:                 kernel,
+		Client:                 *client,
 		EchoserverSHA256:       echoSum,
 		LoadgenSHA256:          loadSum,
 		OverrideBinariesSHA256: overrideSums,
@@ -205,7 +212,7 @@ func run() error {
 	// 4. Paired randomized execution.
 	samplesPath := filepath.Join(out, "samples.jsonl")
 	errorsPath := filepath.Join(out, "errors.log")
-	count, execErr := execute(ctx, pol, *smoke, loadgenBin, binPaths, resolved, samplesPath, errorsPath)
+	count, execErr := execute(ctx, pol, *smoke, *client, loadgenBin, binPaths, resolved, samplesPath, errorsPath)
 
 	// Environment snapshot (end) is captured whether or not execution failed.
 	if err := writeJSONFile(filepath.Join(out, "env-end.json"), captureEnv()); err != nil && execErr == nil {
@@ -234,6 +241,7 @@ type Meta struct {
 	GoVersion              string            `json:"go_version"`
 	Hostname               string            `json:"hostname"`
 	Kernel                 string            `json:"kernel"`
+	Client                 string            `json:"client"`
 	EchoserverSHA256       string            `json:"echoserver_sha256"`
 	LoadgenSHA256          string            `json:"loadgen_sha256"`
 	OverrideBinariesSHA256 map[string]string `json:"override_binaries_sha256,omitzero"`
@@ -268,8 +276,9 @@ type EnvSnapshot struct {
 // a non-nil error) on the first child or parse failure rather than skipping.
 // binPaths maps each policy library name (candidate/comparator) to the
 // echoserver binary that serves it, and resolved carries each name's real
-// echoserver -lib value and any appended server arguments.
-func execute(ctx context.Context, pol *policy.Policy, smoke bool, loadgenBin string, binPaths map[string]string, resolved map[string]policy.Resolved, samplesPath, errorsPath string) (int, error) {
+// echoserver -lib value and any appended server arguments. client is the
+// loadgen -client transport used for every run in the matrix.
+func execute(ctx context.Context, pol *policy.Policy, smoke bool, client, loadgenBin string, binPaths map[string]string, resolved map[string]policy.Resolved, samplesPath, errorsPath string) (int, error) {
 	sf, err := os.OpenFile(samplesPath, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o644)
 	if err != nil {
 		return 0, fmt.Errorf("open samples file: %w", err)
@@ -304,7 +313,7 @@ func execute(ctx context.Context, pol *policy.Policy, smoke bool, loadgenBin str
 				portToggle ^= 1
 
 				r := resolved[lib]
-				sample, err := runOne(ctx, binPaths[lib], loadgenBin, lib, r.Lib, r.ServerArgs, sc, warmup, duration, rep, orderIdx, serverPort, debugPort)
+				sample, err := runOne(ctx, binPaths[lib], loadgenBin, client, lib, r.Lib, r.ServerArgs, sc, warmup, duration, rep, orderIdx, serverPort, debugPort)
 				if err != nil {
 					appendError(errorsPath, sc.Name, lib, rep, err)
 					return count, fmt.Errorf("scenario %q lib %q rep %d: %w", sc.Name, lib, rep, err)
@@ -323,8 +332,9 @@ func execute(ctx context.Context, pol *policy.Policy, smoke bool, loadgenBin str
 // SIGTERMs the server and collects both children's rusage. name is the
 // policy-facing library name recorded in the sample (an override name such as
 // "gows-lowat" distinct from realLib); realLib is the echoserver -lib value,
-// and serverArgs are appended to the echoserver command line.
-func runOne(ctx context.Context, echoserverBin, loadgenBin, name, realLib string, serverArgs []string, sc policy.Scenario, warmup, duration time.Duration, rep, orderIdx, serverPort, debugPort int) (paired.Sample, error) {
+// and serverArgs are appended to the echoserver command line. client is passed
+// to loadgen's -client flag to select the WebSocket client transport.
+func runOne(ctx context.Context, echoserverBin, loadgenBin, client, name, realLib string, serverArgs []string, sc policy.Scenario, warmup, duration time.Duration, rep, orderIdx, serverPort, debugPort int) (paired.Sample, error) {
 	serverAddr := fmt.Sprintf("127.0.0.1:%d", serverPort)
 	debugAddr := fmt.Sprintf("127.0.0.1:%d", debugPort)
 
@@ -354,6 +364,7 @@ func runOne(ctx context.Context, echoserverBin, loadgenBin, name, realLib string
 	lg := exec.CommandContext(ctx, loadgenBin,
 		"-addr", serverAddr,
 		"-debug-addr", debugAddr,
+		"-client", client,
 		"-conns", strconv.Itoa(sc.Connections),
 		"-payload", strconv.Itoa(sc.PayloadBytes),
 		"-inflight", strconv.Itoa(sc.Inflight),

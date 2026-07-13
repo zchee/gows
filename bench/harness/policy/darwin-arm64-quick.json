@@ -1,0 +1,54 @@
+{
+  "candidate": "gows",
+  "comparator": "quickws",
+  "seed": 12648430,
+  "bootstrap": {
+    "replicates": 20000,
+    "confidence": 0.95
+  },
+  "thresholds": {
+    "throughput_lower_bound": 1.0,
+    "throughput_geomean": 1.05,
+    "p99_upper_bound": 1.01,
+    "p999_center_upper_bound": 1.05
+  },
+  "guard": {
+    "max_load1": 6.0,
+    "forbidden_process_patterns": [
+      "echoserver",
+      "loadgen"
+    ]
+  },
+  "scenarios": [
+    {
+      "name": "binary-1k-1k",
+      "primary": true,
+      "payload_bytes": 1024,
+      "connections": 1000,
+      "inflight": 1,
+      "warmup": "2s",
+      "duration": "5s",
+      "repetitions": 10
+    },
+    {
+      "name": "binary-16k-1k",
+      "primary": true,
+      "payload_bytes": 16384,
+      "connections": 1000,
+      "inflight": 1,
+      "warmup": "2s",
+      "duration": "5s",
+      "repetitions": 10
+    },
+    {
+      "name": "binary-1k-1k-inflight4",
+      "primary": false,
+      "payload_bytes": 1024,
+      "connections": 1000,
+      "inflight": 4,
+      "warmup": "2s",
+      "duration": "5s",
+      "repetitions": 10
+    }
+  ]
+}
