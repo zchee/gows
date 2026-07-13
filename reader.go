@@ -110,7 +110,7 @@ func (c *Conn) readMessage() (Opcode, []byte, error) {
 			c.msgIsText = h.Opcode == OpcodeText
 			c.msgCompressed = h.Rsv == RSV1
 			if !c.msgCompressed && h.Fin && h.Length > int64(cap(c.rbuf)) {
-				c.adaptReadBuffer(h)
+				c.adaptReadBuffer(h.Length)
 			}
 
 			// Zero-copy fast path: a message delivered as a single frame that

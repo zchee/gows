@@ -53,22 +53,18 @@ func (l *loopConn) SetDeadline(_ time.Time) error      { return nil }
 func (l *loopConn) SetReadDeadline(_ time.Time) error  { return nil }
 func (l *loopConn) SetWriteDeadline(_ time.Time) error { return nil }
 
-type readCountingConn struct {
+type countingConn struct {
 	*scriptConn
-	reads int
+	reads  int
+	writes int
 }
 
-func (c *readCountingConn) Read(p []byte) (int, error) {
+func (c *countingConn) Read(p []byte) (int, error) {
 	c.reads++
 	return c.scriptConn.Read(p)
 }
 
-type writeCountingConn struct {
-	*scriptConn
-	writes int
-}
-
-func (c *writeCountingConn) Write(p []byte) (int, error) {
+func (c *countingConn) Write(p []byte) (int, error) {
 	c.writes++
 	return c.scriptConn.Write(p)
 }
@@ -79,7 +75,7 @@ func TestReadMessageAdaptsLargeSingleFrameBuffer(t *testing.T) {
 	const size = 16 << 10
 	payload := bytes.Repeat([]byte{0x7f}, size)
 	frame := clientFrame(true, OpcodeBinary, payload)
-	wire := &readCountingConn{scriptConn: &scriptConn{in: append(append([]byte(nil), frame...), frame...)}}
+	wire := &countingConn{scriptConn: &scriptConn{in: bytes.Repeat(frame, 2)}}
 	c := NewServerConn(wire, WithReadBufferSize(defaultReadBufferSize))
 
 	for i := range 2 {
@@ -110,15 +106,16 @@ func TestAdaptReadBufferBounds(t *testing.T) {
 		readLimit int64
 		payload   int64
 	}{
-		"read limit": {readLimit: 8 << 10, payload: 16 << 10},
-		"size cap":   {readLimit: defaultReadLimit, payload: maxAdaptiveReadSize + 1},
+		"already fits": {readLimit: defaultReadLimit, payload: defaultReadBufferSize},
+		"read limit":   {readLimit: 8 << 10, payload: 16 << 10},
+		"size cap":     {readLimit: defaultReadLimit, payload: maxAdaptiveReadSize + 1},
 	}
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 			c := NewServerConn(&scriptConn{}, WithReadLimit(tt.readLimit))
 			before := cap(c.rbuf)
-			c.adaptReadBuffer(Header{Fin: true, Opcode: OpcodeBinary, Masked: true, Length: tt.payload})
+			c.adaptReadBuffer(tt.payload)
 			if got := cap(c.rbuf); got != before {
 				t.Fatalf("read buffer capacity = %d, want unchanged %d", got, before)
 			}
@@ -130,7 +127,7 @@ func TestWriteMessageServerSmallFrameSingleWrite(t *testing.T) {
 	t.Parallel()
 
 	payload := bytes.Repeat([]byte{0x5a}, 1024)
-	wire := &writeCountingConn{scriptConn: &scriptConn{}}
+	wire := &countingConn{scriptConn: &scriptConn{}}
 	c := NewServerConn(wire)
 	if err := c.WriteMessage(OpcodeBinary, payload); err != nil {
 		t.Fatalf("WriteMessage: %v", err)
@@ -152,7 +149,7 @@ func TestWriteMessageServerRole(t *testing.T) {
 	sc := &scriptConn{}
 	c := NewServerConn(sc)
 	payload := []byte("hello world")
-	orig := append([]byte(nil), payload...)
+	orig := bytes.Clone(payload)
 
 	if err := c.WriteMessage(OpcodeText, payload); err != nil {
 		t.Fatalf("WriteMessage: %v", err)

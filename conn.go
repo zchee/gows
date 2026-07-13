@@ -136,14 +136,14 @@ func WithReadBufferSize(n int) ConnOption {
 // retains a msgBuf for this payload; replacing rbuf with one exact-size buffer
 // instead avoids retaining both buffers and lets subsequent frames arrive in
 // one Read without a reassembly copy.
-func (c *Conn) adaptReadBuffer(h Header) {
-	if h.Length > c.readLimit ||
-		h.Length <= int64(cap(c.rbuf)) ||
-		h.Length > maxAdaptiveReadSize {
+func (c *Conn) adaptReadBuffer(payloadSize int64) {
+	if payloadSize > c.readLimit ||
+		payloadSize <= int64(cap(c.rbuf)) ||
+		payloadSize > maxAdaptiveReadSize {
 		return
 	}
 
-	next := make([]byte, int(h.Length)+MaxHeaderSize)
+	next := make([]byte, int(payloadSize)+MaxHeaderSize)
 	unread := copy(next, c.rbuf[c.r0:c.r1])
 	pool.Put(c.rbuf)
 	c.rbuf = next
