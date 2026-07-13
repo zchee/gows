@@ -53,7 +53,21 @@ func (c *Conn) ReadMessage() (Opcode, []byte, error) {
 	if c.readErr != nil {
 		return 0, nil, c.readErr
 	}
-	return c.readMessage()
+	// The entry guards are inlined here rather than delegated to readMessage so
+	// the hot path still reaches readMessageBody in a single call, exactly as
+	// before that loop body was factored out for [Conn.Serve] to share; the
+	// sticky-error short circuit above already covers the readErr case, so the
+	// teardown guard only needs the net.ErrClosed arm. readMessage keeps the
+	// full guard set for the Close drain loop, which has no such pre-check.
+	if c.tornDown.Load() {
+		return 0, nil, net.ErrClosed
+	}
+	if c.msgReader != nil {
+		if err := c.discardStreamRemainder(); err != nil {
+			return 0, nil, err
+		}
+	}
+	return c.readMessageBody()
 }
 
 // readMessage implements ReadMessage without the sticky-error short circuit,
@@ -79,6 +93,18 @@ func (c *Conn) readMessage() (Opcode, []byte, error) {
 		}
 	}
 
+	return c.readMessageBody()
+}
+
+// readMessageBody reads one complete data message, assuming the caller has
+// already performed the per-call entry guards (sticky-error, teardown, and
+// stale-stream checks). It is the shared core of [Conn.ReadMessage] and
+// [Conn.Serve]: the latter hoists those guards out of its per-message loop
+// (they hold for every iteration once verified once), so it calls this
+// directly. Control frames are answered inline (auto-Pong, closing handshake)
+// exactly as on the ReadMessage path, and the returned payload has the same
+// zero-copy lifetime as ReadMessage's.
+func (c *Conn) readMessageBody() (Opcode, []byte, error) {
 	c.msgBuf = c.msgBuf[:0]
 	c.utf8v.Reset()
 

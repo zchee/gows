@@ -87,6 +87,7 @@ type Conn struct {
 	wclose    []byte         // close-body encode scratch
 	wiov      [2][]byte      // writev scratch (header, payload)
 	wbufs     net.Buffers    // mutable slice header consumed by Buffers.WriteTo
+	wbatch    []byte         // WriteMessageBuffered batch accumulator; nil until first buffered write (guarded by wmu)
 	closeSent bool           // a Close frame has been written (guarded by wmu)
 	msgWriter *messageWriter // open NextWriter stream, if any (guarded by wmu); nil on the WriteMessage-only hot path
 
@@ -444,6 +445,19 @@ func (c *Conn) teardown() {
 			c.inflateScratch = nil
 		}
 		c.r0, c.r1 = 0, 0
+		// Release the WriteMessageBuffered batch accumulator, if any. It is
+		// write-side state guarded by wmu, and an in-flight WriteMessage MAY
+		// still run concurrently with this teardown (only ReadMessage/Serve is
+		// documented as mutually exclusive with Close), so both the test and
+		// the clear take wmu -- reading the slice header unlocked would race a
+		// concurrent buffered write. pool.Put drops a non-class capacity,
+		// exactly as for msgBuf above.
+		c.wmu.Lock()
+		if c.wbatch != nil {
+			pool.Put(c.wbatch)
+			c.wbatch = nil
+		}
+		c.wmu.Unlock()
 		// c.deflate's outgoing half (persistent DeflateWriter and its
 		// destination adapter) is only ever touched under wmu (by
 		// compressMessage, itself only reachable while WriteMessage holds

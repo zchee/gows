@@ -41,6 +41,17 @@ import (
 // most one WriteMessage may be in flight at a time.
 func (c *Conn) WriteMessage(op Opcode, p []byte) error {
 	c.wmu.Lock()
+	// A pending WriteMessageBuffered batch must go out ahead of this frame to
+	// preserve order. wbatch is nil for a Conn that never buffers, so this is a
+	// single leading, never-taken branch that leaves every code path below
+	// byte-identical to the un-buffered original; a failed flush leaves the
+	// connection broken, so the frame is not attempted.
+	if len(c.wbatch) != 0 {
+		if err := c.flushBufferedLocked(); err != nil {
+			c.wmu.Unlock()
+			return err
+		}
+	}
 	var err error
 	if c.client || c.compression {
 		err = c.writeMessageLocked(op, p)
@@ -168,6 +179,18 @@ func (c *Conn) sendClose(code CloseCode, reason []byte) error {
 // any compression) before calling in, so no path pays for a check it does not
 // need and the hot single-frame write is a single call into this emitter.
 func (c *Conn) emitFrameLocked(op Opcode, fin bool, rsv byte, payload []byte) error {
+	// Any frame written directly to the wire (a WriteMessage on the client or
+	// compression path, an auto-Pong/Close from the read side, or a NextWriter
+	// fragment) must flush a pending WriteMessageBuffered batch first, so the
+	// batched frames keep their arrival order ahead of this one. wbatch is nil
+	// for a Conn that never buffers, so this is a single predictable branch off
+	// the hot path.
+	if len(c.wbatch) != 0 {
+		if err := c.flushBufferedLocked(); err != nil {
+			return err
+		}
+	}
+
 	h := Header{
 		Fin:    fin,
 		Rsv:    rsv,
