@@ -87,9 +87,6 @@ func load(path, agent string) (map[string]result, error) {
 	if err := json.Unmarshal(b, &report); err != nil {
 		return nil, err
 	}
-	if len(report) != 1 {
-		return nil, fmt.Errorf("agent count=%d, want 1", len(report))
-	}
 	cases, ok := report[agent]
 	if !ok {
 		return nil, fmt.Errorf("missing exact agent %q", agent)

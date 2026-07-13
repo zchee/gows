@@ -40,6 +40,19 @@ func TestCompareAllCasesAndRejectCompensatingStatusChange(t *testing.T) {
 	}
 }
 
+func TestCompareSelectsRequestedAgentFromMultiAgentReport(t *testing.T) {
+	dir := t.TempDir()
+	reports := map[string]map[string]result{
+		"gows":  cases(),
+		"other": {"1.1.1": {Behavior: "FAILED", BehaviorClose: "FAILED"}},
+	}
+	baseline := writeReport(t, dir, "multi-agent-base", reports)
+	current := writeReport(t, dir, "multi-agent-current", reports)
+	if err := compare(baseline, current, "gows"); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func cases() map[string]result {
 	m := make(map[string]result, 517)
 	for i := 1; i <= 517; i++ {
@@ -64,11 +77,22 @@ func fmtInt(n int) string {
 
 func write(t *testing.T, dir, name string, cases map[string]result) string {
 	t.Helper()
-	raw := map[string]map[string]map[string]string{"gows": {}}
-	for id, r := range cases {
-		raw["gows"][id] = map[string]string{"behavior": r.Behavior, "behaviorClose": r.BehaviorClose}
+	return writeReport(t, dir, name, map[string]map[string]result{"gows": cases})
+}
+
+func writeReport(t *testing.T, dir, name string, reports map[string]map[string]result) string {
+	t.Helper()
+	raw := make(map[string]map[string]map[string]string, len(reports))
+	for agent, cases := range reports {
+		raw[agent] = make(map[string]map[string]string, len(cases))
+		for id, r := range cases {
+			raw[agent][id] = map[string]string{"behavior": r.Behavior, "behaviorClose": r.BehaviorClose}
+		}
 	}
-	b, _ := json.Marshal(raw)
+	b, err := json.Marshal(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
 	p := filepath.Join(dir, name+".json")
 	if err := os.WriteFile(p, b, 0o644); err != nil {
 		t.Fatal(err)

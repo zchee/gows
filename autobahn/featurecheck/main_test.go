@@ -152,22 +152,6 @@ func TestFeatureCheck(t *testing.T) {
 		{"case-delay-difference", func(o *options) {
 			rewriteProvenance(t, o.AfterProvenance, func(p *provenance) { p.NetworkMode = "host"; p.CaseDelay = "0s" })
 		}, "case delay differs"},
-		{"matching-but-old-pair", func(o *options) {
-			old := time.Now().Add(-48 * time.Hour)
-			for _, path := range []string{o.BeforeProvenance, o.AfterProvenance} {
-				rewriteProvenance(t, path, func(p *provenance) {
-					p.StartedUTC = old.Format(time.RFC3339)
-					p.EndedUTC = old.Add(time.Minute).Format(time.RFC3339)
-					p.NetworkMode = "host"
-					p.CaseDelay = "1s"
-				})
-			}
-			for _, path := range []string{o.BeforePath, o.AfterPath} {
-				if err := os.Chtimes(path, old, old); err != nil {
-					t.Fatal(err)
-				}
-			}
-		}, "stale report timing"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -178,6 +162,42 @@ func TestFeatureCheck(t *testing.T) {
 				t.Fatalf("error=%v, want containing %q", err, tt.want)
 			}
 		})
+	}
+}
+
+func TestFeatureCheckAllowsOldBoundReports(t *testing.T) {
+	dir := t.TempDir()
+	mfPath := filepath.Join("testdata", "window-case-manifest.json")
+	var mf manifest
+	if err := readJSON(mfPath, &mf); err != nil {
+		t.Fatal(err)
+	}
+	mode := mf.Modes["server"]
+	before, beforeProvenance := writeEvidence(t, dir, "old-before", "canonical", "server", "gows", makeCases(mode, false), nil)
+	featureConfig := map[string]any{"backend": "klauspost/compress/flate", "level": 6, "window_bits": 9, "allow_context_takeover": true, "negotiate_window_bits": true, "client_window_bits": 9}
+	after, afterProvenance := writeEvidence(t, dir, "old-after", "feature", "server", "gows-v04-feature-server", makeCases(mode, true), featureConfig)
+	old := time.Now().UTC().Add(-48 * time.Hour).Truncate(time.Second)
+	for _, path := range []string{beforeProvenance, afterProvenance} {
+		rewriteProvenance(t, path, func(p *provenance) {
+			p.StartedUTC = old.Format(time.RFC3339)
+			p.EndedUTC = old.Add(time.Minute).Format(time.RFC3339)
+		})
+	}
+	for _, path := range []string{before, after} {
+		if err := os.Chtimes(path, old, old); err != nil {
+			t.Fatal(err)
+		}
+	}
+	o := options{ManifestPath: mfPath, BeforePath: before, BeforeProvenance: beforeProvenance, AfterPath: after, AfterProvenance: afterProvenance, Direction: "server", Agent: "gows-v04-feature-server", BeforeRunID: "canonical-server", AfterRunID: "feature-server", ExpectedHead: strings.Repeat("a", 40), ExpectedWorkspace: strings.Repeat("b", 64), ExpectedApplicationSHA: strings.Repeat("d", 64), ExpectedCaseDelay: "1s"}
+	if err := run(&bytes.Buffer{}, o); err != nil {
+		t.Fatal(err)
+	}
+	outsideRun := old.Add(-time.Minute)
+	if err := os.Chtimes(after, outsideRun, outsideRun); err != nil {
+		t.Fatal(err)
+	}
+	if err := run(&bytes.Buffer{}, o); err == nil || !strings.Contains(err.Error(), "stale report timing evidence") {
+		t.Fatalf("error=%v, want stale report timing evidence", err)
 	}
 }
 

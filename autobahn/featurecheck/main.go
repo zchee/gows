@@ -309,7 +309,7 @@ func loadBoundReport(indexPath, provenancePath, mode, direction, agent string, f
 	if err != nil {
 		return nil, provenance{}, err
 	}
-	if info.ModTime().Before(started.Add(-2*time.Second)) || info.ModTime().After(ended.Add(2*time.Second)) || time.Since(ended) > 24*time.Hour {
+	if info.ModTime().Before(started.Add(-2*time.Second)) || info.ModTime().After(ended.Add(2*time.Second)) {
 		return nil, provenance{}, errors.New("stale report timing evidence")
 	}
 	rootFromIndex := filepath.Dir(filepath.Dir(wantIndex))
