@@ -34,8 +34,17 @@ const (
 	defaultCloseTimeout    = 5 * time.Second
 	defaultCompressMinSize = 512      // bytes; RFC 7692 negotiated but below this, sent uncompressed.
 	maxAdaptiveReadSize    = 16 << 10 // largest single-frame payload that may grow rbuf.
-	maxCoalescedWriteSize  = 2 << 10  // largest server payload copied to avoid small writev overhead.
 )
+
+// maxCoalescedWriteSize is the largest server payload the vectored write path
+// copies together with its header into one buffer to avoid a scatter-gather
+// writev's fixed per-call cost; larger payloads stay zero-copy through
+// [net.Buffers]. It is a var, not a const, purely so the threshold stays
+// adjustable: the 2 KiB value is a provisional pick pending a benchstat
+// calibration sweep with the load harness (a follow-up), not yet a measured
+// optimum. It has no effect on the staged (non-vectored) transport path, which
+// always copies header and payload contiguously regardless of size.
+var maxCoalescedWriteSize = 2 << 10
 
 // Conn is a WebSocket connection layered over a net.Conn, implementing the
 // RFC 6455 framing, fragmentation, control-frame, and closing-handshake
@@ -62,8 +71,9 @@ const (
 // The zero value is not usable; construct a Conn with [NewServerConn] or
 // [NewClientConn].
 type Conn struct {
-	conn   net.Conn
-	client bool // true: client role (mask outbound, reject masked inbound)
+	conn     net.Conn
+	client   bool // true: client role (mask outbound, reject masked inbound)
+	vectored bool // true: transport yields a real writev from net.Buffers (*net.TCPConn/*net.UnixConn); fixed at construction
 
 	// --- read side (single reader goroutine) ---
 	rbuf           []byte // connection read buffer; valid data is rbuf[r0:r1]
@@ -87,6 +97,7 @@ type Conn struct {
 	wclose    []byte         // close-body encode scratch
 	wiov      [2][]byte      // writev scratch (header, payload)
 	wbufs     net.Buffers    // mutable slice header consumed by Buffers.WriteTo
+	wstage    []byte         // header+payload staging scratch for the non-writev (staged) transport path
 	wbatch    []byte         // WriteMessageBuffered batch accumulator; nil until first buffered write (guarded by wmu)
 	closeSent bool           // a Close frame has been written (guarded by wmu)
 	msgWriter *messageWriter // open NextWriter stream, if any (guarded by wmu); nil on the WriteMessage-only hot path
@@ -292,9 +303,26 @@ func newConn(nc net.Conn, client bool, opts []ConnOption) *Conn {
 	rbuf := pool.Get(size)
 	rbuf = rbuf[:cap(rbuf)]
 
+	// Choose the write strategy once, from the transport's concrete type.
+	// [net.Buffers.WriteTo] issues a real scatter-gather writev only when the
+	// underlying io.Writer implements the standard library's unexported
+	// buffersWriter interface, which *net.TCPConn and *net.UnixConn do via their
+	// embedded netFD; on any other net.Conn (crypto/tls.Conn, counting or
+	// buffering wrappers, custom transports) it silently degrades to one Write
+	// per buffer -- two write syscalls per message. The staged path below writes
+	// such transports in one Write instead, so only the two types that truly
+	// writev are marked vectored; the conservative default keeps every other
+	// transport correct at one syscall.
+	var vectored bool
+	switch nc.(type) {
+	case *net.TCPConn, *net.UnixConn:
+		vectored = true
+	}
+
 	c := &Conn{
 		conn:               nc,
 		client:             client,
+		vectored:           vectored,
 		rbuf:               rbuf,
 		readLimit:          cfg.readLimit,
 		skipUTF8:           cfg.skipUTF8,

@@ -29,12 +29,29 @@ import (
 // (typically [OpcodeText] or [OpcodeBinary]). It writes exactly one frame with
 // Fin set; it never mutates p.
 //
-// On the server role, small messages are coalesced into reusable scratch and
-// sent with one Write; larger messages use a single scatter-gather write
-// ([net.Buffers], i.e. writev where the OS supports it) without copying p.
-// Both paths have zero steady-state allocations. On the client role RFC 6455
-// §5.1 requires masking; p is copied into internal scratch and masked there so
-// the caller's slice is left untouched.
+// The framed bytes reach the socket by one of two strategies, chosen once at
+// construction from the concrete type of the underlying transport so no per-write
+// type assertion is paid:
+//
+//   - On a transport that gives [net.Buffers] a real scatter-gather writev
+//     (*net.TCPConn and *net.UnixConn), the server role coalesces a small
+//     payload (at most [maxCoalescedWriteSize]) with its header into reusable
+//     scratch and sends one Write, while a larger payload goes out zero-copy as
+//     a single writev of [header, p]. This is the original behavior and is
+//     unchanged.
+//   - On any other transport (crypto/tls.Conn, counting or buffering wrappers,
+//     custom net.Conns), [net.Buffers] would silently degrade to one Write per
+//     buffer -- two write syscalls per message. To hold it to one, the header
+//     and payload are staged contiguously into reusable scratch and sent with a
+//     single Write regardless of size. A message whose header+payload exceeds
+//     [maxBufferedWriteSize] is sent as the cap-sized staged prefix followed by
+//     the payload remainder in a second Write, which bounds the scratch; a
+//     crypto/tls.Conn fragments into 16 KiB records anyway, so the extra Write on
+//     very large messages is immaterial.
+//
+// Both strategies have zero steady-state allocations and never mutate p. On the
+// client role RFC 6455 §5.1 requires masking; p is copied into internal scratch
+// and masked there so the caller's slice is left untouched.
 //
 // WriteMessage serializes with every other frame write on the connection
 // (including the automatic ping/close replies issued by the read path); at
@@ -71,9 +88,7 @@ func (c *Conn) WriteMessage(op Opcode, p []byte) error {
 			c.wpay = append(c.wpay, p...)
 			_, err = c.conn.Write(c.wpay)
 		} else {
-			c.wiov[0], c.wiov[1] = c.whdr, p
-			c.wbufs = c.wiov[:]
-			_, err = c.wbufs.WriteTo(c.conn)
+			err = c.writeFrame(c.whdr, p)
 		}
 	}
 	c.wmu.Unlock()
@@ -170,10 +185,12 @@ func (c *Conn) sendClose(code CloseCode, reason []byte) error {
 
 // emitFrameLocked encodes and writes one frame carrying the already-final
 // payload with the given opcode, Fin, and RSV bits (no compression decision of
-// its own). The caller must hold wmu. For the server role the payload is
-// written in place with a single scatter-gather write; for the client role
-// RFC 6455 §5.1 requires masking, so the payload is copied into a private
-// buffer and masked there, never mutating the caller's slice. It is the shared
+// its own). The caller must hold wmu. For the server role the payload is sent
+// with a single write -- a scatter-gather writev where the transport supports
+// it, otherwise the header and payload staged contiguously (see
+// [Conn.writeFrame]); for the client role RFC 6455 §5.1 requires masking, so
+// the payload is copied into a private buffer and masked there, never mutating
+// the caller's slice. It is the shared
 // frame emitter for [Conn.WriteMessage], the control/Close writes, and the
 // [Conn.NextWriter] fragment path -- each of which decides the RSV bits (and
 // any compression) before calling in, so no path pays for a check it does not
@@ -199,8 +216,11 @@ func (c *Conn) emitFrameLocked(op Opcode, fin bool, rsv byte, payload []byte) er
 	}
 
 	if !c.client {
-		// Server role: avoid writev's fixed cost for small frames; larger
-		// payloads stay zero-copy through scatter/gather.
+		// Server role: coalesce a small frame's header and payload into one
+		// buffer to avoid writev's fixed cost (and any net.Buffers degradation),
+		// a single Write on every transport; hand a larger frame to writeFrame,
+		// which keeps it zero-copy through scatter/gather on the vectored path
+		// and stages it contiguously otherwise.
 		c.whdr = AppendHeader(c.whdr[:0], h)
 		if len(payload) <= maxCoalescedWriteSize {
 			c.wpay = append(c.wpay[:0], c.whdr...)
@@ -208,7 +228,7 @@ func (c *Conn) emitFrameLocked(op Opcode, fin bool, rsv byte, payload []byte) er
 			_, err := c.conn.Write(c.wpay)
 			return err
 		}
-		return c.writev(c.whdr, payload)
+		return c.writeFrame(c.whdr, payload)
 	}
 
 	// Client role: RFC 6455 §5.1 requires masking. Copy payload into a
@@ -219,18 +239,32 @@ func (c *Conn) emitFrameLocked(op Opcode, fin bool, rsv byte, payload []byte) er
 	c.whdr = AppendHeader(c.whdr[:0], h)
 	c.wpay = append(c.wpay[:0], payload...)
 	mask.Mask(c.wpay, key)
-	return c.writev(c.whdr, c.wpay)
+	return c.writeFrame(c.whdr, c.wpay)
 }
 
-// writev writes the header a followed by the payload b as a single logical
-// write. When b is empty only a is written; otherwise a [net.Buffers] carries
-// both, which the standard library turns into a real writev on connections
-// that support it (e.g. *net.TCPConn) and a sequential write elsewhere.
-func (c *Conn) writev(a, b []byte) error {
+// writeFrame writes header a followed by payload b as one logical frame using
+// the write strategy fixed at construction (see the Conn.vectored field). An
+// empty payload is always a single Write of the header. Otherwise a
+// writev-capable transport gets a zero-copy scatter-gather [net.Buffers] and
+// every other transport gets the header and payload staged contiguously and
+// sent with one Write, since net.Buffers would degrade to one Write per buffer
+// there. The caller must hold wmu.
+func (c *Conn) writeFrame(a, b []byte) error {
 	if len(b) == 0 {
 		_, err := c.conn.Write(a)
 		return err
 	}
+	if c.vectored {
+		return c.writev(a, b)
+	}
+	return c.stageWrite(a, b)
+}
+
+// writev writes header a followed by non-empty payload b as one scatter-gather
+// write via [net.Buffers], which the standard library turns into a real writev
+// on transports that support it (*net.TCPConn, *net.UnixConn). It is reached
+// only on the vectored path (see [Conn.writeFrame]); callers hold wmu.
+func (c *Conn) writev(a, b []byte) error {
 	// WriteTo consumes both the elements and slice header it receives. Reset a
 	// Conn-owned header over the fixed backing array on every call: a local
 	// net.Buffers value escapes through WriteTo's io.Writer dispatch and costs
@@ -239,6 +273,36 @@ func (c *Conn) writev(a, b []byte) error {
 	c.wiov[0], c.wiov[1] = a, b
 	c.wbufs = c.wiov[:]
 	_, err := c.wbufs.WriteTo(c.conn)
+	return err
+}
+
+// stageWrite sends header a followed by non-empty payload b as one frame on a
+// transport that does not provide a real writev (Conn.vectored is false), where
+// [net.Buffers] would otherwise degrade to one Write per buffer -- two write
+// syscalls per message. It copies both into the reusable wstage scratch and
+// issues a single Write. A frame whose header+payload exceeds
+// [maxBufferedWriteSize] is sent as the cap-sized staged prefix followed by the
+// payload remainder in a second Write, which bounds wstage to the buffer pool's
+// largest size class; a crypto/tls.Conn fragments into 16 KiB records
+// regardless, so the extra Write on very large messages is immaterial. The
+// caller must hold wmu.
+func (c *Conn) stageWrite(a, b []byte) error {
+	if len(a)+len(b) <= maxBufferedWriteSize {
+		c.wstage = append(c.wstage[:0], a...)
+		c.wstage = append(c.wstage, b...)
+		_, err := c.conn.Write(c.wstage)
+		return err
+	}
+	// Fill the staged buffer to the cap with the header and the payload prefix,
+	// write that, then write the payload remainder directly (len(a) is at most
+	// MaxHeaderSize, far below the cap, so room is always positive).
+	room := maxBufferedWriteSize - len(a)
+	c.wstage = append(c.wstage[:0], a...)
+	c.wstage = append(c.wstage, b[:room]...)
+	if _, err := c.conn.Write(c.wstage); err != nil {
+		return err
+	}
+	_, err := c.conn.Write(b[room:])
 	return err
 }
 
