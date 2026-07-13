@@ -116,6 +116,7 @@ func TestFeatureRunClientReapsFailedRunnerWithoutSecondKill(t *testing.T) {
 
 func TestFeatureRunInterruptWritesFailureReceipt(t *testing.T) {
 	dir, bin := featureSandbox(t)
+	writeFeatureDocker(t, bin, true)
 	writeExecutable(t, filepath.Join(bin, "nc"), "#!/bin/sh\nexit 1\n")
 	app := writeFeatureApp(t, bin, "interrupt-app", "trap 'exit 143' TERM; while :; do sleep 1; done")
 	reports := filepath.Join(dir, "interrupt-run-reports")
@@ -340,6 +341,8 @@ func featureSandbox(t *testing.T) (string, string) {
 	}
 	state := filepath.Join(dir, "nc-state")
 	writeExecutable(t, filepath.Join(bin, "nc"), "#!/bin/sh\nif [ -n \"${READY_REPORT_ROOT:-}\" ] && [ ! -d \"$READY_REPORT_ROOT\" ]; then exit 1; fi\nif [ ! -e \"$NC_STATE\" ]; then : >\"$NC_STATE\"; exit 1; fi\nexit 0\n")
+	writeExecutable(t, filepath.Join(bin, "docker"), "#!/bin/sh\necho 'unexpected docker invocation' >&2\nexit 125\n")
+	writeTestTimeout(t, bin)
 	t.Setenv("NC_STATE", state)
 	return dir, bin
 }

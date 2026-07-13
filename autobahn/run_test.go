@@ -62,6 +62,8 @@ func TestStrictReportRootRejectsRelativeAndPreexisting(t *testing.T) {
 		{"preexisting", filepath.Join(t.TempDir(), "run-id-reports"), "strict report root already exists", true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
+			_, bin, _, _ := runnerSandbox(t)
+			writeExecutable(t, filepath.Join(bin, "docker"), "#!/bin/sh\necho 'unexpected docker invocation' >&2\nexit 125\n")
 			generator := filepath.Join(t.TempDir(), "generator.txt")
 			if err := os.WriteFile(generator, []byte("generator\n"), 0o644); err != nil {
 				t.Fatal(err)
@@ -73,7 +75,7 @@ func TestStrictReportRootRejectsRelativeAndPreexisting(t *testing.T) {
 				}
 			}
 			cmd := exec.Command("bash", "./run.sh", "server", "ws://127.0.0.1:9001")
-			cmd.Env = append(cmd.Environ(), "AUTOBAHN_STRICT_EVIDENCE=1", "AUTOBAHN_RUN_ID=run-id", "AUTOBAHN_REPORTS_DIR="+tc.root, "AUTOBAHN_GENERATOR_EVIDENCE="+generator+"@sha256:"+fileSHA256(t, generator))
+			cmd.Env = append(cmd.Environ(), "PATH="+bin+":"+os.Getenv("PATH"), "AUTOBAHN_STRICT_EVIDENCE=1", "AUTOBAHN_RUN_ID=run-id", "AUTOBAHN_REPORTS_DIR="+tc.root, "AUTOBAHN_GENERATOR_EVIDENCE="+generator+"@sha256:"+fileSHA256(t, generator))
 			out, err := cmd.CombinedOutput()
 			if err == nil || !strings.Contains(string(out), tc.want) {
 				t.Fatalf("err=%v out=%s", err, out)
@@ -152,6 +154,7 @@ exit 0
 	if err := os.WriteFile(filepath.Join(bin, "docker"), []byte(docker), 0o755); err != nil {
 		t.Fatal(err)
 	}
+	writeTestTimeout(t, bin)
 	reports := filepath.Join(dir, "reports")
 	generator := filepath.Join(dir, "generator.txt")
 	if err := os.WriteFile(generator, []byte("generator\n"), 0o644); err != nil {
@@ -325,7 +328,7 @@ exit 0
 }
 
 func TestClientCompletionSentinelFailures(t *testing.T) {
-	for _, tc := range []struct{ name, script, want string }{{"early-exit", "#!/bin/sh\n[ \"$1\" = run ] && exit 0\nexit 0\n", "docker-exit"}, {"timeout", "#!/bin/sh\n[ \"$1\" = run ] && sleep 5\nexit 0\n", "timeout"}} {
+	for _, tc := range []struct{ name, script, want string }{{"early-exit", "#!/bin/sh\n[ \"$1\" = run ] && exit 0\nexit 0\n", "docker-exit"}, {"timeout", "#!/bin/sh\n[ \"$1\" = run ] && exit 124\nexit 0\n", "timeout"}} {
 		t.Run(tc.name, func(t *testing.T) {
 			dir, bin, _, logPath := runnerSandbox(t)
 			writeExecutable(t, filepath.Join(bin, "docker"), tc.script)
@@ -435,6 +438,7 @@ func runnerSandbox(t *testing.T) (dir, bin, reports, logPath string) {
 	if err := os.Mkdir(bin, 0o755); err != nil {
 		t.Fatal(err)
 	}
+	writeTestTimeout(t, bin)
 	reports = filepath.Join(dir, "reports")
 	logPath = filepath.Join(dir, "docker.log")
 	return dir, bin, reports, logPath
@@ -445,6 +449,11 @@ func writeExecutable(t *testing.T, path, contents string) {
 	if err := os.WriteFile(path, []byte(contents), 0o755); err != nil {
 		t.Fatal(err)
 	}
+}
+
+func writeTestTimeout(t *testing.T, bin string) {
+	t.Helper()
+	writeExecutable(t, filepath.Join(bin, "timeout"), "#!/bin/sh\nshift\nexec \"$@\"\n")
 }
 
 func writeIndexFixture(t *testing.T, path, agent, behavior string) {
