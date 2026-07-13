@@ -11,11 +11,16 @@ the one open, unresolved gap.
 
 ## Features
 
-- **Zero-dependency core.** `go list -m all` for the root module resolves to
-  exactly one line (`github.com/zchee/gows`); `go.mod` has no `require`
-  block and `go.sum` is 0 bytes. The comparison libraries only ever appear
-  in the separate `bench/` Go module, never in the core module's dependency
-  graph.
+- **Zero-dependency core.** Every package in the library's build graph —
+  `gows` itself and `internal/*` — imports only the standard library:
+  `go list -deps` over those packages resolves zero third-party modules.
+  The root `go.mod` carries a single `require`,
+  [`github.com/go-json-experiment/json`](https://github.com/go-json-experiment/json),
+  used exclusively by the Autobahn conformance tooling under `autobahn/`;
+  no library or `internal/*` package imports it, so module graph pruning
+  keeps it out of consumers' builds. The comparison libraries only ever
+  appear in the separate `bench/` Go module, never in the core module's
+  dependency graph.
 - **SIMD frame masking** (SSE2 / AVX2 / AVX-512 on amd64, NEON on arm64),
   runtime-dispatched by CPU feature detection with a `GOWS_SIMD` kill
   switch and a pure-Go fallback (`purego` build tag) for every kernel.
