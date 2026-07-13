@@ -133,8 +133,17 @@ INDEX_SUBTREE=server; [[ "$DIRECTION" == client ]] && INDEX_SUBTREE=clients
 IMAGE_ID="$(docker image inspect --format '{{.Id}}' "$IMAGE")"
 CONTAINER_ID="$(cat "${REPORTS_DIR}/${RUN_ID}-${DIRECTION}-container-id.txt")"
 EFFECTIVE_NETWORK_MODE="$(cat "${REPORTS_DIR}/${RUN_ID}-${DIRECTION}-network-mode.txt")"
-COMPLETION_MECHANISM=default-timeout;COMPLETION_STOP_REASON="";COMPLETION_STOP_STATUS=0
-if [[ "$DIRECTION" == client ]];then COMPLETION_MECHANISM="$(cat "${REPORTS_DIR}/${RUN_ID}-client-completion-mechanism.txt")";COMPLETION_STOP_REASON="$(cat "${REPORTS_DIR}/${RUN_ID}-client-completion-stop-reason.txt")";COMPLETION_STOP_STATUS="$(cat "${REPORTS_DIR}/${RUN_ID}-client-completion-stop-status.txt")";fi
+COMPLETION_MECHANISM=default-timeout
+COMPLETION_STOP_REASON=""
+COMPLETION_STOP_STATUS=0
+if [[ "$DIRECTION" == client ]]; then
+  COMPLETION_MECHANISM_PATH="${REPORTS_DIR}/${RUN_ID}-client-completion-mechanism.txt"
+  COMPLETION_STOP_REASON_PATH="${REPORTS_DIR}/${RUN_ID}-client-completion-stop-reason.txt"
+  COMPLETION_STOP_STATUS_PATH="${REPORTS_DIR}/${RUN_ID}-client-completion-stop-status.txt"
+  [[ -f "$COMPLETION_MECHANISM_PATH" ]] && COMPLETION_MECHANISM="$(cat "$COMPLETION_MECHANISM_PATH")"
+  [[ -f "$COMPLETION_STOP_REASON_PATH" ]] && COMPLETION_STOP_REASON="$(cat "$COMPLETION_STOP_REASON_PATH")"
+  [[ -f "$COMPLETION_STOP_STATUS_PATH" ]] && COMPLETION_STOP_STATUS="$(cat "$COMPLETION_STOP_STATUS_PATH")"
+fi
 RUNNER_TIMEOUT="$SERVER_TIMEOUT"; [[ "$DIRECTION" == client ]] && RUNNER_TIMEOUT="$CLIENT_TIMEOUT"
 (cd "$ROOT_DIR" && go run ./autobahn/provenance -run-id "$RUN_ID" -profile feature -direction "$DIRECTION" -agent "$AGENT" -index "${REPORTS_DIR}/${INDEX_SUBTREE}/index.json" -output "${REPORTS_DIR}/${INDEX_SUBTREE}/provenance.json" -command "$FULL_INVOCATION" -application-command "$APP_COMMAND" -application-receipt "$RECEIPT" -report-root "$REPORTS_DIR" -container-id "$CONTAINER_ID" -runner-timeout "$RUNNER_TIMEOUT" -application-timeout "$APP_TIMEOUT" -network-mode "$EFFECTIVE_NETWORK_MODE" -case-delay "$EFFECTIVE_CASE_DELAY" -completion-file "$COMPLETION_FILE" -completion-mechanism "$COMPLETION_MECHANISM" -completion-stop-reason "$COMPLETION_STOP_REASON" -completion-stop-status "$COMPLETION_STOP_STATUS" -status 0 -image "$IMAGE" -image-id "$IMAGE_ID" -started "$RUN_STARTED" -generator "$GENERATOR_EVIDENCE")
 APP_PID=""; RUNNER_PID=""; RUNNER_OWNED=0

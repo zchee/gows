@@ -446,6 +446,14 @@ func sortedKeys[V any](m map[string]V) []string {
 }
 
 func number(v any) int {
-	f, _ := v.(float64)
-	return int(f)
+	switch v := v.(type) {
+	case float64:
+		return int(v)
+	case int:
+		return v
+	case int64:
+		return int(v)
+	default:
+		return 0
+	}
 }

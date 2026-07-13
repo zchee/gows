@@ -166,6 +166,25 @@ func TestFeatureCheck(t *testing.T) {
 	}
 }
 
+func TestNumber(t *testing.T) {
+	tests := map[string]struct {
+		input any
+		want  int
+	}{
+		"float64 from decoded JSON": {input: float64(9), want: 9},
+		"programmatic int":          {input: int(9), want: 9},
+		"programmatic int64":        {input: int64(9), want: 9},
+		"unsupported type":          {input: "9", want: 0},
+	}
+	for name, test := range tests {
+		t.Run(name, func(t *testing.T) {
+			if got := number(test.input); got != test.want {
+				t.Fatalf("number(%T(%v)) = %d, want %d", test.input, test.input, got, test.want)
+			}
+		})
+	}
+}
+
 func TestFeatureCheckAllowsOldBoundReports(t *testing.T) {
 	dir := t.TempDir()
 	mfPath := filepath.Join("testdata", "window-case-manifest.json")

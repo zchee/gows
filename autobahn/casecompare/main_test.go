@@ -17,6 +17,7 @@ package main
 import (
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -57,23 +58,9 @@ func TestCompareSelectsRequestedAgentFromMultiAgentReport(t *testing.T) {
 func cases() map[string]result {
 	m := make(map[string]result, 517)
 	for i := 1; i <= 517; i++ {
-		m["1.1."+fmtInt(i)] = result{"OK", "OK"}
+		m["1.1."+strconv.Itoa(i)] = result{"OK", "OK"}
 	}
 	return m
-}
-
-func fmtInt(n int) string {
-	if n == 0 {
-		return "0"
-	}
-	var b [20]byte
-	i := len(b)
-	for n > 0 {
-		i--
-		b[i] = byte('0' + n%10)
-		n /= 10
-	}
-	return string(b[i:])
 }
 
 func write(t *testing.T, dir, name string, cases map[string]result) string {

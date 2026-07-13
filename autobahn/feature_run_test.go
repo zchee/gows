@@ -17,11 +17,11 @@ package autobahn
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"syscall"
 	"testing"
@@ -309,7 +309,7 @@ func TestFeatureRunClientFailureAndTimeoutReceipts(t *testing.T) {
 				t.Fatalf("unexpected success: %s", out)
 			}
 			var ee *exec.ExitError
-			if !strings.Contains(fmt.Sprint(err), "exit status") || !errorAs(err, &ee) {
+			if !strings.Contains(fmt.Sprint(err), "exit status") || !errors.As(err, &ee) {
 				t.Fatalf("err=%v", err)
 			}
 			var r map[string]any
@@ -409,13 +409,3 @@ func readJSONFile(t *testing.T, path string, dst any) {
 		t.Fatal(err)
 	}
 }
-
-func errorAs(err error, target **exec.ExitError) bool {
-	e, ok := err.(*exec.ExitError)
-	if ok {
-		*target = e
-	}
-	return ok
-}
-
-var _ = strconv.Itoa
