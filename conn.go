@@ -78,6 +78,8 @@ type Conn struct {
 	// --- read side (single reader goroutine) ---
 	rbuf           []byte // connection read buffer; valid data is rbuf[r0:r1]
 	r0, r1         int
+	hdrTable       *[256]headerClass // shared static b0-classification table for this Conn's compression state
+	hdrMaskBit     byte              // expected b1 mask bit for this Conn's role (0x80 server, 0x00 client)
 	readLimit      int64
 	skipUTF8       bool
 	msgBuf         []byte // reassembly buffer for fragmented/oversized messages
@@ -330,6 +332,11 @@ func newConn(nc net.Conn, client bool, opts []ConnOption) *Conn {
 		compression:        cfg.compression,
 		outgoingWindowCeil: deflateWindowBits,
 	}
+	// Select the shared static header-decode table and mask-bit expectation once
+	// per Conn (role and compression are fixed at construction), so the hot read
+	// path re-derives neither per frame. The table is package-level and shared;
+	// this adds no per-Conn allocation.
+	c.hdrTable, c.hdrMaskBit = headerTableFor(client, cfg.compression)
 	if cfg.compression {
 		if client {
 			c.outgoingWindowCeil = effectiveWindowBits(cfg.compressionParams.ClientMaxWindowBits)

@@ -289,6 +289,225 @@ func DecodeHeader(b []byte) (h Header, n int, err error) {
 	return h, need, nil
 }
 
+// headerClass is everything the fast frame-header decoder can decide from the
+// first header byte (b0) alone for a given negotiated extension set. It is
+// precomputed once per b0 value (see [headerTables]) so the hot path pays a
+// single indexed load instead of re-deriving the opcode's legality, the RSV
+// bits' legality, and the control/data split on every frame -- the redundant
+// per-frame work the pre-US-B4 [DecodeHeader]+checkFrameHeader pair performed.
+//
+// b0 packs Fin (bit 7), the three RSV bits (bits 6-4), and the opcode (bits
+// 3-0); none of those depend on the connection's role, so the classification
+// is role-independent. The only role-dependent framing rule -- clients send
+// masked frames and servers send unmasked ones (RFC 6455 §5.1) -- lives in the
+// second header byte (b1) and is applied separately as a single compare (see
+// [decodeFrameHeaderFast] and [Conn.hdrMaskBit]). That is why two tables (one
+// per compression state), not four (role x compression), cover every Conn.
+type headerClass struct {
+	opcode   Opcode // decoded opcode (b0 & 0x0f).
+	rsv      byte   // decoded RSV bits ((b0 >> 4) & 0x7), for Header.Rsv.
+	fin      bool   // Fin bit (b0 & 0x80).
+	control  bool   // opcode is a control opcode (RFC 6455 §5.5).
+	reserved bool   // opcode is RFC 6455 §5.2 reserved; reject before length decode.
+	rsvBad   bool   // RSV bits illegal for this extension set; reject after length/control.
+}
+
+// hdrReject identifies which RFC 6455 rule a frame header violated (or that
+// more bytes are needed), so [decodeFrameHeaderFast] stays free of side
+// effects while its caller maps the reason to the exact close code and message
+// the connection must fail with. The variants are ordered to mirror the
+// precedence [DecodeHeader] followed by checkFrameHeader applied before US-B4:
+// reserved opcode, then short header, then the length-encoding checks, then the
+// control-frame checks, then the RSV check, then the mask-role check.
+type hdrReject uint8
+
+const (
+	rejectNone              hdrReject = iota // valid header (a Header and consumed count are returned).
+	rejectShort                              // not a violation: more bytes are needed.
+	rejectReservedOpcode                     // ErrReservedOpcode.
+	rejectNonMinimalLength                   // ErrNonMinimalLength.
+	rejectReservedLengthBit                  // ErrReservedLengthBit.
+	rejectControlFragmented                  // ErrControlFrameFragmented.
+	rejectControlTooLong                     // ErrControlFrameTooLong.
+	rejectRSV                                // RSV bit illegal for the negotiated extension set.
+	rejectMask                               // frame masked/unmasked contrary to the peer's role.
+)
+
+// closeMessage returns the exact failure text a rejected header must close with,
+// byte-for-byte identical to the pre-US-B4 message produced by
+// [Conn.readHeaderWithPartialEOF] (for the [DecodeHeader]-level rejections) and
+// checkFrameHeader (for the RSV and mask-role rejections). The mask-role text is
+// role-specific, so client reports the receiving side. It returns the empty
+// string for rejectNone and rejectShort, which never fail a connection.
+func (r hdrReject) closeMessage(client bool) string {
+	switch r {
+	case rejectReservedOpcode:
+		return "malformed frame header: " + ErrReservedOpcode.Error()
+	case rejectNonMinimalLength:
+		return "malformed frame header: " + ErrNonMinimalLength.Error()
+	case rejectReservedLengthBit:
+		return "malformed frame header: " + ErrReservedLengthBit.Error()
+	case rejectControlFragmented:
+		return "malformed frame header: " + ErrControlFrameFragmented.Error()
+	case rejectControlTooLong:
+		return "malformed frame header: " + ErrControlFrameTooLong.Error()
+	case rejectRSV:
+		return "invalid RSV bit for the negotiated extension set"
+	case rejectMask:
+		if client {
+			return "masked frame received by client"
+		}
+		return "unmasked frame received by server"
+	default:
+		return ""
+	}
+}
+
+// headerTables holds the two b0-classification tables, indexed by whether
+// permessage-deflate (RFC 7692) is negotiated: headerTables[0] for a Conn
+// without compression, headerTables[1] with it. As documented on [headerClass],
+// the first header byte's classification is role-independent -- only the b1
+// mask-bit expectation differs by role -- so these two tables cover all four
+// role x compression combinations without duplication.
+var headerTables [2][256]headerClass
+
+func init() {
+	for comp := range 2 {
+		for b0 := range 256 {
+			headerTables[comp][b0] = classifyHeaderByte(byte(b0), comp == 1)
+		}
+	}
+}
+
+// classifyHeaderByte precomputes the [headerClass] for one first-header-byte
+// value under the given negotiated compression state. Its field extraction and
+// legality rules match [DecodeHeader]'s opcode/Fin/RSV handling and
+// checkFrameHeader's RSV rule exactly.
+func classifyHeaderByte(b0 byte, compression bool) headerClass {
+	op := Opcode(b0 & 0x0f)
+	rsv := (b0 >> 4) & 0x7
+	control := op.IsControl()
+	// RSV1 (RFC 7692 §6.1) is legal only with compression negotiated, on a data
+	// frame that starts a message (never a control or continuation frame); any
+	// other RSV bit set is illegal. This mirrors checkFrameHeader exactly.
+	rsv1OK := compression && rsv == RSV1 && !control && op != OpcodeContinuation
+	return headerClass{
+		opcode:   op,
+		rsv:      rsv,
+		fin:      b0&0x80 != 0,
+		control:  control,
+		reserved: op >= 0x3 && op <= 0x7 || op >= 0xB,
+		rsvBad:   rsv != 0 && !rsv1OK,
+	}
+}
+
+// headerTableFor selects the b0-classification table and the expected b1
+// mask-bit (0x80 for a server, whose peer must mask; 0x00 for a client, whose
+// peer must not) for a Conn with the given role and compression state.
+func headerTableFor(client, compression bool) (*[256]headerClass, byte) {
+	idx := 0
+	if compression {
+		idx = 1
+	}
+	maskBit := byte(0x80)
+	if client {
+		maskBit = 0
+	}
+	return &headerTables[idx], maskBit
+}
+
+// decodeFrameHeaderFast decodes and fully validates the frame header at the
+// start of b for a Conn described by tbl (its b0-classification table) and
+// maskBit (its expected b1 mask bit). It fuses the wire-level checks
+// [DecodeHeader] performs with the role/RSV checks checkFrameHeader performed
+// before US-B4, so a caller needs neither afterward. It reads only b, has no
+// side effects, and never allocates, which is what lets the differential fuzz
+// diff it against the DecodeHeader+checkFrameHeader oracle.
+//
+// On success it returns the decoded Header, the number of bytes consumed
+// (rejectNone). When b does not yet hold a complete header it returns
+// rejectShort. Otherwise it returns the [hdrReject] naming the first rule
+// violated, in the same precedence order the two former steps applied.
+func decodeFrameHeaderFast(tbl *[256]headerClass, maskBit byte, b []byte) (Header, int, hdrReject) {
+	if len(b) < 2 {
+		return Header{}, 0, rejectShort
+	}
+	e := &tbl[b[0]]
+	if e.reserved {
+		return Header{}, 0, rejectReservedOpcode
+	}
+
+	b1 := b[1]
+	lengthCode := b1 & 0x7f
+	masked := b1&0x80 != 0
+
+	extLen := 0
+	switch lengthCode {
+	case 126:
+		extLen = 2
+	case 127:
+		extLen = 8
+	}
+	need := 2 + extLen
+	if masked {
+		need += 4
+	}
+	if len(b) < need {
+		return Header{}, 0, rejectShort
+	}
+
+	var length int64
+	switch lengthCode {
+	case 126:
+		v := binary.BigEndian.Uint16(b[2:4])
+		if v <= 125 {
+			return Header{}, 0, rejectNonMinimalLength
+		}
+		length = int64(v)
+	case 127:
+		v := binary.BigEndian.Uint64(b[2:10])
+		if v&(1<<63) != 0 {
+			return Header{}, 0, rejectReservedLengthBit
+		}
+		if v <= 0xffff {
+			return Header{}, 0, rejectNonMinimalLength
+		}
+		length = int64(v)
+	default:
+		length = int64(lengthCode)
+	}
+
+	if e.control {
+		if !e.fin {
+			return Header{}, 0, rejectControlFragmented
+		}
+		if length > 125 {
+			return Header{}, 0, rejectControlTooLong
+		}
+	}
+
+	if e.rsvBad {
+		return Header{}, 0, rejectRSV
+	}
+
+	if b1&0x80 != maskBit {
+		return Header{}, 0, rejectMask
+	}
+
+	var maskKey uint32
+	if masked {
+		maskKey = binary.LittleEndian.Uint32(b[2+extLen : 2+extLen+4])
+	}
+	return Header{
+		Fin:     e.fin,
+		Rsv:     e.rsv,
+		Opcode:  e.opcode,
+		Masked:  masked,
+		MaskKey: maskKey,
+		Length:  length,
+	}, need, rejectNone
+}
+
 // CloseCode is a WebSocket close status code, sent as the first two
 // bytes of a Close control frame's application data, per RFC 6455 §7.4.
 type CloseCode uint16

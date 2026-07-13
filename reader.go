@@ -15,7 +15,6 @@
 package gows
 
 import (
-	"encoding/binary"
 	"errors"
 	"io"
 	"net"
@@ -117,10 +116,6 @@ func (c *Conn) readMessageBody() (Opcode, []byte, error) {
 			return 0, nil, err
 		}
 
-		if err := c.checkFrameHeader(h); err != nil {
-			return 0, nil, err
-		}
-
 		if h.Opcode.IsControl() {
 			if err := c.handleControl(h); err != nil {
 				return 0, nil, err
@@ -203,34 +198,23 @@ func (c *Conn) readHeader() (Header, error) {
 // retains its historical bare-EOF behavior.
 func (c *Conn) readHeaderWithPartialEOF(promotePartialEOF bool) (Header, error) {
 	for {
-		// The saturated echo path receives masked, final binary frames with a
-		// 16-bit payload length from the shared gobwas client. Decode that fully
-		// validated shape directly; every other shape retains DecodeHeader's
-		// general protocol checks below.
-		if c.r1-c.r0 >= 8 {
-			b := c.rbuf[c.r0:c.r1]
-			if b[0] == 0x80|byte(OpcodeBinary) && b[1] == 0x80|126 {
-				length := binary.BigEndian.Uint16(b[2:4])
-				if length > 125 { // Preserve the minimal-length requirement.
-					c.r0 += 8
-					return Header{
-						Fin:     true,
-						Opcode:  OpcodeBinary,
-						Masked:  true,
-						MaskKey: binary.LittleEndian.Uint32(b[4:8]),
-						Length:  int64(length),
-					}, nil
-				}
-			}
-		}
+		// One table-driven pass fully decodes and validates the next header for
+		// this Conn's role and negotiated extension set. decodeFrameHeaderFast
+		// fuses the wire-level checks with the role/RSV checks that a separate
+		// checkFrameHeader step performed before US-B4, so the caller needs no
+		// downstream re-validation. rejectShort means the buffered bytes do not
+		// yet form a complete header; every other rejection fails the connection
+		// with the same 1002 close code and byte-identical message as before.
 		if c.r1-c.r0 >= 2 {
-			h, n, err := DecodeHeader(c.rbuf[c.r0:c.r1])
-			if err == nil {
+			h, n, reason := decodeFrameHeaderFast(c.hdrTable, c.hdrMaskBit, c.rbuf[c.r0:c.r1])
+			switch reason {
+			case rejectNone:
 				c.r0 += n
 				return h, nil
-			}
-			if err != ErrShortHeader {
-				return Header{}, c.failClose(CloseProtocolError, "malformed frame header: "+err.Error())
+			case rejectShort:
+				// Fall through to read more bytes.
+			default:
+				return Header{}, c.failClose(CloseProtocolError, reason.closeMessage(c.client))
 			}
 		}
 		if err := c.fillOnce(); err != nil {
@@ -533,35 +517,6 @@ func (c *Conn) ioError(err error) error {
 	return err
 }
 
-// checkFrameHeader validates a just-decoded frame header against the
-// negotiated extension set (RSV bits) and the connection's role masking
-// rules (RFC 6455 §5.1), failing the connection and returning the resulting
-// terminal error on a violation. It is shared by [Conn.readMessage] and the
-// [Conn.NextReader] streaming path so the two agree byte-for-byte on which
-// frames are legal.
-func (c *Conn) checkFrameHeader(h Header) error {
-	// RSV1 ("Per-Message Compressed", RFC 7692 §6.1) is only legal when
-	// permessage-deflate is negotiated, on a data frame (never a control
-	// frame), and on the first frame of a message (never a continuation
-	// frame, even mid-compressed-message). Any other combination -- RSV1
-	// without negotiation, RSV1 on a continuation or control frame, or
-	// RSV2/RSV3 at all -- is a protocol error; frame.go itself has no notion
-	// of negotiated extensions and leaves this validation here.
-	rsv1OK := c.compression && h.Rsv == RSV1 && !h.Opcode.IsControl() && h.Opcode != OpcodeContinuation
-	if h.Rsv != 0 && !rsv1OK {
-		return c.failClose(CloseProtocolError, "invalid RSV bit for the negotiated extension set")
-	}
-	// Role masking rules: a server's peer (a client) must mask; a client's
-	// peer (a server) must not.
-	if c.client && h.Masked {
-		return c.failClose(CloseProtocolError, "masked frame received by client")
-	}
-	if !c.client && !h.Masked {
-		return c.failClose(CloseProtocolError, "unmasked frame received by server")
-	}
-	return nil
-}
-
 // errStreamReaderStale is the sticky error a [Conn.NextReader] reader's Read
 // returns once it has been superseded -- by a later NextReader, a
 // [Conn.ReadMessage], or a [Conn.Close]. Because the invalidation swaps the
@@ -699,9 +654,6 @@ func (c *Conn) readDataFrameHeader() (Opcode, Header, error) {
 		if err != nil {
 			return 0, Header{}, err
 		}
-		if err := c.checkFrameHeader(h); err != nil {
-			return 0, Header{}, err
-		}
 		if h.Opcode.IsControl() {
 			if err := c.handleControl(h); err != nil {
 				return 0, Header{}, err
@@ -836,9 +788,6 @@ func (r *messageReader) nextFrame() error {
 		if err != nil {
 			return err
 		}
-		if err := c.checkFrameHeader(h); err != nil {
-			return err
-		}
 		if h.Opcode.IsControl() {
 			if err := c.handleControl(h); err != nil {
 				return err
@@ -958,9 +907,6 @@ func (c *Conn) reassembleCompressed(first Header, op Opcode) ([]byte, error) {
 		for {
 			next, err := c.readHeader()
 			if err != nil {
-				return nil, err
-			}
-			if err := c.checkFrameHeader(next); err != nil {
 				return nil, err
 			}
 			if next.Opcode.IsControl() {
