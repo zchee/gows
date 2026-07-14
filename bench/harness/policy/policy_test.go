@@ -392,11 +392,11 @@ func TestCanonicalPolicy(t *testing.T) {
 	if err != nil {
 		t.Fatalf("parse canonical policy: %v", err)
 	}
-	if got := len(p.PrimaryScenarios()); got != 5 {
-		t.Fatalf("canonical policy primary scenarios = %d, want 5", got)
+	if got := len(p.PrimaryScenarios()); got != 7 {
+		t.Fatalf("canonical policy primary scenarios = %d, want 7", got)
 	}
 	if got := len(p.Scenarios); got != 7 {
-		t.Fatalf("canonical policy total scenarios = %d, want 7 (5 primary + 2 experimental)", got)
+		t.Fatalf("canonical policy total scenarios = %d, want 7 (all primary since the Phase D pre-registration)", got)
 	}
 	byName := make(map[string]Scenario, len(p.Scenarios))
 	nonPrimary := 0
@@ -415,11 +415,11 @@ func TestCanonicalPolicy(t *testing.T) {
 			t.Errorf("scenario %q repetitions = %d, want 20", s.Name, s.Repetitions)
 		}
 	}
-	if nonPrimary != 2 {
-		t.Fatalf("canonical policy non-primary scenarios = %d, want 2", nonPrimary)
+	if nonPrimary != 0 {
+		t.Fatalf("canonical policy non-primary scenarios = %d, want 0", nonPrimary)
 	}
-	// The experimental pipelined cells must carry their intended inflight
-	// windows and stay off the gate (primary=false).
+	// The pipelined cells must carry their intended inflight windows and,
+	// per the 2026-07-14 Phase D pre-registration, gate as primary cells.
 	experimental := map[string]int{
 		"binary-1k-200-inflight8": 8,
 		"binary-1k-1k-inflight4":  4,
@@ -429,8 +429,8 @@ func TestCanonicalPolicy(t *testing.T) {
 		if !ok {
 			t.Fatalf("canonical policy missing experimental scenario %q", name)
 		}
-		if s.Primary {
-			t.Errorf("scenario %q primary = true, want false (experimental, not gated)", name)
+		if !s.Primary {
+			t.Errorf("scenario %q primary = false, want true (pre-registered gating cell)", name)
 		}
 		if s.Inflight != wantInflight {
 			t.Errorf("scenario %q inflight = %d, want %d", name, s.Inflight, wantInflight)
