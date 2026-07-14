@@ -80,8 +80,8 @@ func BenchmarkMaskGobwas(b *testing.B) {
 
 // BenchmarkMaskGows exercises gows's own internal/mask.Mask, i.e. the exact
 // kernel dispatch [Conn.ReadMessage]/[Conn.WriteMessage] use in production
-// (see .omc/research/mask-calibration.md for the arm64/NEON calibration this
-// benchmark cross-checks on linux/amd64).
+// (see internal/mask's per-architecture calibration godocs for the numbers
+// this benchmark cross-checks on linux/amd64).
 func BenchmarkMaskGows(b *testing.B) {
 	for _, n := range sizes {
 		b.Run(sizeName(n), func(b *testing.B) {

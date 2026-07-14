@@ -31,7 +31,7 @@ import (
 // size (log2 of 32KB) -- the only server_max_window_bits value this
 // package's default stdlib compress/flate backend can honor, since
 // stdlib flate always compresses at the full window with no public API
-// to shrink it (see .omc/research/compress-design.md §4). An offer
+// to shrink it. An offer
 // requesting a smaller server_max_window_bits is declined unless the
 // process's active [DeflateBackend] is actually configured (via
 // [SetDeflateBackend]) to compress at a smaller window and the

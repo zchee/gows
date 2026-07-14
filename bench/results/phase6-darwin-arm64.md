@@ -84,7 +84,7 @@ profile — this ranking has now held across three platforms/host
 combinations without a single reversal.
 
 Kernel benches were not re-run for this task: the NEON masking-kernel
-numbers are already recorded in `.omc/research/mask-calibration.md` and
+numbers are already recorded in
 `bench/results/kernels-baseline-darwin-arm64.txt`, and this task's read
 path is unrelated to the masking kernel.
 

@@ -8,9 +8,9 @@ joins this harness via `require github.com/zchee/gows v0.0.0` +
 `replace github.com/zchee/gows => ../` — the local path replace means the
 harness always measures the working tree, never a tagged release.
 
-This directory implements plan `.omc/plans/2026-07-08-gows-fastest-websocket-plan.md`
-§6 Phase 0 items 2–3 and the corresponding parts of §8 (methodology) and
-AC4/AC5/AC6.
+This directory implements the project's fastest-websocket benchmarking
+plan (2026-07-08): Phase 0 items 2–3 plus the corresponding methodology
+sections and AC4/AC5/AC6.
 
 ## Libraries compared
 
@@ -176,8 +176,8 @@ during the first real run against the 8481C).
 
 Already executed once against the 8481C — see
 `results/kernels-baseline-linux-amd64.txt` and
-`results/echo-baseline-linux-amd64.md` for the resulting baseline, and
-`.omc/research/baseline-arm64.md` for the cross-platform summary.
+`results/echo-baseline-linux-amd64.md` for the resulting baseline and
+cross-platform summary.
 
 ## Known caveats
 

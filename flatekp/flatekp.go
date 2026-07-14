@@ -24,8 +24,7 @@
 //
 // # When to use this backend
 //
-// gows's own bench/ deflate study (.omc/research/deflate-study.md)
-// measured stdlib compress/flate's pooled Writer.Reset cost at level 6
+// gows's own bench/ deflate study measured stdlib compress/flate's pooled Writer.Reset cost at level 6
 // (compress.go's no-context-takeover model calls Reset once per
 // message) at roughly 11.6µs on darwin/arm64 and 13.5µs on
 // linux/amd64 -- about 2,700x more than stdlib's own level-1 Reset cost,
@@ -44,8 +43,7 @@
 //
 // klauspost/compress/flate additionally exposes NewWriterWindow, which
 // stdlib compress/flate has no equivalent of at all -- stdlib can only
-// ever compress at the full 32KB window (see
-// .omc/research/compress-design.md §4). Installing this backend with
+// ever compress at the full 32KB window. Installing this backend with
 // [gows.SetDeflateBackend] at a windowBits below 15 lets
 // [gows.Upgrader.NegotiateWindowBits] (server role) and
 // [gows.Dialer.WindowBits] (client role) actually negotiate and honor a

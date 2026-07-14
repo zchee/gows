@@ -273,10 +273,9 @@ func WithCompression(enabled bool) ConnOption {
 //     costs ~1.15 MB; levels 5-9 cost ~0.79 MB each -- level 1 is not the
 //     cheapest here, perhaps counterintuitively, because stdlib flate's
 //     fast-path encoder (levels 1-6) allocates a larger hash table than
-//     its levels 7-9 path (see .omc/research/deflate-study.md for this
-//     study's separate finding that pooled Reset cost is the more
-//     consequential level/backend tradeoff for the no-context-takeover
-//     path).
+//     its levels 7-9 path (the deflate study's separate finding: pooled
+//     Reset cost is the more consequential level/backend tradeoff for
+//     the no-context-takeover path).
 //   - Incoming (decompressing the peer's messages) is much cheaper: only
 //     a growing/sliding dictionary buffer of the most recently decompressed
 //     plaintext, not a persistent decompressor. Its default cap is 32 KiB

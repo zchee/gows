@@ -26,7 +26,7 @@ import "github.com/zchee/gows/internal/cpu"
 // wins (generic 8.2 vs NEON 5.8 GB/s) but at 32 B NEON overtakes it (7.5 vs
 // 6.4 GB/s, 1.18x) and the margin widens (48 B 1.05x, 64 B 1.52x, 128 B 1.9x).
 // 32 is the smallest measured size where NEON wins, lowered from the previous
-// placeholder of 64. See .omc/research/neon-vnext-calibration.md.
+// placeholder of 64 (benchstat n=10, Apple M3 Max, 2026-07-14).
 const thresholdSIMD = 32
 
 // maskNEON masks b (n bytes) with key using 64-byte EOR blocks over 128-bit V

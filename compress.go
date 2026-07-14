@@ -56,8 +56,8 @@ var deflateReadTail = [9]byte{0x00, 0x00, 0xff, 0xff, 0x01, 0x00, 0x00, 0xff, 0x
 // defaultDeflateBackend is compress.go's built-in permessage-deflate
 // backend: stdlib compress/flate, restricted to the RFC 7692 default
 // 32KB window ([deflateWindowBits]) since stdlib flate has no public API
-// to compress at a smaller one (see .omc/research/compress-design.md
-// §4) -- MinWindowBits == MaxWindowBits == 15 advertises exactly that.
+// to compress at a smaller one -- MinWindowBits == MaxWindowBits == 15
+// advertises exactly that.
 // This is the active backend until (or unless) [SetDeflateBackend]
 // installs a different one.
 var defaultDeflateBackend = &DeflateBackend{
@@ -154,9 +154,9 @@ func init() {
 // level, or window-bits state in this phase -- only a compression bool
 // (see [WithCompression]) -- so compress.go's pools have nowhere to
 // store a different configuration per connection; adding that is out of
-// this phase's scope (see .omc/handoffs/project-status.md's deferred
-// item 4, "context-takeover opt-in", which will need the same per-Conn
-// state this seam deliberately isn't adding yet). [Upgrader.NegotiateWindowBits]
+// this phase's scope (the deferred context-takeover opt-in follow-up
+// will need the same per-Conn state this seam deliberately isn't adding
+// yet). [Upgrader.NegotiateWindowBits]
 // and [Dialer.WindowBits] still exist as explicit, independent
 // per-instance opt-ins: whether a *specific* Upgrader/Dialer negotiates
 // (or offers) a non-default window size with its peers is a legitimate
@@ -509,8 +509,7 @@ func (r *tailReader) Read(p []byte) (int, error) {
 // must be compressed as if no-context-takeover were in effect regardless
 // of any individual target connection's own negotiated context takeover
 // -- a back-reference into one connection's private LZ77 window would be
-// meaningless (or wrong) to a different connection's decompressor (see
-// .omc/research/compress-design.md §6).
+// meaningless (or wrong) to a different connection's decompressor.
 func compressPayload(dst, p []byte) ([]byte, error) {
 	return compressPayloadWithConfig(dst, p, activeDeflate.Load())
 }

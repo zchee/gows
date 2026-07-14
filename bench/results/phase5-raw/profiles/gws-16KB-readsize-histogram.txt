@@ -17,8 +17,7 @@ read that bundles the header WITH the first 4088 bytes of payload, then one
 (clean 8-byte header read, separate from ~4096-byte payload chunks,
 averaging ~5 reads/message) -- gws's average read size (8193.68B) is almost
 exactly 2.5x gows's (3280.68B), matching the ~2.5x fewer read syscalls per
-message measured via `strace -c` (2.00 vs 5.02 reads/msg). See
-.omc/research/phase5-results.md for the full analysis and the most likely
-explanation (a scheduling/timing interaction, not a hard buffer cap in
+message measured via `strace -c` (2.00 vs 5.02 reads/msg). The most
+likely explanation is recorded with the phase-5 results (a scheduling/timing interaction, not a hard buffer cap in
 gows's current code -- readDirect already requests the full uncapped
 remaining payload length per call).

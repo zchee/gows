@@ -28,8 +28,7 @@ const simdThreshold = 32
 // which invokes utf8ValidAVX2 directly) ran on real AVX2 hardware. That
 // validation passed on an Intel Xeon 8481C (Sapphire Rapids) — every density ×
 // block-aligned length 0..4096 × offset, plus the corruption sweep and the full
-// Feed/Valid streaming and fuzz suites — so the AVX2 path is now enabled. See
-// .omc/research/utf8-simd-calibration.md.
+// Feed/Valid streaming and fuzz suites — so the AVX2 path is now enabled.
 const avx2Validated = true
 
 // utf8ValidAVX2 reports whether the n bytes at p contain no structural UTF-8

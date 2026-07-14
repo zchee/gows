@@ -18,5 +18,5 @@ exactly 8 bytes (1 FIN/opcode + 1 mask+len126 + 2 extended-length +
 the header, then a sequence of ~4096-byte reads for the payload -- despite
 reader.go's readDirect requesting the full remaining payload length
 (up to ~16KB) per call, not capped at 4096. See gws's histogram for
-contrast and .omc/research/phase5-results.md's "16KB CPU profile
-comparison" section for the full analysis.
+contrast; the full 16KB CPU profile comparison accompanies the phase-5
+results record.

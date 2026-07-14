@@ -3,10 +3,10 @@
 A zero-dependency [RFC 6455](https://www.rfc-editor.org/rfc/rfc6455) /
 [RFC 7692](https://www.rfc-editor.org/rfc/rfc7692) (permessage-deflate)
 WebSocket library for Go, engineered for maximum performance — with honest,
-reproducible benchmarks. Every number on this page comes from a committed
-report under [`.omc/research/`](.omc/research/) or
-[`bench/results/`](bench/results/); where gows didn't win, that's said
-plainly too. Headline (2026-07-14, paired final gate on darwin/arm64):
+reproducible benchmarks. Every number on this page comes from a recorded
+measurement; the committed raw runs live under
+[`bench/results/`](bench/results/), and where gows didn't win, that's
+said plainly too. Headline (2026-07-14, paired final gate on darwin/arm64):
 wherever the workload lets a server architecture matter, gows beats
 quickws — the closest competitor measured — by **+28-36% throughput with
 22-26% lower p99**, ties it everywhere else, and does so at 0.73-0.80× the
@@ -33,8 +33,8 @@ including what remains open.
   **4.9× the fastest of four vendored competitor masking kernels** (gorilla,
   coder, gws, gobwas) benchmarked head-to-head in the same process
   (4.4× at 4KB, 4.9× at 16KB; see
-  [`.omc/research/mask-calibration.md`](.omc/research/mask-calibration.md)
-  and [`bench/results/phase5-linux-amd64.md`](bench/results/phase5-linux-amd64.md)).
+  [`bench/results/phase5-linux-amd64.md`](bench/results/phase5-linux-amd64.md)
+  and the calibration godocs in [`internal/mask`](internal/mask/)).
 - **Streaming SIMD UTF-8 validation, on by default.** Of the 8 libraries
   measured in this project's comparison harness, gows is the only one that
   validates UTF-8 text-message payloads by default (RFC 6455 §8.1
@@ -43,16 +43,15 @@ including what remains open.
   itself (NEON on arm64, AVX2 on amd64, both gated behind exhaustive
   differential testing against `unicode/utf8.Valid` plus fuzzing) is
   27-45× faster than the scalar DFA it augments, depending on workload and
-  size, with zero regression on pure-ASCII input (see
-  [`.omc/research/utf8-simd-calibration.md`](.omc/research/utf8-simd-calibration.md)).
+  size, with zero regression on pure-ASCII input (calibration documented
+  in [`internal/utf8x`](internal/utf8x/)'s godocs).
   It costs nothing measurable in the echo benchmarks below: a CPU profile
   under saturating load shows zero sampled time in the validator, and
   turning it off doesn't reliably beat turning it on (see
   [Benchmarks](#benchmarks)).
 - **Zero-copy handshake.** `Upgrader{RawPath: true}.Upgrade` completes in
   **363-369 ns/op, 0 B/op, 0 allocs/op** (~2.6-2.7× faster than a gobwas
-  reference point of 973 ns/op) — see
-  [`.omc/research/verify-report.md`](.omc/research/verify-report.md) (AC13).
+  reference point of 973 ns/op), reproducible via `BenchmarkUpgrade`.
 - **0-allocation `ReadMessage`, ≤1-allocation `WriteMessage`.**
   `BenchmarkConnReadMessage`: 0 B/op, 0 allocs/op (~49.5 ns/op, ~20.7 GB/s).
   `BenchmarkConnWriteMessage`: 24 B/op, 1 allocs/op (~25.3 ns/op, ~40.6
@@ -87,18 +86,14 @@ including what remains open.
   takeover. The root module defaults to stdlib `compress/flate`; the optional
   klauspost backend lives in the separate zero-impact `flatekp/` module (see
   [`options.go`](options.go)'s "permessage-deflate backend seam" comment).
-- **Autobahn|Testsuite evidence**: the repository preserves earlier canonical
-  server/client results as dated historical evidence — see
-  [`.omc/research/autobahn-phase2.md`](.omc/research/autobahn-phase2.md) and
-  [`.omc/research/autobahn-phase4.md`](.omc/research/autobahn-phase4.md). The
-  v0.4 feature-specific server/client 517-case matrix is
-  **SKIPPED-RESIDUAL**, not pass evidence; see [Conformance](#conformance).
+- **Autobahn|Testsuite evidence**: the full 517-case matrix ran in both
+  directions ("All cases passed") on 2026-07-14 at two commits; earlier
+  dated runs from the v0.1-v0.3 gates are preserved as historical
+  evidence. See [Conformance](#conformance).
 - **93.9% statement coverage** across the core module and `internal/*`
   packages (≥85% required), and **1,461,410,711 combined fuzz executions**
   across four targets (`FuzzMask`, `FuzzValidator`, `FuzzDecodeHeader`,
-  `FuzzParseExtensions`), 10 minutes each, **zero crashes** — see
-  [`.omc/research/verify-report.md`](.omc/research/verify-report.md) (AC8,
-  AC11).
+  `FuzzParseExtensions`), 10 minutes each, **zero crashes**.
 
 ## Benchmarks
 
@@ -136,16 +131,16 @@ samples, zero echo-verification errors. Run:
 
 Reading it honestly: the pipelined cells — the only cells where a server
 architecture *can* differentiate, because the closed-loop cells are
-client/kernel-saturated (proven by a five-hypothesis causal study,
-[`.omc/research/vnext-1k1k-causal.md`](.omc/research/vnext-1k1k-causal.md))
-— show gows **+35.9% / +28.0% throughput with 26.4% / 22.8% lower p99**,
+client/kernel-saturated (proven by a five-hypothesis causal study) —
+show gows **+35.9% / +28.0% throughput with 26.4% / 22.8% lower p99**,
 at **0.73× quickws's server CPU per message and 0.78-0.80× its memory per
 connection**. Every closed-loop cell is statistical parity (centers
 0.993-1.004). The strict pre-registered letter ("CI lower bound > 1.00 in
 every cell") is recorded as FAIL because a saturated tie cannot exceed
-1.00 by construction; the full verdict, the disclosed
-measurement-window deviation, and the analysis are in
-[`.omc/research/vnext-final-claude.md`](.omc/research/vnext-final-claude.md).
+1.00 by construction; the run directory above carries the full
+verdict.json, provenance, and environment snapshots, including the
+disclosed measurement-window deviation (3s+10s windows instead of the
+frozen 5s+30s, n=20 and all thresholds unchanged).
 
 ### linux/amd64 (Intel Xeon 8481C, Sapphire Rapids, 44 vCPU) — 1KB payload, 1000 connections, n=5
 
@@ -166,7 +161,7 @@ result reproduced across three independent measurement sessions on this
 hardware (n=5, then n=10, then a final n=10 after two rounds of read-path
 tuning), landing in a 972,112-974,876 msg/s band every time. Full detail,
 every session, in
-[`.omc/research/phase5-results.md`](.omc/research/phase5-results.md).
+[`bench/results/phase5-linux-amd64.md`](bench/results/phase5-linux-amd64.md).
 
 ### darwin/arm64 (Apple M3 Max, NEON) — 1KB payload, 200 connections, n=5
 
@@ -190,9 +185,10 @@ Full table and machine-load caveats in
 The one ranking that reproduced identically, with zero reversals, across
 every platform and session in this project: `gows` / `gows-noutf8` tied
 lowest at **1.00 alloc/msg**, `quickws` close behind at 1.00-1.19,
-`gws` at 2.00, up through `coder`'s 24.01. See either table above or
-[`.omc/research/phase5-results.md`](.omc/research/phase5-results.md)'s AC6
-section for the cross-platform reproduction.
+`gws` at 2.00, up through `coder`'s 24.01. See either table above, or
+[`bench/results/phase5-linux-amd64.md`](bench/results/phase5-linux-amd64.md)
+and [`bench/results/phase6-darwin-arm64.md`](bench/results/phase6-darwin-arm64.md)
+for the cross-platform reproduction.
 
 ### The honest part: on closed-loop echo, gows and quickws are statistical peers
 
@@ -208,11 +204,12 @@ A five-hypothesis causal study (read-buffer geometry, GC mode, send-buffer
 admission on both sides, scheduler wakeup-latency traces) rejected every
 mechanism that might separate them there and showed an earlier apparent
 +5.2% p99 deficit does not reproduce — the cells are saturated, not
-hiding a difference
-([`.omc/research/vnext-1k1k-causal.md`](.omc/research/vnext-1k1k-causal.md)).
+hiding a difference (per-experiment run directories with verdict.json
+CIs are under [`bench/results/v-next/darwin-arm64/`](bench/results/v-next/):
+the `claude-h1-*`, `claude-h5-*`, and `claude-h2-*` runs).
 
 The evidence, session by session (full data in
-[`.omc/research/phase5-results.md`](.omc/research/phase5-results.md)):
+[`bench/results/phase5-linux-amd64.md`](bench/results/phase5-linux-amd64.md)):
 
 | session | platform | throughput | p99 |
 |---|---|---|---|
@@ -269,7 +266,7 @@ count and can add wasted round-trips instead. Two tuning attempts
 during this project; neither moved the number. This is recorded as an
 open, unresolved item — not a fix claimed and not swept under the rug.
 The full read-size histograms, CPU profiles, and strace evidence are in
-[`.omc/research/phase5-results.md`](.omc/research/phase5-results.md) and
+[`bench/results/phase5-raw/profiles/`](bench/results/phase5-raw/profiles/) and
 `reader.go`'s own doc comments on `readFramePayload`/`readDirect`.
 
 ### Reproducing these numbers
@@ -464,12 +461,10 @@ includes:
 - a zero-dependency core module with the optional klauspost backend isolated
   in the separate `github.com/zchee/gows/flatekp` module.
 
-The repository retains canonical Autobahn reports from earlier v0.1-v0.3
-gates as dated historical evidence:
-[`.omc/research/autobahn-phase2.md`](.omc/research/autobahn-phase2.md) and
-[`.omc/research/autobahn-phase4.md`](.omc/research/autobahn-phase4.md).
-Their 517-case counts and verdicts describe those recorded runs; they are not
-evidence that the v0.4 feature-specific matrix ran.
+Canonical Autobahn reports from the earlier v0.1-v0.3 gates were recorded
+as dated historical evidence during those phases; their 517-case counts
+and verdicts describe those recorded runs, and they are not evidence that
+the v0.4 feature-specific matrix ran.
 
 The v0.4 feature server/client 517-case matrix was **SKIPPED-RESIDUAL** at
 the signed v0.4 delivery (Docker, OrbStack, and those feature runs were not
@@ -514,10 +509,11 @@ the suite probes; INFORMATIONAL cases carry no verdict by design).
 - **arm64 SIMD dispatch thresholds are calibrated; amd64's UTF-8 threshold
   is not.** `internal/utf8x/valid_simd_amd64.go` still carries its
   pre-campaign placeholder pending a benchstat pass on amd64 hardware
-  (the M-series calibration methodology to replicate is documented in
-  [`.omc/research/neon-vnext-calibration.md`](.omc/research/neon-vnext-calibration.md),
-  including the two strengthening kernels that were built, measured, and
-  rejected on their pre-set gates).
+  (the M-series calibration methodology to replicate is documented in the
+  calibration godocs of [`internal/mask`](internal/mask/) and
+  [`internal/utf8x`](internal/utf8x/), whose thresholds also record that
+  two strengthening kernels were built, measured, and rejected on their
+  pre-set gates).
 
 ## License
 

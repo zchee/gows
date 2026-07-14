@@ -13,8 +13,8 @@ This is the **AC5 comparative dataset**: 9 configurations (`gorilla`,
 process per run per library. Raw per-run `loadgen` output is under
 `results/phase5-raw/<config>/<lib>/rep<N>.log`; `results/phase5-raw/_progress.log`
 confirms all 99 runs (45 primary + 27 + 27 secondary) completed with **zero
-failures**. See `.omc/research/phase5-results.md` for the AC5 verdict and
-analysis; this file is the raw numeric record.
+failures**. This file is the raw numeric record backing the AC5 verdict
+and analysis.
 
 Each table's "msg/s spread" column is the min-max range across n reps, so a
 row's real position relative to a close neighbor can be read directly
@@ -105,7 +105,7 @@ use in production. Zero allocations across every kernel at every size.
 
 `gows`'s SIMD kernel wins decisively from 256B up (1.4x-4.9x over the
 next-best of the four vendored kernels), confirming the arm64/NEON
-calibration (`.omc/research/mask-calibration.md`) reproduces on
+calibration (documented in internal/mask's godocs) reproduces on
 amd64/AVX2+AVX-512. The one exception is 64B, where `coder`'s plain scalar
 loop is ~20% faster than `gows`'s dispatch — consistent with the
 already-documented pattern (see the UTF-8 SIMD calibration doc) that a
@@ -124,9 +124,9 @@ standard. Only the closest competitors were rerun (interleaved
 round-robin order, one rep of each lib per round, to decorrelate machine
 drift); the other 5 libraries' n=5 numbers above stand. All 70 reps (40 +
 30) passed with zero failures. Raw logs:
-`results/phase5-raw/rerun/{primary,16KB-1000conns}/<lib>/rep<N>.log`. See
-`.omc/research/phase5-results.md`'s "Rerun after read-path tuning (n=10)"
-section for the full verdict and overlap analysis.
+`results/phase5-raw/rerun/{primary,16KB-1000conns}/<lib>/rep<N>.log`;
+this is the rerun after read-path tuning (n=10), and the overlap analysis
+below is its verdict.
 
 ### Primary (1KB, 1000 conns), n=10
 
@@ -158,9 +158,9 @@ consistent with a statistical tie rather than a real effect either way.
 Third and final measurement pass, on the shipping tree (frozen: single
 uncapped `readDirect` + `MSG_WAITALL`-evaluation comment, counting test
 removed — verified present/absent respectively immediately before this
-run). See `.omc/research/phase5-results.md`'s "Final (loop 3, frozen
-tree)" section for the full analysis, overlap discussion, and the strace
-re-sample methodology caveat. Raw logs:
+run). This is the final (loop 3, frozen tree) session; the overlap
+discussion and the strace re-sample methodology caveat accompany the
+tables below. Raw logs:
 `results/phase5-raw/final/{16KB-1000conns,primary}/<lib>/rep<N>.log` (50
 reps, 0 failures) plus `results/phase5-raw/final/strace/`.
 

@@ -19,8 +19,7 @@ package mask
 import "github.com/zchee/gows/internal/cpu"
 
 // Size thresholds selecting the masking kernel, calibrated by benchstat
-// (n=10, median GB/s) on an Intel Xeon 8481C (Sapphire Rapids); see
-// .omc/research/mask-calibration.md and plan §5.3/AC4.
+// (n=10, median GB/s) on an Intel Xeon 8481C (Sapphire Rapids).
 //
 //   - thresholdSIMD: below 64 B the pure-Go word loop beats an SSE2 setup
 //     (16 B: generic 3.6 vs SSE2 2.7 GB/s); at 64 B SSE2 wins 1.6x.

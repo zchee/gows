@@ -512,7 +512,7 @@ func TestIntegrationEchoMixedNegotiation(t *testing.T) {
 // --- benchmark: Reset cost flat across levels (deflate-study.md's claim) --
 
 // BenchmarkWriterResetLevel1 and BenchmarkWriterResetLevel6 are a quick
-// regression check on .omc/research/deflate-study.md's headline finding
+// regression check on the deflate study's headline finding
 // (klauspost's pooled-Writer Reset cost is flat and negligible across
 // levels, unlike stdlib compress/flate's ~2,700x level-6-vs-level-1
 // blowup) -- not a full restudy, just enough to catch a regression.

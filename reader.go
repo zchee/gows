@@ -346,9 +346,9 @@ func (c *Conn) readFramePayload(h Header) error {
 	// Processing still runs over cap(rbuf)-sized sub-chunks regardless of how
 	// much a single Read returned, because a single very large (tens of KB+)
 	// mask.Mask/utf8v.Feed call measurably loses cache residency in the SIMD
-	// mask kernel (see the 64KB row of .omc/research/phase5-results.md's kernel
-	// table, and bench/results/phase5-linux-amd64.md's "64KB drops off ...
-	// consistent with leaving cache residency"). A Read that already returns
+	// mask kernel (see bench/results/phase5-linux-amd64.md's 64KB kernel
+	// rows and its "64KB drops off ... consistent with leaving cache
+	// residency" discussion). A Read that already returns
 	// everything at once (e.g. a single-writer peer's writev'd frame, or the
 	// benchmark's loopConn) is processed identically to the old
 	// read-all-then-feed order, so hot-path throughput is unchanged; only the

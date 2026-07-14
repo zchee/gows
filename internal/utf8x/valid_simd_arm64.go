@@ -28,8 +28,8 @@ import "github.com/zchee/gows/internal/cpu"
 // backoff beats the scalar DFA at every size from 16 B up: 16 B 5.7 vs
 // 31-37 ns (3.7-6.4x), 32 B ~8 vs 63-75 ns (7-11x), 64 B 9-11 vs 117-148 ns
 // (11-17x). 16 is the smallest size at which the kernel can engage
-// (m = len&^15 >= 16), lowered from the previous placeholder of 32. See
-// .omc/research/neon-vnext-calibration.md.
+// (m = len&^15 >= 16), lowered from the previous placeholder of 32
+// (benchstat n=10, Apple M3 Max, 2026-07-14).
 const simdThreshold = 16
 
 // utf8ValidNEON reports whether the n bytes at p contain no structural UTF-8
