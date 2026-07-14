@@ -20,8 +20,17 @@ import "github.com/zchee/gows/internal/cpu"
 
 // simdThreshold is the smallest remaining payload for which the NEON kernel is
 // engaged; below it the scalar DFA (with its ASCII word fast path) is cheaper.
-// Placeholder pending benchstat calibration (see utf8-simd-calibration.md).
-const simdThreshold = 32
+// Calibrated by benchstat (BenchmarkThresholdScalar vs BenchmarkThresholdSIMD,
+// n=10, GOMAXPROCS=1) on an Apple M3 Max, go1.26.5 darwin/arm64, 2026-07-14
+// (light host contention, load1 ~4.5-5; benchstat variance ±0-3%). For
+// multibyte content -- the only kind that reaches the kernel, since Feed's
+// ASCII word path consumes ASCII runs first -- the NEON kernel plus boundary
+// backoff beats the scalar DFA at every size from 16 B up: 16 B 5.7 vs
+// 31-37 ns (3.7-6.4x), 32 B ~8 vs 63-75 ns (7-11x), 64 B 9-11 vs 117-148 ns
+// (11-17x). 16 is the smallest size at which the kernel can engage
+// (m = len&^15 >= 16), lowered from the previous placeholder of 32. See
+// .omc/research/neon-vnext-calibration.md.
+const simdThreshold = 16
 
 // utf8ValidNEON reports whether the n bytes at p contain no structural UTF-8
 // error, treating the buffer as if it may continue past its end (a trailing

@@ -23,6 +23,12 @@ import (
 // size-threshold crossovers between kernels are visible in the curves.
 var benchSizes = []int{16, 64, 256, 1024, 4096, 16384, 65536, 262144}
 
+// benchCalibSizes are fine-grained sizes straddling the generic<->NEON
+// crossover. BenchmarkKernelCalib sweeps them so thresholdSIMD can be read off
+// the point where NEON first beats the generic word loop (see
+// mask-calibration.md §5).
+var benchCalibSizes = []int{8, 16, 24, 32, 48, 64, 96, 128}
+
 func benchMask(b *testing.B, fn func([]byte, uint32) uint32, size int) {
 	buf := make([]byte, size)
 	fillRand(buf, newRNG())
@@ -50,6 +56,21 @@ func BenchmarkKernel(b *testing.B) {
 	for _, kern := range Kernels() {
 		b.Run(kern.Name, func(b *testing.B) {
 			for _, size := range benchSizes {
+				b.Run(strconv.Itoa(size), func(b *testing.B) {
+					benchMask(b, kern.Fn, size)
+				})
+			}
+		})
+	}
+}
+
+// BenchmarkKernelCalib sweeps each kernel across benchCalibSizes so the
+// generic<->NEON crossover that fixes thresholdSIMD can be read directly off
+// the throughput curves at fine granularity.
+func BenchmarkKernelCalib(b *testing.B) {
+	for _, kern := range Kernels() {
+		b.Run(kern.Name, func(b *testing.B) {
+			for _, size := range benchCalibSizes {
 				b.Run(strconv.Itoa(size), func(b *testing.B) {
 					benchMask(b, kern.Fn, size)
 				})

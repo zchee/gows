@@ -18,9 +18,16 @@ package mask
 
 import "github.com/zchee/gows/internal/cpu"
 
-// thresholdSIMD is the payload size below which the pure-Go word loop beats a
-// NEON setup. It is a placeholder pending benchstat calibration (plan §5.3).
-const thresholdSIMD = 64
+// thresholdSIMD is the payload size below which the pure-Go word loop beats the
+// NEON kernel. Calibrated by benchstat (BenchmarkKernelCalib, n=10,
+// GOMAXPROCS=1, median GB/s) on an Apple M3 Max, go1.26.5 darwin/arm64,
+// 2026-07-14 (light host contention, load1 ~4.5-5; benchstat variance ±0-3%).
+// The generic<->NEON crossover sits between 24 B and 32 B: at 24 B the word loop
+// wins (generic 8.2 vs NEON 5.8 GB/s) but at 32 B NEON overtakes it (7.5 vs
+// 6.4 GB/s, 1.18x) and the margin widens (48 B 1.05x, 64 B 1.52x, 128 B 1.9x).
+// 32 is the smallest measured size where NEON wins, lowered from the previous
+// placeholder of 64. See .omc/research/neon-vnext-calibration.md.
+const thresholdSIMD = 32
 
 // maskNEON masks b (n bytes) with key using 64-byte EOR blocks over 128-bit V
 // registers and returns the resumable rotated key.
