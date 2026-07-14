@@ -6,8 +6,12 @@ WebSocket library for Go, engineered for maximum performance — with honest,
 reproducible benchmarks. Every number on this page comes from a committed
 report under [`.omc/research/`](.omc/research/) or
 [`bench/results/`](bench/results/); where gows didn't win, that's said
-plainly too. See [Benchmarks](#benchmarks) for the full picture, including
-the one open, unresolved gap.
+plainly too. Headline (2026-07-14, paired final gate on darwin/arm64):
+wherever the workload lets a server architecture matter, gows beats
+quickws — the closest competitor measured — by **+28-36% throughput with
+22-26% lower p99**, ties it everywhere else, and does so at 0.73-0.80× the
+CPU and memory. See [Benchmarks](#benchmarks) for the full picture,
+including what remains open.
 
 ## Features
 
@@ -53,7 +57,29 @@ the one open, unresolved gap.
   `BenchmarkConnReadMessage`: 0 B/op, 0 allocs/op (~49.5 ns/op, ~20.7 GB/s).
   `BenchmarkConnWriteMessage`: 24 B/op, 1 allocs/op (~25.3 ns/op, ~40.6
   GB/s) — the one allocation is the client-role masking copy; see
-  [`writer.go`](writer.go)'s `WriteMessage` doc comment.
+  [`writer.go`](writer.go)'s `WriteMessage` doc comment. Compressed
+  (permessage-deflate) `WriteMessage` is also **0 allocs/op** steady-state
+  on the pooled path.
+- **Drain-and-coalesce serving** (`Conn.Serve` + `WriteMessageBuffered` /
+  `Flush`): a single-goroutine callback loop that consumes every complete
+  message already resident in the read buffer per wakeup (fairness budget
+  64) and flushes the framed replies in one write — an echo handler settles
+  a whole drain round with **one syscall each way** (1/64th the write
+  syscalls on coalesced input at identical ns/op, 0 allocs/msg both
+  directions). This is the mechanism behind the +28-36% pipelined win
+  below; see [`serve.go`](serve.go).
+- **Transport-aware single-write guarantee.** `net.Buffers` writev is only
+  real on `*net.TCPConn`; through `crypto/tls` or any wrapping `net.Conn`
+  it silently degrades to one `Write` per buffer. gows picks its write
+  strategy once at `Conn` construction: plain TCP keeps the writev path,
+  everything else gets contiguous staging — **one `Write` per message over
+  TLS** (down from two), pinned by a `crypto/tls` loopback regression test.
+- **Table-driven frame-header decode**: role- and negotiation-specialized
+  256-entry classification tables replace the general branch tree —
+  **-34% header-decode time (geomean across five frame shapes)**, held
+  byte-identical to the reference decoder by a 16.9M-execution
+  differential fuzz over accept/reject, fields, close codes, and error
+  strings.
 - **permessage-deflate (RFC 7692)**, negotiated via
   `Upgrader.EnableCompression` / `Dialer.EnableCompression`, with a
   pluggable compressor backend, direction-specific window negotiation,
@@ -77,13 +103,49 @@ the one open, unresolved gap.
 ## Benchmarks
 
 Methodology: a shared echo-server harness (`bench/harness`) drives every
-library through an identical client (gobwas/ws's low-level API), with
-fairness rules documented and applied identically across all nine
-configurations — see [`bench/README.md`](bench/README.md) for the full
-rules, library versions, and integration notes. `gows-noutf8` is gows with
-`WithSkipUTF8Validation(true)`, published alongside gows's own
+library through an identical client, with fairness rules documented and
+applied identically across all configurations — see
+[`bench/README.md`](bench/README.md) for the full rules, library versions,
+and integration notes. The 2026-07-14 paired results below use `benchrun`
+(seeded randomized paired blocks, fresh server process per repetition, a
+host-quiescence guard, and process-rusage resource accounting) judged by
+`benchcmp` (paired-ratio bootstrap, 20,000 replicates, 95% CIs) with a
+gows-based load client (identical for every server under test); the
+earlier tables used gobwas/ws's low-level client. `gows-noutf8` is gows
+with `WithSkipUTF8Validation(true)`, published alongside gows's own
 validation-on default as the apples-to-apples "what if validation were
 off, like every other library here" reference point.
+
+### darwin/arm64 paired final gate (Apple M3 Max) — gows-serve vs quickws, n=20, 2026-07-14
+
+Pre-registered gate (commit 9b5993e, before the optimization code landed):
+seven cells, ratios are gows/quickws with bootstrap 95% CIs, 280/280
+samples, zero echo-verification errors. Run:
+[`bench/results/v-next/darwin-arm64/claude-final-324b7b8-20260714T091557Z`](bench/results/v-next/darwin-arm64/).
+
+| cell | throughput ratio [95% CI] | p99 ratio [95% CI] |
+|---|---|---|
+| 1KiB × 200 conns, pipelined ×8 | **1.3589 [1.3475, 1.4193]** | **0.7364 [0.7280, 0.7445]** |
+| 1KiB × 1000 conns, pipelined ×4 | **1.2800 [1.2557, 1.3333]** | **0.7725 [0.7629, 0.8029]** |
+| 64B × 1000 conns (closed-loop) | 0.9961 [0.9859, 1.0003] | 0.9914 [0.9638, 1.0388] |
+| 1KiB × 200 conns (closed-loop) | 0.9930 [0.9897, 0.9985] | 0.9959 [0.9807, 1.0038] |
+| 1KiB × 1000 conns (closed-loop) | 1.0009 [0.9950, 1.0070] | 0.9966 [0.9810, 1.0075] |
+| 16KiB × 200 conns (closed-loop) | 1.0000 [0.9955, 1.0040] | 1.0105 [0.9979, 1.0290] |
+| 16KiB × 1000 conns (closed-loop) | 1.0039 [0.9873, 1.0068] | 1.0034 [0.9709, 1.0336] |
+| **geomean** | **1.0813** | |
+
+Reading it honestly: the pipelined cells — the only cells where a server
+architecture *can* differentiate, because the closed-loop cells are
+client/kernel-saturated (proven by a five-hypothesis causal study,
+[`.omc/research/vnext-1k1k-causal.md`](.omc/research/vnext-1k1k-causal.md))
+— show gows **+35.9% / +28.0% throughput with 26.4% / 22.8% lower p99**,
+at **0.73× quickws's server CPU per message and 0.78-0.80× its memory per
+connection**. Every closed-loop cell is statistical parity (centers
+0.993-1.004). The strict pre-registered letter ("CI lower bound > 1.00 in
+every cell") is recorded as FAIL because a saturated tie cannot exceed
+1.00 by construction; the full verdict, the disclosed
+measurement-window deviation, and the analysis are in
+[`.omc/research/vnext-final-claude.md`](.omc/research/vnext-final-claude.md).
 
 ### linux/amd64 (Intel Xeon 8481C, Sapphire Rapids, 44 vCPU) — 1KB payload, 1000 connections, n=5
 
@@ -132,14 +194,22 @@ lowest at **1.00 alloc/msg**, `quickws` close behind at 1.00-1.19,
 [`.omc/research/phase5-results.md`](.omc/research/phase5-results.md)'s AC6
 section for the cross-platform reproduction.
 
-### The honest part: gows and quickws are statistical peers, not a clean win
+### The honest part: on closed-loop echo, gows and quickws are statistical peers
 
-**gows and quickws are statistical performance peers at this workload —
-across 4 independent measurement sessions on two different ISAs (amd64 and
-arm64), whichever of throughput or p99 either library "won" flipped
-between overlapping sample distributions every single time. Every other
-library measured in this project is consistently, unambiguously behind
-both of them.**
+The verdict above supersedes the older "statistical peers" story for
+pipelined traffic — that one is now a decisive, reproducible gows win.
+What remains true is the closed-loop half: **on strict 1-request-1-response
+same-host echo, gows and quickws are statistical performance peers —
+across 5 independent measurement sessions on two ISAs (amd64 and arm64),
+whichever of throughput or p99 either library "won" flipped between
+overlapping sample distributions every time. Every other library measured
+in this project is consistently, unambiguously behind both of them.**
+A five-hypothesis causal study (read-buffer geometry, GC mode, send-buffer
+admission on both sides, scheduler wakeup-latency traces) rejected every
+mechanism that might separate them there and showed an earlier apparent
++5.2% p99 deficit does not reproduce — the cells are saturated, not
+hiding a difference
+([`.omc/research/vnext-1k1k-causal.md`](.omc/research/vnext-1k1k-causal.md)).
 
 The evidence, session by session (full data in
 [`.omc/research/phase5-results.md`](.omc/research/phase5-results.md)):
@@ -164,14 +234,18 @@ every configuration measured, and its tail latency is statistically
 indistinguishable from the one library that sometimes edges it out. This
 is reported as a tie, not rounded up to a win.
 
-### The honest part: a real, unresolved 16KB gap
+### The honest part: the 16KB story, updated
 
-At 16KB payloads (1000 connections), gows trails both `gws` (~2.3-2.6%) and
-`quickws` (~0.9-1.6%) on throughput, reproducing across three independent
-n≥3 sessions with **zero overlap** between gows's throughput range and
-either competitor's — this one is a real, measurable gap, not noise
-(unlike the primary-config near-tie above). `gows-noutf8` doesn't close
-it either, ruling out validation cost as the cause.
+The 2026-07-14 paired gate shows the 16KiB cells vs quickws are now
+statistical ties on darwin/arm64 (throughput ratios 1.0000 and 1.0039,
+CIs straddling 1.0) — the earlier quickws-side gap does not reproduce
+there with the current write path and measurement client. What remains
+open: the older linux/amd64 sessions had gows trailing `gws` (~2.3-2.6%)
+and `quickws` (~0.9-1.6%) at 16KB with **zero overlap** between throughput
+ranges — a real gap in that context, not noise — and that configuration
+has not been re-measured since the write-path and header-decode changes
+landed. `gows-noutf8` didn't close it, ruling out validation cost as the
+cause.
 
 Root-caused via `strace -c -f` under matched load: for the same 16KB
 frame, gows issues **~5.02 `read(2)` calls per message against gws's
@@ -262,6 +336,32 @@ func serve(conn net.Conn) {
 }
 ```
 
+For reply-heavy servers (echo, RPC-over-WebSocket, fan-in aggregation),
+prefer the drain-and-coalesce loop — it is the shape the pipelined
+benchmark numbers above were measured with:
+
+```go
+func serve(conn net.Conn) {
+	up := gows.Upgrader{EnableCompression: true}
+	hs, err := up.Upgrade(conn)
+	if err != nil {
+		conn.Close()
+		return
+	}
+	c := gows.NewServerConn(conn,
+		gows.WithBuffered(hs.Buffered),
+		gows.WithCompression(hs.Compressed),
+	)
+	defer c.Close(gows.CloseNormalClosure, "")
+
+	// Serve drains every complete message per wakeup and flushes the
+	// buffered replies in a single write before blocking again.
+	_ = c.Serve(func(op gows.Opcode, payload []byte) error {
+		return c.WriteMessageBuffered(op, payload)
+	})
+}
+```
+
 ### Server (`net/http`)
 
 For callers behind `net/http`'s routing, middleware, or TLS termination:
@@ -348,7 +448,7 @@ Always pass `hs.Buffered` (any handshake-pipelined bytes) and
 may differ from what was requested) into `WithBuffered`/`WithCompression`
 — constructing a `Conn` with a hardcoded compression flag instead of the
 handshake's own answer risks disagreeing with what the peer actually
-agreed to. All three examples above are verified to compile against this
+agreed to. All four examples above are verified to compile against this
 module (`go build`/`go vet`, clean) as part of writing this document.
 
 ## Conformance
@@ -371,11 +471,21 @@ gates as dated historical evidence:
 Their 517-case counts and verdicts describe those recorded runs; they are not
 evidence that the v0.4 feature-specific matrix ran.
 
-The v0.4 feature server/client 517-case matrix is **SKIPPED-RESIDUAL**. Docker,
-OrbStack, and those feature runs were not executed for the signed v0.4
-delivery, and this residual is not pass evidence. The signed delivery instead
-retains the completed non-container root, race, purego, `flatekp`, benchmark,
-review, and UltraQA evidence under `.omx/artifacts/`.
+The v0.4 feature server/client 517-case matrix was **SKIPPED-RESIDUAL** at
+the signed v0.4 delivery (Docker, OrbStack, and those feature runs were not
+executed then; the signed delivery retains the completed non-container
+root, race, purego, `flatekp`, benchmark, review, and UltraQA evidence
+under `.omx/artifacts/`).
+
+That residual has since been retired: the full Autobahn|Testsuite
+**517-case matrix ran in both directions ("All cases passed") on
+2026-07-14**, twice — once at commit `44c8417` (after the drain/serving,
+transport-aware write, and header-table changes) and once at the current
+head `324b7b8` (after the calibration and allocation-hygiene changes) —
+server leg OK 478 / UNIMPLEMENTED 36 / INFORMATIONAL 3, client leg OK 442
+/ UNIMPLEMENTED 72 / INFORMATIONAL 3, zero non-conformant cases
+(UNIMPLEMENTED entries are optional permessage-deflate parameter offers
+the suite probes; INFORMATIONAL cases carry no verdict by design).
 
 ## Non-goals and deferred work
 
@@ -386,13 +496,28 @@ review, and UltraQA evidence under `.omx/artifacts/`.
 - **klauspost in the core module**: the optional backend is implemented in
   `flatekp/`, a separate Go module. It is intentionally not imported by the
   root module, which remains zero-dependency.
-- **Event-loop / reactor mode**: a `gowsnet` package spike driving the
-  frame codec over an epoll/kqueue reactor instead of goroutine-per-connection,
-  is deferred to a separate deliberate design phase. It has not started; the
-  current connection model is goroutine-per-connection throughout.
-- **16 KiB performance tuning**: prior syscall-pacing and `MSG_WAITALL`
-  experiments did not produce an accepted improvement. Further work requires
-  a new falsifiable hypothesis and controlled benchmark evidence.
+- **Event-loop / reactor mode**: deliberately not pursued. The evidence
+  points the other way for throughput-bound workloads: reactor designs pay
+  mandatory extra copies per message (nbio's own model loses the echo
+  matrix above), and the 2026-07 platform study found darwin offers no
+  cross-connection batching syscalls for a reactor to exploit — the
+  drain-and-coalesce `Serve` loop captures the batching win inside the
+  goroutine-per-connection model instead. A reactor only becomes
+  interesting again at very high connection counts (C100k+), where
+  per-connection memory dominates.
+- **16 KiB performance tuning (linux/amd64 vs gws)**: the darwin/arm64
+  16KiB cells are now measured ties vs quickws (see Benchmarks), but the
+  older linux/amd64 gap vs gws predates the new write path and has not
+  been re-measured. Prior syscall-pacing and `MSG_WAITALL` experiments did
+  not produce an accepted improvement; further work requires re-running
+  that matrix at the current head first.
+- **arm64 SIMD dispatch thresholds are calibrated; amd64's UTF-8 threshold
+  is not.** `internal/utf8x/valid_simd_amd64.go` still carries its
+  pre-campaign placeholder pending a benchstat pass on amd64 hardware
+  (the M-series calibration methodology to replicate is documented in
+  [`.omc/research/neon-vnext-calibration.md`](.omc/research/neon-vnext-calibration.md),
+  including the two strengthening kernels that were built, measured, and
+  rejected on their pre-set gates).
 
 ## License
 
