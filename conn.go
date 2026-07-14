@@ -70,50 +70,60 @@ var maxCoalescedWriteSize = 2 << 10
 //
 // The zero value is not usable; construct a Conn with [NewServerConn] or
 // [NewClientConn].
+// The field order is laid out for the M-series (Apple Silicon) 128-byte L1D
+// cache line, and TestConnFieldLayout pins the invariants with unsafe.Offsetof
+// so a future reorder cannot silently regress them:
+//
+//   - Every field the ReadMessage/NextReader hot path touches per frame lives
+//     in the first 128 bytes -- the whole read working set is one cache line.
+//   - The write block (wmu and the write scratch/state that WriteMessage,
+//     the control replies, and NextWriter serialize under it) starts on the
+//     next 128-byte boundary, via an explicit pad, so a concurrent writer's
+//     line never straddles the reader's.
+//   - Compression-only scratch and teardown state sit below both, off the two
+//     hot lines, since the overwhelmingly common Conn never compresses.
 type Conn struct {
-	conn     net.Conn
-	client   bool // true: client role (mask outbound, reject masked inbound)
-	vectored bool // true: transport yields a real writev from net.Buffers (*net.TCPConn/*net.UnixConn); fixed at construction
+	// --- read-hot: the first 128B, one M-series L1D line (see TestConnFieldLayout) ---
+	conn          net.Conn          // underlying transport (read every fill, written every emit)
+	rbuf          []byte            // connection read buffer; valid data is rbuf[r0:r1]
+	r0, r1        int               // read-window bounds into rbuf
+	hdrTable      *[256]headerClass // shared static b0-classification table for this Conn's compression state
+	readLimit     int64             // max reassembled message size
+	readErr       error             // sticky terminal read error once set
+	msgReader     *messageReader    // active NextReader stream, if any; nil on the ReadMessage-only hot path
+	msgBuf        []byte            // reassembly buffer for fragmented/oversized messages
+	hdrMaskBit    byte              // expected b1 mask bit for this Conn's role (0x80 server, 0x00 client)
+	client        bool              // true: client role (mask outbound, reject masked inbound)
+	vectored      bool              // true: transport yields a real writev from net.Buffers (*net.TCPConn/*net.UnixConn); fixed at construction
+	skipUTF8      bool              // UTF-8 validation disabled
+	msgIsText     bool              // current message is Text (validate UTF-8)
+	msgCompressed bool              // current message's first frame carried RSV1 (permessage-deflate)
+	utf8v         utf8x.Validator   // streaming UTF-8 validator (1 byte of DFA state)
+	_             [1]byte           // pad so the write block below starts on the next 128B boundary
 
-	// --- read side (single reader goroutine) ---
-	rbuf           []byte // connection read buffer; valid data is rbuf[r0:r1]
-	r0, r1         int
-	hdrTable       *[256]headerClass // shared static b0-classification table for this Conn's compression state
-	hdrMaskBit     byte              // expected b1 mask bit for this Conn's role (0x80 server, 0x00 client)
-	readLimit      int64
-	skipUTF8       bool
-	msgBuf         []byte // reassembly buffer for fragmented/oversized messages
-	utf8v          utf8x.Validator
-	msgIsText      bool
-	msgCompressed  bool           // current message's first frame carried RSV1 (permessage-deflate)
-	inflateBuf     []byte         // decompression output buffer, reused across messages
-	inflateScratch []byte         // fixed-size read-chunk scratch for the inflate loop
-	readErr        error          // sticky terminal read error once set
-	msgReader      *messageReader // active NextReader stream, if any; nil on the ReadMessage-only hot path
+	// --- write block: begins on a fresh 128B boundary; serialized by wmu ---
+	wmu         sync.Mutex     // 8 bytes; must land at offset 128 (write block boundary)
+	whdr        []byte         // header encode scratch
+	wpay        []byte         // client masked payload / server small-frame coalescing scratch
+	wclose      []byte         // close-body encode scratch
+	wiov        [2][]byte      // writev scratch (header, payload)
+	wbufs       net.Buffers    // mutable slice header consumed by Buffers.WriteTo
+	wstage      []byte         // header+payload staging scratch for the non-writev (staged) transport path
+	wbatch      []byte         // WriteMessageBuffered batch accumulator; nil until first buffered write (guarded by wmu)
+	msgWriter   *messageWriter // open NextWriter stream, if any (guarded by wmu); nil on the WriteMessage-only hot path
+	closeSent   bool           // a Close frame has been written (guarded by wmu)
+	compression bool           // permessage-deflate negotiated (RFC 7692); gates the write path per message; see WithCompression
+	closeRcvd   atomic.Bool    // the peer's Close frame has been observed
+	tornDown    atomic.Bool    // set once teardown has run; guards every re-entry
 
-	// --- write side (serialized by wmu) ---
-	wmu       sync.Mutex
-	whdr      []byte         // header encode scratch
-	wpay      []byte         // client masked payload / server small-frame coalescing scratch
-	wcomp     []byte         // compression output scratch
-	wclose    []byte         // close-body encode scratch
-	wiov      [2][]byte      // writev scratch (header, payload)
-	wbufs     net.Buffers    // mutable slice header consumed by Buffers.WriteTo
-	wstage    []byte         // header+payload staging scratch for the non-writev (staged) transport path
-	wbatch    []byte         // WriteMessageBuffered batch accumulator; nil until first buffered write (guarded by wmu)
-	closeSent bool           // a Close frame has been written (guarded by wmu)
-	msgWriter *messageWriter // open NextWriter stream, if any (guarded by wmu); nil on the WriteMessage-only hot path
-
-	// --- extensions ---
-	compression        bool          // permessage-deflate negotiated (RFC 7692); see WithCompression
+	// --- compression-only / teardown: cold, below both hot lines ---
+	wcomp              []byte        // compression output scratch (only touched while compressing)
+	wslice             sliceWriter   // reusable pooled-compressor sink; avoids a per-message &sliceWriter{} (guarded by wmu/msgWriter exclusion)
+	inflateBuf         []byte        // decompression output buffer, reused across messages; inflated into directly
 	deflate            *deflateState // non-nil when context takeover and/or a sub-ceiling per-Conn writer is needed; see WithCompressionParams
 	outgoingWindowCeil int           // effective ceiling on this Conn's own outgoing compression window (8..15); default 15
-
-	// --- shared / teardown ---
-	closeRcvd    atomic.Bool
-	tornDown     atomic.Bool // set once teardown has run; guards every re-entry
-	teardownOnce sync.Once
-	closeTimeout time.Duration
+	teardownOnce       sync.Once
+	closeTimeout       time.Duration
 }
 
 // ConnOption configures a [Conn] created by [NewServerConn] or
@@ -147,9 +157,16 @@ func WithReadBufferSize(n int) ConnOption {
 
 // adaptReadBuffer grows rbuf just enough to keep a bounded single-frame
 // payload contiguous. The old oversized-message path already allocates and
-// retains a msgBuf for this payload; replacing rbuf with one exact-size buffer
+// retains a msgBuf for this payload; replacing rbuf with one larger buffer
 // instead avoids retaining both buffers and lets subsequent frames arrive in
 // one Read without a reassembly copy.
+//
+// The replacement is drawn from the shared pool with pool.Get, whose power-of-2
+// size classing rounds the request up to a class capacity. An earlier revision
+// used an exact-size make([]byte, payloadSize+MaxHeaderSize); that non-class
+// capacity was silently dropped by pool.Put at teardown (pool.go only retains
+// class-sized buffers), so an adapted Conn leaked its read buffer past the pool
+// on every close. A class-sized buffer round-trips back to the pool instead.
 func (c *Conn) adaptReadBuffer(payloadSize int64) {
 	if payloadSize > c.readLimit ||
 		payloadSize <= int64(cap(c.rbuf)) ||
@@ -157,7 +174,8 @@ func (c *Conn) adaptReadBuffer(payloadSize int64) {
 		return
 	}
 
-	next := make([]byte, int(payloadSize)+MaxHeaderSize)
+	next := pool.Get(int(payloadSize) + MaxHeaderSize)
+	next = next[:cap(next)]
 	unread := copy(next, c.rbuf[c.r0:c.r1])
 	pool.Put(c.rbuf)
 	c.rbuf = next
@@ -474,10 +492,6 @@ func (c *Conn) teardown() {
 		if c.inflateBuf != nil {
 			pool.Put(c.inflateBuf)
 			c.inflateBuf = nil
-		}
-		if c.inflateScratch != nil {
-			pool.Put(c.inflateScratch)
-			c.inflateScratch = nil
 		}
 		c.r0, c.r1 = 0, 0
 		// Release the WriteMessageBuffered batch accumulator, if any. It is

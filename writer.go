@@ -20,6 +20,7 @@ import (
 	"io"
 	"math/rand/v2"
 	"net"
+	"sync"
 
 	"github.com/zchee/gows/internal/mask"
 	"github.com/zchee/gows/internal/pool"
@@ -347,10 +348,13 @@ type messageWriter struct {
 	mayCompress bool
 
 	// compressed is set once the message engages DEFLATE (FILL or CLOSE-LARGE).
-	compressed  bool
-	comp        DeflateWriter
-	sink        *sliceWriter
-	compRelease func()
+	compressed bool
+	comp       DeflateWriter
+	sink       *sliceWriter
+	// compPool is non-nil when comp is a pooled writer to return on release; nil
+	// for a per-Conn (context-takeover or sub-ceiling) writer. It replaces the
+	// per-message release closure the pooled path used to allocate.
+	compPool *sync.Pool
 
 	// fedToCompressor is true once any plaintext has been written into the
 	// compressor. On a context-takeover Conn a terminal failure after this
@@ -543,21 +547,21 @@ func (w *messageWriter) flushLocked(fin bool) error {
 // fragments. On ceiling violation it leaves compressed false so the caller
 // can fall through to the uncompressed path. The caller must not hold wmu.
 func (w *messageWriter) engageCompression() error {
-	comp, sw, reset, release, ok := w.c.acquireCompressor()
+	lease, reset, ok := w.c.acquireCompressor()
 	if !ok {
 		return nil
 	}
-	sw.b = sw.b[:0]
+	lease.sw.b = lease.sw.b[:0]
 	if reset {
-		comp.Reset(sw)
+		lease.w.Reset(lease.sw)
 	}
-	w.comp = comp
-	w.sink = sw
-	w.compRelease = release
+	w.comp = lease.w
+	w.sink = lease.sw
+	w.compPool = lease.pool
 	w.compressed = true
 
 	if len(w.buf) > 0 {
-		if _, err := comp.Write(w.buf); err != nil {
+		if _, err := w.comp.Write(w.buf); err != nil {
 			w.fedToCompressor = true
 			w.disableTakeoverIfFed()
 			return fmt.Errorf("gows: compress message: %w", err)
@@ -617,19 +621,19 @@ func (w *messageWriter) drainCompressedFragmentsLocked() error {
 // buffer and emits one Fin+RSV1 frame, matching WriteMessage framing. The
 // caller must hold wmu.
 func (w *messageWriter) closeLargeLocked() error {
-	comp, sw, reset, release, ok := w.c.acquireCompressor()
+	lease, reset, ok := w.c.acquireCompressor()
 	if !ok {
 		return w.flushLocked(true)
 	}
-	sw.b = sw.b[:0]
+	lease.sw.b = lease.sw.b[:0]
 	if reset {
-		comp.Reset(sw)
+		lease.w.Reset(lease.sw)
 	}
-	w.comp = comp
-	w.sink = sw
-	w.compRelease = release
+	w.comp = lease.w
+	w.sink = lease.sw
+	w.compPool = lease.pool
 	w.compressed = true
-	out, err := writeAndFlush(comp, sw, w.buf)
+	out, err := writeAndFlush(lease.w, lease.sw, w.buf)
 	w.fedToCompressor = true
 	w.buf = w.buf[:0]
 	if err != nil {
@@ -687,9 +691,9 @@ func (w *messageWriter) emitCompressedChunkLocked(payload []byte, fin bool) erro
 
 // releaseCompressor returns a pooled compressor (if any). Idempotent.
 func (w *messageWriter) releaseCompressor() {
-	if w.compRelease != nil {
-		w.compRelease()
-		w.compRelease = nil
+	if w.compPool != nil {
+		w.compPool.Put(w.comp)
+		w.compPool = nil
 	}
 	w.comp = nil
 	w.sink = nil

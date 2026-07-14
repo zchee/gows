@@ -123,6 +123,33 @@ func TestAdaptReadBufferBounds(t *testing.T) {
 	}
 }
 
+// TestAdaptReadBufferRecyclesToPoolClass verifies the adaptive single-frame
+// buffer swap draws its replacement from the shared pool at a power-of-two
+// class capacity, so pool.Put at teardown retains it. Before US-B367 (audit
+// #13) the swap used an exact-size make([]byte, payload+MaxHeaderSize) whose
+// non-class capacity pool.Put silently dropped at teardown, leaking the adapted
+// buffer past the pool. Recyclability is exactly pool.go's retain rule: a
+// class-sized capacity within [128B, 256KiB].
+func TestAdaptReadBufferRecyclesToPoolClass(t *testing.T) {
+	t.Parallel()
+
+	c := NewServerConn(&scriptConn{}, WithReadBufferSize(defaultReadBufferSize))
+	const payload = 8 << 10 // within (cap(rbuf), maxAdaptiveReadSize]
+	c.adaptReadBuffer(payload)
+
+	got := cap(c.rbuf)
+	if int64(got) < payload {
+		t.Fatalf("adapted cap = %d, want >= payload %d", got, payload)
+	}
+	const (
+		minClassSize = 1 << 7
+		maxClassSize = 1 << 18
+	)
+	if got < minClassSize || got > maxClassSize || got&(got-1) != 0 {
+		t.Fatalf("adapted cap = %d is not a pool size class; pool.Put would drop it at teardown", got)
+	}
+}
+
 func TestWriteMessageServerSmallFrameSingleWrite(t *testing.T) {
 	t.Parallel()
 
@@ -393,6 +420,88 @@ func TestWriteMessageServerAllocs(t *testing.T) {
 	t.Logf("server WriteMessage allocs/op = %v (race=%v)", allocs, raceEnabledInternal)
 	if !raceEnabledInternal && allocs != 0 {
 		t.Errorf("server WriteMessage allocs/op = %v, want 0", allocs)
+	}
+}
+
+// TestWriteMessageCompressedZeroAllocs pins the deflate write path to zero
+// steady-state allocations. Before US-B367 the pooled compressor path allocated
+// a &sliceWriter{} sink and a release closure on every compressed WriteMessage
+// (audit #4); both are gone -- the sink is the reusable per-Conn c.wslice and
+// the release is carried by value in the compressorLease.
+func TestWriteMessageCompressedZeroAllocs(t *testing.T) {
+	c := NewServerConn(&loopConn{frame: []byte{0x00}}, WithCompression(true))
+	// At or above defaultCompressMinSize and highly compressible, so the pooled
+	// compressor engages and the framed output stays within one coalesced Write.
+	payload := bytes.Repeat([]byte("A"), 1024)
+	for range 8 { // warm the pooled compressor and the c.wslice/c.wcomp buffers
+		if err := c.WriteMessage(OpcodeBinary, payload); err != nil {
+			t.Fatalf("warmup: %v", err)
+		}
+	}
+	allocs := testing.AllocsPerRun(500, func() {
+		_ = c.WriteMessage(OpcodeBinary, payload)
+	})
+	t.Logf("compressed WriteMessage allocs/op = %v (race=%v)", allocs, raceEnabledInternal)
+	if !raceEnabledInternal && allocs != 0 {
+		t.Errorf("compressed WriteMessage allocs/op = %v, want 0 (deflate write-path hygiene)", allocs)
+	}
+}
+
+// TestStreamingEchoAllocs guards the steady-state per-message allocation of a
+// streamed echo (NextReader -> drain -> NextWriter -> Close) at its irreducible
+// floor of two: one for the io.Reader handle returned by NextReader and one for
+// the io.WriteCloser returned by NextWriter. Both are irreducible under this
+// package's documented sticky-invalidation contract: a superseded reader's Read
+// must permanently return errStreamReaderStale and a closed writer's Write must
+// permanently return errWriterClosed (see TestNextReaderDiscardRemainder and
+// TestNextWriterCloseSemantics). That permanence forbids reusing a fixed set of
+// embedded handle objects across messages -- recycling a handle's storage for a
+// later message would resurrect a caller's stale handle into live state,
+// silently serving a different message's bytes instead of the sticky error.
+// The fragment buffer NextWriter borrows is already pool-recycled (zero steady
+// allocs), so the two handles are the whole cost. io.Copy is deliberately not
+// used here: its own 32 KiB scratch buffer is a caller-side allocation that
+// would mask the library's per-message cost this test pins.
+func TestStreamingEchoAllocs(t *testing.T) {
+	payload := bytes.Repeat([]byte{0x7f}, 1024)
+	frame := clientFrame(true, OpcodeBinary, payload)
+	c := NewServerConn(&loopConn{frame: frame})
+	scratch := make([]byte, 4096)
+
+	echo := func() {
+		op, r, err := c.NextReader()
+		if err != nil {
+			t.Fatalf("NextReader: %v", err)
+		}
+		n := 0
+		for {
+			m, rerr := r.Read(scratch[n:])
+			n += m
+			if rerr == io.EOF {
+				break
+			}
+			if rerr != nil {
+				t.Fatalf("Read: %v", rerr)
+			}
+		}
+		w, err := c.NextWriter(op)
+		if err != nil {
+			t.Fatalf("NextWriter: %v", err)
+		}
+		if _, err := w.Write(scratch[:n]); err != nil {
+			t.Fatalf("Write: %v", err)
+		}
+		if err := w.Close(); err != nil {
+			t.Fatalf("Close: %v", err)
+		}
+	}
+	for range 8 {
+		echo()
+	}
+	allocs := testing.AllocsPerRun(200, echo)
+	t.Logf("streaming echo allocs/op = %v (race=%v)", allocs, raceEnabledInternal)
+	if !raceEnabledInternal && allocs > 2 {
+		t.Errorf("streaming echo allocs/op = %v, want <= 2 (reader + writer handles)", allocs)
 	}
 }
 

@@ -20,15 +20,14 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"slices"
 	"sync"
 	"sync/atomic"
-
-	"github.com/zchee/gows/internal/pool"
 )
 
-// inflateChunkSize is the scratch read size [Conn.decompressMessage]
-// uses per [DeflateReader.Read] call while inflating a compressed
-// message.
+// inflateChunkSize is the number of bytes [Conn.decompressMessage] grows
+// its reassembly buffer by each time it fills while inflating a
+// compressed message directly into that buffer's spare capacity.
 const inflateChunkSize = 4096
 
 // deflateFlushTail is the 4-byte DEFLATE sync-flush marker (RFC 7692
@@ -447,6 +446,32 @@ func (w *sliceWriter) Write(p []byte) (int, error) {
 	return len(p), nil
 }
 
+// compressorLease bundles the compressor a WriteMessage/NextWriter message
+// compresses through with the bookkeeping [compressorLease.release] needs.
+// [Conn.acquireCompressor] returns it by value so the pooled path costs no
+// heap allocation: the sink is a reusable [sliceWriter] hung off the Conn (or
+// the per-Conn [deflateState]), never a fresh &sliceWriter{}, and the release
+// step is this value's own pool pointer, never a per-message closure capturing
+// the config and writer -- the two allocations the pooled path used to pay on
+// every compressed message, which broke zero-alloc steady state under
+// permessage-deflate.
+type compressorLease struct {
+	w  DeflateWriter
+	sw *sliceWriter
+	// pool is non-nil only for a pooled writer: the [sync.Pool] to return w to.
+	// It is nil for a per-Conn (context-takeover or sub-ceiling) writer, which
+	// the Conn owns for its whole lifetime and never returns to any pool.
+	pool *sync.Pool
+}
+
+// release returns a pooled compressor to its pool; it is a no-op for a per-Conn
+// writer. It MUST be called once the message ends (Close or terminal error).
+func (l compressorLease) release() {
+	if l.pool != nil {
+		l.pool.Put(l.w)
+	}
+}
+
 // tailReader serves message bytes b followed by [deflateReadTail]'s 9
 // bytes, without copying or mutating b: a [DeflateReader] reads through
 // this exactly as if the tail had been appended to b directly, but a
@@ -504,29 +529,32 @@ func compressPayloadWithConfig(dst, p []byte, cfg *deflateConfig) ([]byte, error
 	return writeAndFlush(w, sw, p)
 }
 
-// acquireCompressor returns the DeflateWriter and sink the caller must
-// compress this message through. ok is false when the current active
-// backend would violate c.outgoingWindowCeil on the pooled path; the
-// caller must send the message uncompressed. When ok is true, release
-// MUST be called when the message ends (Close or terminal error): for
-// the pooled case it returns the writer to the active pool; for per-Conn
-// writers it is a no-op. reset reports whether the caller must Reset the
-// writer onto the sink before first use (true for pooled and for
-// sub-ceiling no-context-takeover writers; false for the persistent
-// takeover writer, whose window must survive).
-func (c *Conn) acquireCompressor() (w DeflateWriter, sw *sliceWriter, reset bool, release func(), ok bool) {
+// acquireCompressor returns the compressor and sink the caller must compress
+// this message through, wrapped in a [compressorLease] the caller releases when
+// the message ends. ok is false when the current active backend would violate
+// c.outgoingWindowCeil on the pooled path; the caller must then send the
+// message uncompressed. reset reports whether the caller must Reset the writer
+// onto the sink before first use (true for pooled and for sub-ceiling
+// no-context-takeover writers; false for the persistent takeover writer, whose
+// window must survive). The pooled path allocates nothing: it draws the sink
+// from c.wslice (a reusable per-Conn [sliceWriter]) and carries the pool to
+// return the writer to in the lease itself, so acquiring a pooled compressor no
+// longer heap-allocates a &sliceWriter{} plus a release closure per message.
+// Only one message compresses at a time per Conn (the msgWriter/WriteMessage
+// mutual exclusion), so a single per-Conn sink is safe.
+func (c *Conn) acquireCompressor() (lease compressorLease, reset, ok bool) {
 	if ds := c.deflate; ds != nil && ds.outgoing != nil {
-		return ds.outgoing, ds.outgoingDst, !ds.outgoingTakeover, func() {}, true
+		return compressorLease{w: ds.outgoing, sw: ds.outgoingDst}, !ds.outgoingTakeover, true
 	}
 	cfg := currentDeflateConfig()
 	// Per-emission ceiling guard: a concurrent SetDeflateBackend may have
 	// swapped in a larger window than this Conn negotiated; refuse the pool
 	// rather than emit a window the peer cannot accept.
 	if c.outgoingWindowCeil < deflateWindowBits && cfg.windowBits > c.outgoingWindowCeil {
-		return nil, nil, false, nil, false
+		return compressorLease{}, false, false
 	}
 	pw := cfg.writers.Get().(DeflateWriter)
-	return pw, &sliceWriter{}, true, func() { cfg.writers.Put(pw) }, true
+	return compressorLease{w: pw, sw: &c.wslice, pool: &cfg.writers}, true, true
 }
 
 // compressMessage is compressPayload's per-Conn counterpart, used by
@@ -545,7 +573,7 @@ func (c *Conn) acquireCompressor() (w DeflateWriter, sw *sliceWriter, reset bool
 // Compressor selection is shared with [Conn.NextWriter] via
 // [Conn.acquireCompressor].
 func (c *Conn) compressMessage(dst, p []byte) ([]byte, bool, error) {
-	w, sw, reset, release, ok := c.acquireCompressor()
+	lease, reset, ok := c.acquireCompressor()
 	if !ok {
 		// The per-emission ceiling guard refused the pooled path (a
 		// SetDeflateBackend swap installed a window larger than this Conn's
@@ -553,12 +581,12 @@ func (c *Conn) compressMessage(dst, p []byte) ([]byte, bool, error) {
 		// which RFC 7692 §6 always permits.
 		return nil, false, nil
 	}
-	defer release()
-	sw.b = dst[:0]
+	defer lease.release()
+	lease.sw.b = dst[:0]
 	if reset {
-		w.Reset(sw)
+		lease.w.Reset(lease.sw)
 	}
-	out, err := writeAndFlush(w, sw, p)
+	out, err := writeAndFlush(lease.w, lease.sw, p)
 	return out, true, err
 }
 
@@ -637,21 +665,34 @@ func (c *Conn) decompressMessage(compressed []byte) ([]byte, error) {
 	if err := r.Reset(&tr, dict); err != nil {
 		return nil, fmt.Errorf("gows: reset decompressor: %w", err)
 	}
-	if c.inflateScratch == nil {
-		c.inflateScratch = pool.Get(inflateChunkSize)[:inflateChunkSize]
-	}
 
+	// Inflate directly into out's spare capacity -- r.Read(out[len:cap]), then
+	// extend -- growing the reassembly buffer in bounded chunks only when it is
+	// full. The old path read every byte into a 4KB scratch and then appended it
+	// into out, copying each decompressed byte twice; reading straight into out
+	// halves that memory traffic. The buffer is never grown past c.readLimit+1
+	// bytes: that single byte over the limit is enough to detect a decompression
+	// bomb on the very next Read (len(out) then exceeds readLimit) while keeping
+	// the buffer bounded, so a bomb can never force an unbounded reassembly
+	// allocation -- and since len(out) <= c.readLimit whenever we grow, the cap
+	// is guaranteed to gain at least one spare byte, so the final zero-length
+	// Read that yields io.EOF is never starved into a spurious (0, nil) spin.
 	out := c.inflateBuf[:0]
-	var total int64
 	for {
-		n, err := r.Read(c.inflateScratch)
+		if len(out) == cap(out) {
+			grow := inflateChunkSize
+			if lim := c.readLimit + 1; int64(len(out))+int64(grow) > lim {
+				grow = int(lim - int64(len(out)))
+			}
+			out = slices.Grow(out, grow)
+		}
+		n, err := r.Read(out[len(out):cap(out)])
 		if n > 0 {
-			total += int64(n)
-			if total > c.readLimit {
+			out = out[:len(out)+n]
+			if int64(len(out)) > c.readLimit {
 				c.inflateBuf = out
 				return nil, errDecompressedTooLarge
 			}
-			out = append(out, c.inflateScratch[:n]...)
 		}
 		if err != nil {
 			c.inflateBuf = out
