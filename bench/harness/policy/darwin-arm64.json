@@ -14,7 +14,10 @@
   },
   "guard": {
     "max_load1": 6.0,
-    "forbidden_process_patterns": ["echoserver", "loadgen"]
+    "forbidden_process_patterns": [
+      "echoserver",
+      "loadgen"
+    ]
   },
   "scenarios": [
     {
@@ -69,7 +72,7 @@
     },
     {
       "name": "binary-1k-200-inflight8",
-      "primary": false,
+      "primary": true,
       "payload_bytes": 1024,
       "connections": 200,
       "inflight": 8,
@@ -79,7 +82,7 @@
     },
     {
       "name": "binary-1k-1k-inflight4",
-      "primary": false,
+      "primary": true,
       "payload_bytes": 1024,
       "connections": 1000,
       "inflight": 4,
