@@ -15,7 +15,7 @@ immutable artifact and the fixed evaluator exits zero.
 
 Policy schema version 3 makes purpose and interpretation part of the run
 identity. Samples use schema version 2, and load-generator results embedded in
-them use schema version 4. Unknown fields, versionless policies, and older
+them use schema version 5. Unknown fields, versionless policies, and older
 schemas are rejected rather than upgraded implicitly.
 
 <!-- markdownlint-disable MD013 -->
@@ -167,12 +167,14 @@ message weighting rather than weighting each connection equally. The p50,
 p90, p99, and p999 summaries must reconstruct exactly from the corrected
 histogram.
 
-Server and client allocation snapshots carry raw before/after deltas,
-observation overhead, net allocations, allocated bytes, allocations/message,
-and bytes/message. Process CPU and peak RSS come from OS-specific `rusage`
-collectors; MaxRSS is normalized to bytes and unavailable data is represented
-as unavailable, never as a fabricated zero. Microbenchmark `0 alloc/op` and
-macro allocation rate are distinct contracts.
+Server and client allocation snapshots carry raw before/after deltas and an
+independent control-window observation overhead. Allocations/message and
+bytes/message use the raw, observer-inclusive delta as a conservative upper
+bound; the stochastic control observation is never subtracted per sample or
+clamped into a false zero. Process CPU and peak RSS come from OS-specific
+`rusage` collectors; MaxRSS is normalized to bytes and unavailable data is
+represented as unavailable, never as a fabricated zero. Microbenchmark
+`0 alloc/op` and macro allocation rate are distinct contracts.
 
 ### Immutable artifacts and tracked receipts
 

@@ -124,7 +124,11 @@ func validSampleFixture(t *testing.T, library string, throughput float64, p99 in
 		t.Fatalf("Percentiles: %v", err)
 	}
 	usage := support.Usage{Available: true, CPUSeconds: 0.001, MaxRSSBytes: 4096, Source: "fixture"}
-	allocations := support.AllocationStats{Available: true, ObservationAdjustmentMethod: "paired-prewindow-snapshot"}
+	allocations := support.AllocationStats{
+		Available:         true,
+		RateBasis:         "raw-delta-including-observation",
+		ObservationMethod: "paired-prewindow-control",
+	}
 	duration := int64(4 * time.Second)
 	loadgen := support.LoadgenResult{
 		SchemaVersion: support.LoadgenSchemaVersion, Client: "raw", MessageType: "binary", Arrival: "closed_loop",

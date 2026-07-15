@@ -19,10 +19,10 @@ const (
 	metricServerRSS        = "server_rss_bytes_per_connection"
 	metricClientCPU        = "client_cpu_seconds_per_message"
 	metricClientRSS        = "client_rss_bytes_per_connection"
-	metricServerAllocs     = "server_allocations_per_message"
-	metricServerAllocBytes = "server_allocated_bytes_per_message"
-	metricClientAllocs     = "client_allocations_per_message"
-	metricClientAllocBytes = "client_allocated_bytes_per_message"
+	metricServerAllocs     = "server_raw_allocations_per_message"
+	metricServerAllocBytes = "server_raw_allocated_bytes_per_message"
+	metricClientAllocs     = "client_raw_allocations_per_message"
+	metricClientAllocBytes = "client_raw_allocated_bytes_per_message"
 )
 
 var resourceMetrics = []string{

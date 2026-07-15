@@ -30,6 +30,20 @@ func TestEvaluateAAPassesExactSameBinaryAndIsOrderStable(t *testing.T) {
 	if len(got.Scenarios) != 1 || got.Scenarios[0].Pairs != 60 || got.Scenarios[0].Throughput.Ratio.Center != 1 {
 		t.Fatalf("unexpected A/A scenario verdict: %+v", got.Scenarios)
 	}
+	resourceMetrics := make(map[string]bool, len(got.Scenarios[0].Resources))
+	for _, resource := range got.Scenarios[0].Resources {
+		resourceMetrics[resource.Metric] = true
+	}
+	for _, metric := range []string{
+		"server_raw_allocations_per_message",
+		"server_raw_allocated_bytes_per_message",
+		"client_raw_allocations_per_message",
+		"client_raw_allocated_bytes_per_message",
+	} {
+		if !resourceMetrics[metric] {
+			t.Fatalf("A/A verdict resource metrics %v do not include %q", resourceMetrics, metric)
+		}
+	}
 
 	permuted := slices.Clone(runs)
 	for i := range permuted {

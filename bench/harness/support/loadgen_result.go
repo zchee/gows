@@ -8,7 +8,7 @@ import (
 
 // LoadgenSchemaVersion is the only machine-result schema accepted by
 // benchrun.
-const LoadgenSchemaVersion = 4
+const LoadgenSchemaVersion = 5
 
 // MaxOpenLoopRate is the highest representable true open-loop schedule. A
 // higher rate would require multiple arrivals at one nanosecond and cannot be

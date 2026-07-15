@@ -29,7 +29,7 @@ func TestValidateMeasurementConsistencyRejectsForgedDerivedFields(t *testing.T) 
 	}
 
 	forgedAllocation := sample
-	forgedAllocation.LoadgenResult.ServerAllocations.MallocsNetDelta++
+	forgedAllocation.LoadgenResult.ServerAllocations.MallocsRawDelta++
 	if err := validateMeasurementConsistency(forgedAllocation); err == nil || !strings.Contains(err.Error(), "allocation") {
 		t.Fatalf("forged allocation error = %v", err)
 	}
@@ -216,11 +216,11 @@ func validMeasuredSample(t *testing.T) paired.Sample {
 	}
 	serverAllocation := support.AllocationStats{
 		Available: true, MallocsBefore: 100, MallocsAfter: 112, MallocsRawDelta: 12,
-		MallocsObservationOverhead: 2, MallocsNetDelta: 10,
-		TotalAllocBytesBefore: 1000, TotalAllocBytesAfter: 1220, TotalAllocBytesRawDelta: 220,
-		TotalAllocObservationBytes: 20, TotalAllocBytesNetDelta: 200,
-		AllocationsPerMessage: 1, AllocatedBytesPerMessage: 20,
-		ObservationAdjustmentMethod: "paired-prewindow-snapshot",
+		MallocsObservationOverhead: 2,
+		TotalAllocBytesBefore:      1000, TotalAllocBytesAfter: 1220, TotalAllocBytesRawDelta: 220,
+		TotalAllocObservationBytes: 20,
+		AllocationsPerMessage:      1.2, AllocatedBytesPerMessage: 22,
+		RateBasis: "raw-delta-including-observation", ObservationMethod: "paired-prewindow-control",
 	}
 	clientAllocation := serverAllocation
 	serverUsage := support.Usage{Available: true, CPUSeconds: 1, MaxRSSBytes: 20_000, Source: "test-window-delta"}

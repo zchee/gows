@@ -101,7 +101,7 @@ WebSocket library for Go, engineered for performance and conformance.
 ## Benchmarks
 
 The current Phase 0 harness uses strict policy schema v3, sample schema v2, and
-load-generator result schema v4; balanced AB/BA blocks; session/block-
+load-generator result schema v5; balanced AB/BA blocks; session/block-
 preserving hierarchical inference; mergeable HDR histograms; and fail-closed
 open-loop accounting for exact offered arrivals, scheduler lateness, queue
 rejection, post-window backlog, and bounded drain completion. Missed or
@@ -110,7 +110,8 @@ distinct from full-queue rejection. Only an exchange whose worker starts
 before the measurement boundary may complete successfully during the bounded
 drain; queued work first started at or after the boundary is a post-window
 drop. The harness also records `gows`/`gobwas`/raw client series, strict
-quickws UTF-8 and write-error accounting, normalized rusage/allocation fields,
+quickws UTF-8 and write-error accounting, normalized rusage fields, raw macro
+allocation rates with separately recorded control overhead,
 immutable CAS receipts, and amd64/arm64 assembly provenance. Stock and custom
 `GOEXPERIMENT` series are non-interchangeable. The current baseline is
 record-only: Phase 0 requires complete honest measurements, not quickws

@@ -11,12 +11,20 @@ func TestLoadgenResultRejectsForgedAccounting(t *testing.T) {
 		t.Fatalf("valid fixture: %v", err)
 	}
 	tests := map[string]func(*LoadgenResult){
-		"old schema":             func(r *LoadgenResult) { r.SchemaVersion-- },
-		"missing payload seed":   func(r *LoadgenResult) { r.PayloadSeed = 0 },
-		"forged percentile":      func(r *LoadgenResult) { r.P99Nanoseconds++ },
-		"forged throughput":      func(r *LoadgenResult) { r.ThroughputMessagesPerSecond++ },
-		"forged allocation rate": func(r *LoadgenResult) { r.ServerAllocations.AllocationsPerMessage++ },
-		"unavailable resource":   func(r *LoadgenResult) { r.ServerUsage.Available = false },
+		"old schema":           func(r *LoadgenResult) { r.SchemaVersion-- },
+		"missing payload seed": func(r *LoadgenResult) { r.PayloadSeed = 0 },
+		"forged percentile":    func(r *LoadgenResult) { r.P99Nanoseconds++ },
+		"forged throughput":    func(r *LoadgenResult) { r.ThroughputMessagesPerSecond++ },
+		"forged allocation rate": func(r *LoadgenResult) {
+			r.ServerAllocations.AllocationsPerMessage++
+		},
+		"forged allocation rate basis": func(r *LoadgenResult) {
+			r.ServerAllocations.RateBasis = "observation-adjusted"
+		},
+		"forged allocation observation method": func(r *LoadgenResult) {
+			r.ServerAllocations.ObservationMethod = "unrecorded"
+		},
+		"unavailable resource": func(r *LoadgenResult) { r.ServerUsage.Available = false },
 		"histogram count mismatch": func(r *LoadgenResult) {
 			r.Latency.Raw.BucketCounts[0]++
 		},
