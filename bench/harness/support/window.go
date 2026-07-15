@@ -24,8 +24,7 @@ const MaxInflightBytes = 1 << 20
 // The common case (a correct echo) is decided by a single [bytes.Equal], which
 // dispatches to the runtime's SIMD memequal and is far cheaper than a scalar
 // byte loop on the per-message hot path. Only a genuine mismatch pays for the
-// descriptive length/content diagnosis, so verification is neither weakened nor
-// its length+content guarantee relaxed.
+// descriptive length/content diagnosis.
 func VerifyEcho(expected, got []byte) error {
 	if bytes.Equal(expected, got) {
 		return nil
@@ -52,8 +51,8 @@ type inflightMessage struct {
 // outstanding to a fixed capacity and attributes each echo to the matching
 // send in FIFO order.
 //
-// A PipelineWindow is driven by exactly one writer goroutine (Acquire/
-// TryAcquire then Record) and one reader goroutine (Receive). Two bounded
+// A PipelineWindow is driven by exactly one writer goroutine (Acquire then
+// Record) and one reader goroutine (Receive). Two bounded
 // channels do all the coordination, so no lock is required: a credit channel
 // (pre-filled with capacity tokens) supplies backpressure — the writer blocks
 // in Acquire once capacity messages are outstanding — and a FIFO channel holds
@@ -96,17 +95,11 @@ func NewPipelineWindow(capacity int, expected []byte) *PipelineWindow {
 	return w
 }
 
-// Cap returns the window capacity (the maximum number of outstanding messages).
-func (w *PipelineWindow) Cap() int { return w.capacity }
-
-// Len returns the number of messages currently outstanding (recorded but not
-// yet received).
-func (w *PipelineWindow) Len() int { return len(w.fifo) }
-
-// TryAcquire takes a send credit without blocking, returning true when one was
-// free or false when the window is already full. It is the non-blocking core
-// of the credit accounting; the live writer uses Acquire.
-func (w *PipelineWindow) TryAcquire() bool {
+// tryAcquire takes a send credit without blocking, returning true when one was
+// free or false when the window is already full. It exists so tests can assert
+// window-full refusal deterministically, without goroutines; the live writer
+// uses Acquire.
+func (w *PipelineWindow) tryAcquire() bool {
 	select {
 	case <-w.credits:
 		return true
@@ -128,7 +121,7 @@ func (w *PipelineWindow) Acquire(stop <-chan struct{}) bool {
 }
 
 // Record registers a message as sent at sentAt and returns its sequence
-// number. The caller must already hold a credit from Acquire or TryAcquire;
+// number. The caller must already hold a credit from Acquire;
 // pairing every acquired credit with exactly one Record keeps the window
 // bounded and the FIFO push non-blocking. sentAt is captured by the caller
 // after acquiring the credit, i.e. at the actual send instant.

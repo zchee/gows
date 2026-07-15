@@ -362,16 +362,15 @@ func startCPUProfile(path string) (stop func()) {
 }
 
 // selfRusage reports this loadgen process's total CPU seconds (user+system)
-// and peak resident set size from getrusage(RUSAGE_SELF). Maxrss is bytes on
-// darwin, the harness's target platform. Resource accounting comes from
-// process rusage, never from a net.Conn counting wrapper on the message path.
+// and peak resident set size from getrusage(RUSAGE_SELF). Resource accounting
+// comes from process rusage, never from a net.Conn counting wrapper on the
+// message path.
 func selfRusage() (cpuSeconds float64, maxRSSBytes int64) {
 	var ru syscall.Rusage
 	if err := syscall.Getrusage(syscall.RUSAGE_SELF, &ru); err != nil {
 		return 0, 0
 	}
-	timeval := func(t syscall.Timeval) float64 { return float64(t.Sec) + float64(t.Usec)/1e6 }
-	return timeval(ru.Utime) + timeval(ru.Stime), int64(ru.Maxrss)
+	return support.RusageStats(&ru)
 }
 
 // runConn drives one connection's closed request/response loop (one message

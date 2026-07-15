@@ -10,9 +10,8 @@ import (
 
 // runNBIO serves a binary echo using lesismal/nbio's epoll/kqueue reactor
 // engine (nbhttp), the library's recommended high-throughput mode. cfg is
-// ignored: nbhttp.Engine binds its own sockets, so the shared newListener
-// accept hooks (-notsent-lowat, -trace-file) do not reach it; the H3/H5
-// experiments only exercise gows and quickws.
+// ignored: nbhttp.Engine binds its own sockets, so the shared accept hooks do
+// not reach it (see newListener for which backends they cover).
 func runNBIO(ctx context.Context, addr string, _ serverConfig) error {
 	upgrader := websocket.NewUpgrader()
 	upgrader.EnableCompression(false)

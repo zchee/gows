@@ -7,8 +7,9 @@ package support
 // from the loadgen process's own getrusage(RUSAGE_SELF), never from a net.Conn
 // counting wrapper. Client names the WebSocket client transport that drove the
 // run ("gows" or "gobwas"), so a sample records which client stack produced its
-// figures. The schema is fixed (no omitzero): benchrun parses these lines by
-// exact field, so a zero value must still be present.
+// figures. The schema is fixed (no omitzero): every line carries every field,
+// so samples.jsonl stays uniformly greppable and jq-able without per-field
+// presence checks.
 type LoadgenResult struct {
 	Client                      string  `json:"client"`
 	Connections                 int     `json:"connections"`

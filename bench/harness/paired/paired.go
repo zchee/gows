@@ -127,7 +127,7 @@ func Bootstrap(ratios []float64, replicates int, confidence float64, seed uint64
 	if len(ratios) == 0 || replicates <= 0 {
 		return center, center, center
 	}
-	rng := rand.New(rand.NewPCG(seed, seed^0x9E3779B97F4A7C15))
+	rng := SeededRand(seed)
 	n := len(ratios)
 	resample := make([]float64, n)
 	medians := make([]float64, replicates)
@@ -192,6 +192,17 @@ func Geomean(xs []float64) float64 {
 		sumLog += math.Log(x)
 	}
 	return math.Exp(sumLog / float64(len(xs)))
+}
+
+// goldenGamma is an odd-constant PCG stream separator (golden ratio).
+const goldenGamma = 0x9E3779B97F4A7C15
+
+// SeededRand returns the harness's canonical deterministic RNG for seed: a
+// PCG initialized as (seed, seed^goldenGamma). benchrun's repetition shuffle
+// and [Bootstrap]'s resampling both derive their streams through it, so the
+// documented same-seed-same-run determinism has a single definition.
+func SeededRand(seed uint64) *rand.Rand {
+	return rand.New(rand.NewPCG(seed, seed^goldenGamma))
 }
 
 // LoadSamples reads a samples.jsonl file, one [Sample] per non-empty line.

@@ -21,9 +21,8 @@ func (gwsEcho) OnMessage(socket *gws.Conn, message *gws.Message) {
 // runGWS serves a binary echo using lxzan/gws's recommended Event/callback
 // API with compression and UTF-8 checking left at their documented defaults
 // (both off), matching the other libraries' fairness configuration. cfg is
-// ignored: gws.Server.Run owns its listener internally, so the shared
-// newListener accept hooks (-notsent-lowat, -trace-file) do not reach it; the
-// H3/H5 experiments only exercise gows and quickws.
+// ignored: gws.Server.Run owns its listener internally, so the shared accept
+// hooks do not reach it (see newListener for which backends they cover).
 func runGWS(ctx context.Context, addr string, _ serverConfig) error {
 	server := gws.NewServer(gwsEcho{}, &gws.ServerOption{
 		ReadBufferSize:     bufferSize,

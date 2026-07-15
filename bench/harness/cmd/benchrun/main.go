@@ -15,7 +15,6 @@ import (
 	"flag"
 	"fmt"
 	"io"
-	"math/rand/v2"
 	"net"
 	"os"
 	"os/exec"
@@ -29,7 +28,6 @@ import (
 	"time"
 
 	"github.com/go-json-experiment/json"
-	"github.com/go-json-experiment/json/jsontext"
 	"github.com/zchee/gows/bench/harness/paired"
 	"github.com/zchee/gows/bench/harness/policy"
 	"github.com/zchee/gows/bench/harness/support"
@@ -48,8 +46,6 @@ const (
 	// moduleImport is the bench module's import path, used to build the
 	// echoserver and loadgen binaries and to locate the module root.
 	moduleImport = "github.com/zchee/gows/bench"
-	// goldenGamma is an odd-constant PCG stream separator (golden ratio).
-	goldenGamma = 0x9E3779B97F4A7C15
 )
 
 func main() {
@@ -129,10 +125,10 @@ func run() error {
 
 	echoserverBin := filepath.Join(out, "echoserver")
 	loadgenBin := filepath.Join(out, "loadgen")
-	if err := buildBinary(ctx, moduleRoot, "/harness/cmd/echoserver", echoserverBin); err != nil {
+	if err := buildBinaryEnv(ctx, moduleRoot, "/harness/cmd/echoserver", echoserverBin, nil); err != nil {
 		return err
 	}
-	if err := buildBinary(ctx, moduleRoot, "/harness/cmd/loadgen", loadgenBin); err != nil {
+	if err := buildBinaryEnv(ctx, moduleRoot, "/harness/cmd/loadgen", loadgenBin, nil); err != nil {
 		return err
 	}
 
@@ -152,9 +148,8 @@ func run() error {
 	// Resolve candidate and comparator through any library overrides, then
 	// build a dedicated echoserver binary for each override that sets a build
 	// environment (build_env). Overrides that only append server_args reuse the
-	// shared default echoserver binary. With no overrides, resolved is the
-	// identity mapping and no extra binaries are built, so meta.json is
-	// byte-identical to a pre-override run apart from the omitted schema field.
+	// shared default echoserver binary; with no overrides, resolved is the
+	// identity mapping and no extra binaries are built.
 	resolved := map[string]policy.Resolved{
 		pol.Candidate:  pol.Resolve(pol.Candidate),
 		pol.Comparator: pol.Resolve(pol.Comparator),
@@ -200,12 +195,12 @@ func run() error {
 		Smoke:                  *smoke,
 		StartedAt:              nowRFC(),
 	}
-	if err := writeJSONFile(filepath.Join(out, "meta.json"), meta); err != nil {
+	if err := support.WriteJSONFile(filepath.Join(out, "meta.json"), meta); err != nil {
 		return err
 	}
 
 	// 3. Environment snapshot (start).
-	if err := writeJSONFile(filepath.Join(out, "env-start.json"), captureEnv()); err != nil {
+	if err := support.WriteJSONFile(filepath.Join(out, "env-start.json"), captureEnv()); err != nil {
 		return err
 	}
 
@@ -215,7 +210,7 @@ func run() error {
 	count, execErr := execute(ctx, pol, *smoke, *client, loadgenBin, binPaths, resolved, samplesPath, errorsPath)
 
 	// Environment snapshot (end) is captured whether or not execution failed.
-	if err := writeJSONFile(filepath.Join(out, "env-end.json"), captureEnv()); err != nil && execErr == nil {
+	if err := support.WriteJSONFile(filepath.Join(out, "env-end.json"), captureEnv()); err != nil && execErr == nil {
 		return err
 	}
 	if execErr != nil {
@@ -224,7 +219,7 @@ func run() error {
 
 	// 5. Run-complete marker.
 	done := Done{FinishedAt: nowRFC(), Samples: count, Scenarios: len(pol.Scenarios)}
-	if err := writeJSONFile(filepath.Join(out, "done.json"), done); err != nil {
+	if err := support.WriteJSONFile(filepath.Join(out, "done.json"), done); err != nil {
 		return err
 	}
 	fmt.Printf("benchrun: complete: %d samples across %d scenarios -> %s\n", count, len(pol.Scenarios), out)
@@ -285,7 +280,7 @@ func execute(ctx context.Context, pol *policy.Policy, smoke bool, client, loadge
 	}
 	defer sf.Close()
 
-	rng := rand.New(rand.NewPCG(pol.Seed, pol.Seed^goldenGamma))
+	rng := paired.SeededRand(pol.Seed)
 	order := []string{pol.Candidate, pol.Comparator}
 	count := 0
 	portToggle := 0
@@ -414,24 +409,17 @@ func runOne(ctx context.Context, echoserverBin, loadgenBin, client, name, realLi
 }
 
 // rusage extracts total CPU seconds (user+system) and peak resident set size
-// from a finished process's rusage. Maxrss is bytes on darwin, the harness's
-// target platform.
+// from a finished process's rusage, through the same [support.RusageStats]
+// conversion loadgen applies to its own getrusage figures.
 func rusage(ps *os.ProcessState) (cpuSeconds float64, maxRSSBytes int64) {
 	if ps == nil {
 		return 0, 0
 	}
 	ru, ok := ps.SysUsage().(*syscall.Rusage)
-	if !ok || ru == nil {
+	if !ok {
 		return 0, 0
 	}
-	cpuSeconds = timevalSeconds(ru.Utime) + timevalSeconds(ru.Stime)
-	maxRSSBytes = int64(ru.Maxrss)
-	return cpuSeconds, maxRSSBytes
-}
-
-// timevalSeconds converts a syscall.Timeval to fractional seconds.
-func timevalSeconds(t syscall.Timeval) float64 {
-	return float64(t.Sec) + float64(t.Usec)/1e6
+	return support.RusageStats(ru)
 }
 
 // waitTCP dials addr until it accepts a connection or the deadline/ctx
@@ -495,15 +483,10 @@ func defaultOutDir(moduleRoot, shortCommit string) string {
 
 // buildBinary compiles a bench command into outPath, using -mod=mod so the
 // working-tree gows (via the module's replace directive) is linked rather than
-// the vendored snapshot.
-func buildBinary(ctx context.Context, moduleRoot, pkgSuffix, outPath string) error {
-	return buildBinaryEnv(ctx, moduleRoot, pkgSuffix, outPath, nil)
-}
-
-// buildBinaryEnv compiles a bench command into outPath like buildBinary, but
-// appends extraEnv (KEY=VALUE entries, for example a GOEXPERIMENT setting) to
-// the build environment. This lets a policy's library_overrides produce a
-// distinct echoserver build (hypothesis H2) without a separate source tree.
+// the vendored snapshot. extraEnv (KEY=VALUE entries, for example a
+// GOEXPERIMENT setting, or nil) is appended to the build environment, letting
+// a policy's library_overrides produce a distinct echoserver build
+// (hypothesis H2) without a separate source tree.
 func buildBinaryEnv(ctx context.Context, moduleRoot, pkgSuffix, outPath string, extraEnv []string) error {
 	cmd := exec.CommandContext(ctx, "go", "build", "-mod=mod", "-o", outPath, moduleImport+pkgSuffix)
 	cmd.Dir = moduleRoot
@@ -739,19 +722,6 @@ func writeJSONLine(w io.Writer, v any) error {
 	b = append(b, '\n')
 	if _, err := w.Write(b); err != nil {
 		return fmt.Errorf("write sample: %w", err)
-	}
-	return nil
-}
-
-// writeJSONFile marshals v as indented JSON to path.
-func writeJSONFile(path string, v any) error {
-	b, err := json.Marshal(v, jsontext.WithIndent("  "))
-	if err != nil {
-		return fmt.Errorf("marshal %s: %w", path, err)
-	}
-	b = append(b, '\n')
-	if err := os.WriteFile(path, b, 0o644); err != nil {
-		return fmt.Errorf("write %s: %w", path, err)
 	}
 	return nil
 }

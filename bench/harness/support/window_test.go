@@ -40,8 +40,8 @@ func TestVerifyEcho(t *testing.T) {
 // record the send at sentAt), failing if no credit was available.
 func send(t *testing.T, w *PipelineWindow, sentAt time.Time) int64 {
 	t.Helper()
-	if !w.TryAcquire() {
-		t.Fatalf("TryAcquire: false, want true (a credit should be available)")
+	if !w.tryAcquire() {
+		t.Fatalf("tryAcquire: false, want true (a credit should be available)")
 	}
 	return w.Record(sentAt)
 }
@@ -53,8 +53,8 @@ func TestPipelineWindowCredits(t *testing.T) {
 	pay := DeterministicPayload(32)
 	const capacity = 4
 	w := NewPipelineWindow(capacity, pay)
-	if w.Cap() != capacity {
-		t.Fatalf("Cap() = %d, want %d", w.Cap(), capacity)
+	if w.capacity != capacity {
+		t.Fatalf("capacity = %d, want %d", w.capacity, capacity)
 	}
 
 	base := time.Unix(0, 0)
@@ -62,22 +62,22 @@ func TestPipelineWindowCredits(t *testing.T) {
 		if seq := send(t, w, base); seq != int64(i) {
 			t.Fatalf("send %d: seq = %d, want %d", i, seq, i)
 		}
-		if w.Len() != i+1 {
-			t.Fatalf("after send %d: Len() = %d, want %d", i, w.Len(), i+1)
+		if len(w.fifo) != i+1 {
+			t.Fatalf("after send %d: outstanding = %d, want %d", i, len(w.fifo), i+1)
 		}
 	}
 
 	// Window is full: the next acquire must be refused.
-	if w.TryAcquire() {
-		t.Fatalf("TryAcquire on full window: true, want false")
+	if w.tryAcquire() {
+		t.Fatalf("tryAcquire on full window: true, want false")
 	}
 
 	// Receiving one echo frees exactly one credit.
 	if _, _, err := w.Receive(pay, base); err != nil {
 		t.Fatalf("Receive: %v", err)
 	}
-	if w.Len() != capacity-1 {
-		t.Fatalf("after Receive: Len() = %d, want %d", w.Len(), capacity-1)
+	if len(w.fifo) != capacity-1 {
+		t.Fatalf("after Receive: outstanding = %d, want %d", len(w.fifo), capacity-1)
 	}
 	if seq := send(t, w, base); seq != capacity {
 		t.Fatalf("send after freeing a credit: seq = %d, want %d", seq, capacity)
@@ -97,8 +97,8 @@ func TestPipelineWindowClosedLoopEquivalence(t *testing.T) {
 	}
 	// With one message in flight the window is full: no second send may start
 	// until the outstanding echo is received.
-	if w.TryAcquire() {
-		t.Fatalf("second TryAcquire before receive: true, want false (closed loop keeps one in flight)")
+	if w.tryAcquire() {
+		t.Fatalf("second tryAcquire before receive: true, want false (closed loop keeps one in flight)")
 	}
 	if _, _, err := w.Receive(pay, base); err != nil {
 		t.Fatalf("Receive: %v", err)

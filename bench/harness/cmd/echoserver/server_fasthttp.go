@@ -11,9 +11,8 @@ import (
 // FastHTTPUpgrader over a valyala/fasthttp server, the library's intended
 // integration (it is a gorilla/websocket fork targeting fasthttp; see
 // bench/README.md for the gofiber/contrib equivalence note). cfg is ignored:
-// fasthttp.Server.ListenAndServe owns its listener, so the shared newListener
-// accept hooks (-notsent-lowat, -trace-file) do not reach it; the H3/H5
-// experiments only exercise gows and quickws.
+// fasthttp.Server.ListenAndServe owns its listener, so the shared accept hooks
+// do not reach it (see newListener for which backends they cover).
 func runFastHTTP(ctx context.Context, addr string, _ serverConfig) error {
 	upgrader := websocket.FastHTTPUpgrader{
 		ReadBufferSize:    bufferSize,

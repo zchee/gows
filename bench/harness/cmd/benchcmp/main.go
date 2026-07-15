@@ -14,10 +14,9 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/go-json-experiment/json"
-	"github.com/go-json-experiment/json/jsontext"
 	"github.com/zchee/gows/bench/harness/paired"
 	"github.com/zchee/gows/bench/harness/policy"
+	"github.com/zchee/gows/bench/harness/support"
 )
 
 // exit codes.
@@ -96,7 +95,7 @@ func run() int {
 	}
 	verdict.GeneratedAt = time.Now().UTC().Format(time.RFC3339Nano)
 
-	if err := writeVerdict(filepath.Join(*runDir, "verdict.json"), verdict); err != nil {
+	if err := support.WriteJSONFile(filepath.Join(*runDir, "verdict.json"), verdict); err != nil {
 		fmt.Fprintf(os.Stderr, "benchcmp: %v\n", err)
 		return exitUsage
 	}
@@ -206,19 +205,6 @@ func evaluate(samples []paired.Sample, pol *policy.Policy, policySum string) (Ve
 		Thresholds:   th,
 		PolicySHA256: policySum,
 	}, nil
-}
-
-// writeVerdict writes v as indented JSON.
-func writeVerdict(path string, v Verdict) error {
-	b, err := json.Marshal(v, jsontext.WithIndent("  "))
-	if err != nil {
-		return fmt.Errorf("marshal verdict: %w", err)
-	}
-	b = append(b, '\n')
-	if err := os.WriteFile(path, b, 0o644); err != nil {
-		return fmt.Errorf("write %s: %w", path, err)
-	}
-	return nil
 }
 
 // printSummary prints a compact human-readable verdict to stdout.
