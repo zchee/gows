@@ -9,12 +9,12 @@ require (
 	github.com/go-json-experiment/json v0.0.0-20260623181947-01eb4420fa68
 	github.com/gobwas/ws v1.4.0
 	github.com/gorilla/websocket v1.5.3
-	github.com/klauspost/compress v1.18.6
-	github.com/lesismal/nbio v1.6.11
-	github.com/lxzan/gws v1.9.1
+	github.com/klauspost/compress v1.19.0
+	github.com/lesismal/nbio v1.6.12
+	github.com/lxzan/gws v1.10.0
 	github.com/valyala/fasthttp v1.72.0
 	github.com/zchee/gows v0.0.0
-	golang.org/x/sys v0.46.0
+	golang.org/x/sys v0.47.0
 )
 
 require (
@@ -22,7 +22,7 @@ require (
 	github.com/antlabs/wsutil v0.1.11 // indirect
 	github.com/gobwas/httphead v0.1.0 // indirect
 	github.com/gobwas/pool v0.2.1 // indirect
-	github.com/lesismal/llib v1.2.3 // indirect
+	github.com/lesismal/llib v1.2.4 // indirect
 	github.com/savsgio/gotils v0.0.0-20240704082632-aef3928b8a38 // indirect
 	github.com/valyala/bytebufferpool v1.0.0 // indirect
 	golang.org/x/crypto v0.53.0 // indirect
