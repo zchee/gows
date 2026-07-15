@@ -8,18 +8,25 @@ import (
 )
 
 // TestGowsVariants verifies that every gows -lib variant is registered in the
-// runners map and resolves to the read-buffer size and UTF-8 setting the
-// hypothesis H1 sweep depends on. The read-buffer geometry is the manipulated
-// variable, so a wrong size would silently invalidate the experiment.
+// runners map and resolves to the read-buffer size, UTF-8 setting, and echo
+// loop the experiments depend on. The read-buffer geometry is hypothesis H1's
+// manipulated variable, and useServe selects the drain-and-coalesce loop that
+// the paired final gate measures as gows-serve, so a wrong value in either
+// would silently invalidate its experiment.
 func TestGowsVariants(t *testing.T) {
 	tests := map[string]struct {
 		wantReadBuf  int
 		wantSkipUTF8 bool
+		wantUseServe bool
 	}{
-		"gows":         {wantReadBuf: bufferSize, wantSkipUTF8: false},
+		"gows":         {wantReadBuf: bufferSize},
 		"gows-noutf8":  {wantReadBuf: bufferSize, wantSkipUTF8: true},
-		"gows-rbuf1k":  {wantReadBuf: 1024 + gows.MaxHeaderSize, wantSkipUTF8: false},
-		"gows-rbuf16k": {wantReadBuf: 16 * 1024, wantSkipUTF8: false},
+		"gows-rbuf1k":  {wantReadBuf: 1024 + gows.MaxHeaderSize},
+		"gows-rbuf16k": {wantReadBuf: 16 * 1024},
+		"gows-serve":   {wantReadBuf: bufferSize, wantUseServe: true},
+	}
+	if got, want := len(gowsVariants), len(tests); got != want {
+		t.Errorf("gowsVariants has %d entries, want %d (update this test when adding a variant)", got, want)
 	}
 	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {
@@ -35,6 +42,9 @@ func TestGowsVariants(t *testing.T) {
 			}
 			if v.skipUTF8 != tc.wantSkipUTF8 {
 				t.Errorf("skipUTF8 = %v, want %v", v.skipUTF8, tc.wantSkipUTF8)
+			}
+			if v.useServe != tc.wantUseServe {
+				t.Errorf("useServe = %v, want %v", v.useServe, tc.wantUseServe)
 			}
 		})
 	}
