@@ -3,11 +3,13 @@ module github.com/zchee/gows/bench
 go 1.26
 
 require (
+	github.com/HdrHistogram/hdrhistogram-go v1.3.0
 	github.com/antlabs/quickws v0.2.2
 	github.com/coder/websocket v1.8.15
 	github.com/fasthttp/websocket v1.5.12
 	github.com/go-json-experiment/json v0.0.0-20260623181947-01eb4420fa68
 	github.com/gobwas/ws v1.4.0
+	github.com/google/go-cmp v0.7.0
 	github.com/gorilla/websocket v1.5.3
 	github.com/klauspost/compress v1.19.0
 	github.com/lesismal/nbio v1.6.12

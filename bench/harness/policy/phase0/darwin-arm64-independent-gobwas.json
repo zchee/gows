@@ -1,18 +1,18 @@
 {
   "schema_version": 3,
   "series": {
-    "id": "experiments-h5-lowat-quickws",
-    "run_kind": "diagnostic",
-    "evidence_class": "diagnostic",
+    "id": "phase0-darwin-arm64-independent-gobwas",
+    "run_kind": "baseline",
+    "evidence_class": "baseline",
     "host_mode": "same_host",
     "toolchain": "stock",
     "adapter_class": "best_api",
     "validation_profile": "strict_on",
-    "client": "gows"
+    "client": "gobwas"
   },
-  "candidate": "quickws-lowat",
+  "candidate": "gows-serve",
   "comparator": "quickws",
-  "seed": 5000002,
+  "seed": 1054003,
   "bootstrap": {
     "replicates": 20000,
     "confidence": 0.95,
@@ -21,72 +21,47 @@
   "aa_gates": {
     "min_sessions": 3,
     "min_pairs_per_session": 20,
-    "throughput": {
-      "lower": 0.98,
-      "upper": 1.02
-    },
-    "p99": {
-      "lower": 0.98,
-      "upper": 1.02
-    },
-    "p999": {
-      "lower": 0.95,
-      "upper": 1.05
-    },
-    "order_effect": {
-      "lower": 0.99,
-      "upper": 1.01
-    },
+    "throughput": {"lower": 0.98, "upper": 1.02},
+    "p99": {"lower": 0.98, "upper": 1.02},
+    "p999": {"lower": 0.95, "upper": 1.05},
+    "order_effect": {"lower": 0.99, "upper": 1.01},
     "max_false_positive": 0.05
   },
   "thresholds": {
-    "throughput_lower_bound": 1.0,
-    "throughput_geomean": 1.05,
-    "p99_upper_bound": 1.01,
-    "p999_center_upper_bound": 1.05
+    "throughput_lower_bound": 1.05,
+    "throughput_geomean": 1.10,
+    "p99_upper_bound": 0.95,
+    "p999_center_upper_bound": 1.00
   },
   "guard": {
     "max_load1": 6.0,
     "max_load1_drift": 16.0,
     "max_foreign_cpu_percent": 20.0,
-    "forbidden_process_patterns": [
-      "echoserver",
-      "loadgen"
-    ]
+    "forbidden_process_patterns": ["echoserver", "loadgen"]
   },
   "scenarios": [
     {
-      "name": "binary-1k-1k",
+      "name": "binary-1k-200-inflight8",
       "primary": true,
-      "cell_class": "saturated",
+      "cell_class": "server_sensitive",
       "message_type": "binary",
-      "arrival": "closed_loop",
+      "arrival": "pipelined",
       "payload_bytes": 1024,
-      "connections": 1000,
-      "inflight": 1,
+      "connections": 200,
+      "inflight": 8,
       "warmup": "5s",
       "duration": "30s",
       "repetitions": 20
     }
   ],
-  "library_overrides": {
-    "quickws-lowat": {
-      "lib": "quickws",
-      "server_args": [
-        "-notsent-lowat",
-        "16384"
-      ]
-    }
-  },
   "adapters": {
-    "quickws-lowat": {
-      "id": "quickws-lowat-best-api-v2",
+    "gows-serve": {
+      "id": "gows-serve-best-api-v2",
       "class": "best_api",
       "source_files": [
         "harness/cmd/echoserver/main.go",
         "harness/cmd/echoserver/accept.go",
-        "harness/cmd/echoserver/serve.go",
-        "harness/cmd/echoserver/server_quickws.go"
+        "harness/cmd/echoserver/server_gows.go"
       ]
     },
     "quickws": {

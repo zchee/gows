@@ -3,6 +3,7 @@ package support
 import (
 	"context"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"net/http/pprof"
@@ -13,6 +14,10 @@ import (
 	"github.com/go-json-experiment/json/jsontext"
 )
 
+const debugRequestTimeout = 5 * time.Second
+
+const maxDebugResponseBytes = 64 << 10
+
 // MemSnapshot is the subset of runtime.MemStats the harness cares about for
 // per-library allocation comparisons.
 type MemSnapshot struct {
@@ -22,6 +27,20 @@ type MemSnapshot struct {
 	HeapAlloc  uint64 `json:"heap_alloc"`
 	NumGC      uint32 `json:"num_gc"`
 	Goroutines int    `json:"goroutines"`
+}
+
+// ReadMemSnapshot captures the process's current runtime allocation counters.
+func ReadMemSnapshot() MemSnapshot {
+	var m runtime.MemStats
+	runtime.ReadMemStats(&m)
+	return MemSnapshot{
+		Mallocs:    m.Mallocs,
+		Frees:      m.Frees,
+		TotalAlloc: m.TotalAlloc,
+		HeapAlloc:  m.HeapAlloc,
+		NumGC:      m.NumGC,
+		Goroutines: runtime.NumGoroutine(),
+	}
 }
 
 // StartDebugServer starts a plain net/http server on addr exposing
@@ -38,19 +57,16 @@ type MemSnapshot struct {
 func StartDebugServer(addr string) (*http.Server, <-chan error) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/debug/memstats", func(w http.ResponseWriter, _ *http.Request) {
-		var m runtime.MemStats
-		runtime.ReadMemStats(&m)
-		snap := MemSnapshot{
-			Mallocs:    m.Mallocs,
-			Frees:      m.Frees,
-			TotalAlloc: m.TotalAlloc,
-			HeapAlloc:  m.HeapAlloc,
-			NumGC:      m.NumGC,
-			Goroutines: runtime.NumGoroutine(),
-		}
+		snap := ReadMemSnapshot()
 		w.Header().Set("Content-Type", "application/json")
 		enc := jsontext.NewEncoder(w)
 		_ = json.MarshalEncode(enc, snap)
+	})
+	mux.HandleFunc("/debug/rusage", func(w http.ResponseWriter, _ *http.Request) {
+		usage := SelfRusage()
+		w.Header().Set("Content-Type", "application/json")
+		enc := jsontext.NewEncoder(w)
+		_ = json.MarshalEncode(enc, usage)
 	})
 	mux.HandleFunc("/debug/pprof/", pprof.Index)
 	mux.HandleFunc("/debug/pprof/cmdline", pprof.Cmdline)
@@ -73,10 +89,11 @@ func StartDebugServer(addr string) (*http.Server, <-chan error) {
 // FetchMemSnapshot performs a GET against the /debug/memstats endpoint of an
 // echoserver started with StartDebugServer.
 func FetchMemSnapshot(ctx context.Context, debugAddr string) (MemSnapshot, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "http://"+debugAddr+"/debug/memstats", nil)
+	req, cancel, err := newDebugRequest(ctx, debugAddr, "/debug/memstats")
 	if err != nil {
 		return MemSnapshot{}, err
 	}
+	defer cancel()
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		return MemSnapshot{}, err
@@ -86,11 +103,61 @@ func FetchMemSnapshot(ctx context.Context, debugAddr string) (MemSnapshot, error
 		return MemSnapshot{}, fmt.Errorf("support: unexpected status %s from %s", resp.Status, debugAddr)
 	}
 	var snap MemSnapshot
-	dec := jsontext.NewDecoder(resp.Body)
-	if err := json.UnmarshalDecode(dec, &snap); err != nil {
+	if err := decodeDebugResponse(resp.Body, &snap); err != nil {
 		return MemSnapshot{}, err
 	}
 	return snap, nil
+}
+
+// FetchUsage reads the benchmark server's normalized cumulative rusage. The
+// caller takes before/after readings and applies UsageDelta so warmup and
+// process startup cannot leak into measurement-window CPU accounting.
+func FetchUsage(ctx context.Context, debugAddr string) (Usage, error) {
+	req, cancel, err := newDebugRequest(ctx, debugAddr, "/debug/rusage")
+	if err != nil {
+		return Usage{}, err
+	}
+	defer cancel()
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return Usage{}, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return Usage{}, fmt.Errorf("support: unexpected status %s from %s", resp.Status, debugAddr)
+	}
+	var usage Usage
+	if err := decodeDebugResponse(resp.Body, &usage); err != nil {
+		return Usage{}, err
+	}
+	if !usage.Available {
+		return Usage{}, fmt.Errorf("support: server rusage unavailable at %s", debugAddr)
+	}
+	return usage, nil
+}
+
+func newDebugRequest(ctx context.Context, debugAddr, path string) (*http.Request, context.CancelFunc, error) {
+	requestCtx, cancel := context.WithTimeout(ctx, debugRequestTimeout)
+	req, err := http.NewRequestWithContext(requestCtx, http.MethodGet, "http://"+debugAddr+path, nil)
+	if err != nil {
+		cancel()
+		return nil, nil, err
+	}
+	return req, cancel, nil
+}
+
+func decodeDebugResponse(body io.Reader, target any) error {
+	raw, err := io.ReadAll(io.LimitReader(body, maxDebugResponseBytes+1))
+	if err != nil {
+		return fmt.Errorf("support: read debug response: %w", err)
+	}
+	if len(raw) > maxDebugResponseBytes {
+		return fmt.Errorf("support: debug response exceeds %d bytes", maxDebugResponseBytes)
+	}
+	if err := json.Unmarshal(raw, target, json.RejectUnknownMembers(true)); err != nil {
+		return fmt.Errorf("support: decode debug response: %w", err)
+	}
+	return nil
 }
 
 // WaitForDebugServer polls the debug endpoint until it responds or ctx is

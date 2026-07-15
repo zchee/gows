@@ -1,0 +1,78 @@
+{
+  "schema_version": 3,
+  "series": {
+    "id": "phase0-darwin-arm64-semantic-parity",
+    "run_kind": "baseline",
+    "evidence_class": "baseline",
+    "host_mode": "same_host",
+    "toolchain": "stock",
+    "adapter_class": "semantic_parity",
+    "validation_profile": "strict_on",
+    "client": "gows"
+  },
+  "candidate": "gows",
+  "comparator": "quickws",
+  "seed": 1054002,
+  "bootstrap": {
+    "replicates": 20000,
+    "confidence": 0.95,
+    "null_iterations": 1000
+  },
+  "aa_gates": {
+    "min_sessions": 3,
+    "min_pairs_per_session": 20,
+    "throughput": {"lower": 0.98, "upper": 1.02},
+    "p99": {"lower": 0.98, "upper": 1.02},
+    "p999": {"lower": 0.95, "upper": 1.05},
+    "order_effect": {"lower": 0.99, "upper": 1.01},
+    "max_false_positive": 0.05
+  },
+  "thresholds": {
+    "throughput_lower_bound": 1.05,
+    "throughput_geomean": 1.10,
+    "p99_upper_bound": 0.95,
+    "p999_center_upper_bound": 1.00
+  },
+  "guard": {
+    "max_load1": 6.0,
+    "max_load1_drift": 16.0,
+    "max_foreign_cpu_percent": 20.0,
+    "forbidden_process_patterns": ["echoserver", "loadgen"]
+  },
+  "scenarios": [
+    {
+      "name": "binary-1k-200-inflight8",
+      "primary": true,
+      "cell_class": "server_sensitive",
+      "message_type": "binary",
+      "arrival": "pipelined",
+      "payload_bytes": 1024,
+      "connections": 200,
+      "inflight": 8,
+      "warmup": "5s",
+      "duration": "30s",
+      "repetitions": 20
+    }
+  ],
+  "adapters": {
+    "gows": {
+      "id": "gows-one-read-one-reply-v2",
+      "class": "semantic_parity",
+      "source_files": [
+        "harness/cmd/echoserver/main.go",
+        "harness/cmd/echoserver/accept.go",
+        "harness/cmd/echoserver/server_gows.go"
+      ]
+    },
+    "quickws": {
+      "id": "quickws-one-callback-one-reply-v2",
+      "class": "semantic_parity",
+      "source_files": [
+        "harness/cmd/echoserver/main.go",
+        "harness/cmd/echoserver/accept.go",
+        "harness/cmd/echoserver/serve.go",
+        "harness/cmd/echoserver/server_quickws.go"
+      ]
+    }
+  }
+}

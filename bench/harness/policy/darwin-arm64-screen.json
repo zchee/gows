@@ -1,10 +1,43 @@
 {
+  "schema_version": 3,
+  "series": {
+    "id": "darwin-arm64-screen",
+    "run_kind": "diagnostic",
+    "evidence_class": "diagnostic",
+    "host_mode": "same_host",
+    "toolchain": "stock",
+    "adapter_class": "best_api",
+    "validation_profile": "strict_on",
+    "client": "gows"
+  },
   "candidate": "gows",
   "comparator": "quickws",
   "seed": 12648430,
   "bootstrap": {
     "replicates": 20000,
-    "confidence": 0.95
+    "confidence": 0.95,
+    "null_iterations": 1000
+  },
+  "aa_gates": {
+    "min_sessions": 3,
+    "min_pairs_per_session": 20,
+    "throughput": {
+      "lower": 0.98,
+      "upper": 1.02
+    },
+    "p99": {
+      "lower": 0.98,
+      "upper": 1.02
+    },
+    "p999": {
+      "lower": 0.95,
+      "upper": 1.05
+    },
+    "order_effect": {
+      "lower": 0.99,
+      "upper": 1.01
+    },
+    "max_false_positive": 0.05
   },
   "thresholds": {
     "throughput_lower_bound": 1,
@@ -14,6 +47,8 @@
   },
   "guard": {
     "max_load1": 6,
+    "max_load1_drift": 16.0,
+    "max_foreign_cpu_percent": 20.0,
     "forbidden_process_patterns": [
       "echoserver",
       "loadgen"
@@ -23,6 +58,9 @@
     {
       "name": "binary-64b-1k",
       "primary": true,
+      "cell_class": "saturated",
+      "message_type": "binary",
+      "arrival": "closed_loop",
       "payload_bytes": 64,
       "connections": 1000,
       "inflight": 1,
@@ -33,6 +71,9 @@
     {
       "name": "binary-1k-200",
       "primary": true,
+      "cell_class": "saturated",
+      "message_type": "binary",
+      "arrival": "closed_loop",
       "payload_bytes": 1024,
       "connections": 200,
       "inflight": 1,
@@ -43,6 +84,9 @@
     {
       "name": "binary-1k-1k",
       "primary": true,
+      "cell_class": "saturated",
+      "message_type": "binary",
+      "arrival": "closed_loop",
       "payload_bytes": 1024,
       "connections": 1000,
       "inflight": 1,
@@ -53,6 +97,9 @@
     {
       "name": "binary-16k-200",
       "primary": true,
+      "cell_class": "saturated",
+      "message_type": "binary",
+      "arrival": "closed_loop",
       "payload_bytes": 16384,
       "connections": 200,
       "inflight": 1,
@@ -63,6 +110,9 @@
     {
       "name": "binary-16k-1k",
       "primary": true,
+      "cell_class": "saturated",
+      "message_type": "binary",
+      "arrival": "closed_loop",
       "payload_bytes": 16384,
       "connections": 1000,
       "inflight": 1,
@@ -73,6 +123,9 @@
     {
       "name": "binary-1k-200-inflight8",
       "primary": false,
+      "cell_class": "server_sensitive",
+      "message_type": "binary",
+      "arrival": "pipelined",
       "payload_bytes": 1024,
       "connections": 200,
       "inflight": 8,
@@ -83,6 +136,9 @@
     {
       "name": "binary-1k-1k-inflight4",
       "primary": false,
+      "cell_class": "server_sensitive",
+      "message_type": "binary",
+      "arrival": "pipelined",
       "payload_bytes": 1024,
       "connections": 1000,
       "inflight": 4,
@@ -90,5 +146,26 @@
       "duration": "10s",
       "repetitions": 20
     }
-  ]
+  ],
+  "adapters": {
+    "gows": {
+      "id": "gows-best-api-v2",
+      "class": "best_api",
+      "source_files": [
+        "harness/cmd/echoserver/main.go",
+        "harness/cmd/echoserver/accept.go",
+        "harness/cmd/echoserver/server_gows.go"
+      ]
+    },
+    "quickws": {
+      "id": "quickws-best-api-v2",
+      "class": "best_api",
+      "source_files": [
+        "harness/cmd/echoserver/main.go",
+        "harness/cmd/echoserver/accept.go",
+        "harness/cmd/echoserver/serve.go",
+        "harness/cmd/echoserver/server_quickws.go"
+      ]
+    }
+  }
 }

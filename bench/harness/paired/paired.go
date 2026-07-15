@@ -10,6 +10,7 @@ import (
 	"bufio"
 	"bytes"
 	"cmp"
+	"encoding/hex"
 	"fmt"
 	"math"
 	"math/rand/v2"
@@ -23,6 +24,10 @@ import (
 // Metric names understood by [Ratios]. These match the JSON field names in a
 // [Sample] so a policy or command can name a metric with a stable string.
 const (
+	// SampleSchemaVersion is the only sample schema accepted by the Phase 0
+	// evaluator. Versionless historical samples are rejected.
+	SampleSchemaVersion = 2
+
 	MetricThroughput          = "throughput_messages_per_second"
 	MetricP99                 = "p99_nanoseconds"
 	MetricP999                = "p999_nanoseconds"
@@ -32,22 +37,73 @@ const (
 )
 
 // Sample is one measured (scenario, library, repetition) record as written to
-// samples.jsonl by benchrun. It embeds the loadgen result (which already
-// carries the client's self-reported CPU seconds and peak RSS) and adds the
+// samples.jsonl by benchrun. It nests the independently versioned loadgen
+// result and adds the
 // run context, the server's process-rusage resource metrics, and the derived
 // per-message/per-connection figures. Resource accounting is taken only from
 // process rusage, never by wrapping net.Conn on a gating path.
 type Sample struct {
-	support.LoadgenResult
-	Scenario                    string  `json:"scenario"`
-	Library                     string  `json:"library"`
-	Repetition                  int     `json:"repetition"`
-	OrderIndex                  int     `json:"order_index"`
-	ServerCPUSeconds            float64 `json:"server_cpu_seconds"`
-	ServerMaxRSSBytes           int64   `json:"server_maxrss_bytes"`
-	ServerCPUSecondsPerMessage  float64 `json:"server_cpu_seconds_per_message"`
-	ServerRSSBytesPerConnection float64 `json:"server_rss_bytes_per_connection"`
-	ClientCPUSecondsPerMessage  float64 `json:"client_cpu_seconds_per_message"`
+	LoadgenResult               support.LoadgenResult `json:"loadgen"`
+	SchemaVersion               int                   `json:"schema_version"`
+	SessionID                   string                `json:"session_id"`
+	BlockID                     string                `json:"block_id"`
+	Order                       string                `json:"order"`
+	BinarySHA256                string                `json:"binary_sha256"`
+	PolicySHA256                string                `json:"policy_sha256"`
+	AdapterSHA256               string                `json:"adapter_sha256"`
+	Scenario                    string                `json:"scenario"`
+	Library                     string                `json:"library"`
+	Repetition                  int                   `json:"repetition"`
+	OrderIndex                  int                   `json:"order_index"`
+	ServerProcessUsage          support.Usage         `json:"server_process_usage"`
+	ServerCPUSeconds            float64               `json:"server_cpu_seconds"`
+	ServerMaxRSSBytes           int64                 `json:"server_maxrss_bytes"`
+	ServerCPUSecondsPerMessage  float64               `json:"server_cpu_seconds_per_message"`
+	ServerRSSBytesPerConnection float64               `json:"server_rss_bytes_per_connection"`
+	ClientCPUSecondsPerMessage  float64               `json:"client_cpu_seconds_per_message"`
+}
+
+// Validate rejects versionless samples and incomplete immutable identity.
+func (s Sample) Validate() error {
+	switch {
+	case s.SchemaVersion != SampleSchemaVersion:
+		return fmt.Errorf("paired: schema_version = %d, want %d", s.SchemaVersion, SampleSchemaVersion)
+	case s.SessionID == "":
+		return fmt.Errorf("paired: session_id is required")
+	case s.BlockID == "":
+		return fmt.Errorf("paired: block_id is required")
+	case OrderPattern(s.Order) != OrderAB && OrderPattern(s.Order) != OrderBA:
+		return fmt.Errorf("paired: order must be AB or BA, got %q", s.Order)
+	case !validSHA256(s.BinarySHA256):
+		return fmt.Errorf("paired: binary_sha256 must be 64 lowercase hexadecimal characters")
+	case !validSHA256(s.PolicySHA256):
+		return fmt.Errorf("paired: policy_sha256 must be 64 lowercase hexadecimal characters")
+	case !validSHA256(s.AdapterSHA256):
+		return fmt.Errorf("paired: adapter_sha256 must be 64 lowercase hexadecimal characters")
+	case s.Scenario == "":
+		return fmt.Errorf("paired: scenario is required")
+	case s.Library == "":
+		return fmt.Errorf("paired: library is required")
+	case s.Repetition < 0:
+		return fmt.Errorf("paired: repetition must be >= 0, got %d", s.Repetition)
+	case !s.ServerProcessUsage.Available:
+		return fmt.Errorf("paired: server process rusage is unavailable")
+	}
+	if err := s.LoadgenResult.HardFailure(); err != nil {
+		return fmt.Errorf("paired: loadgen result: %w", err)
+	}
+	if s.ServerCPUSeconds != s.LoadgenResult.ServerUsage.CPUSeconds || s.ServerMaxRSSBytes != s.LoadgenResult.ServerUsage.MaxRSSBytes {
+		return fmt.Errorf("paired: derived server resource fields disagree with loadgen.server_usage")
+	}
+	return nil
+}
+
+func validSHA256(value string) bool {
+	if len(value) != 64 {
+		return false
+	}
+	decoded, err := hex.DecodeString(value)
+	return err == nil && len(decoded) == 32 && value == fmt.Sprintf("%x", decoded)
 }
 
 // Metric returns the named metric value for the sample, or an error if the
@@ -55,11 +111,11 @@ type Sample struct {
 func (s Sample) Metric(name string) (float64, error) {
 	switch name {
 	case MetricThroughput:
-		return s.ThroughputMessagesPerSecond, nil
+		return s.LoadgenResult.ThroughputMessagesPerSecond, nil
 	case MetricP99:
-		return float64(s.P99Nanoseconds), nil
+		return float64(s.LoadgenResult.P99Nanoseconds), nil
 	case MetricP999:
-		return float64(s.P999Nanoseconds), nil
+		return float64(s.LoadgenResult.P999Nanoseconds), nil
 	case MetricServerCPUPerMessage:
 		return s.ServerCPUSecondsPerMessage, nil
 	case MetricServerRSSPerConn:
@@ -225,6 +281,9 @@ func LoadSamples(path string) ([]Sample, error) {
 		}
 		var s Sample
 		if err := json.Unmarshal(raw, &s); err != nil {
+			return nil, fmt.Errorf("paired: %s line %d: %w", path, line, err)
+		}
+		if err := s.Validate(); err != nil {
 			return nil, fmt.Errorf("paired: %s line %d: %w", path, line, err)
 		}
 		samples = append(samples, s)

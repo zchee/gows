@@ -3,14 +3,29 @@
 // server-side MemStats collection over HTTP.
 package support
 
+import "unicode/utf8"
+
+const defaultPayloadSeed uint64 = 0x9E3779B97F4A7C15
+
 // DeterministicPayload returns an n-byte slice filled with a reproducible,
 // non-trivial byte pattern (an xorshift64 PRNG seeded with a fixed constant).
 // The same n always yields the same bytes across processes and runs, which
 // keeps echo-harness comparisons reproducible without depending on
 // crypto/math rand global state.
 func DeterministicPayload(n int) []byte {
+	return DeterministicPayloadSeed(n, defaultPayloadSeed)
+}
+
+// DeterministicPayloadSeed returns an n-byte reproducible binary payload for
+// one explicit stream seed. Benchmark connections receive distinct seeds so
+// identical content cannot correlate every connection while candidate and
+// comparator runs can still replay byte-identical inputs.
+func DeterministicPayloadSeed(n int, seed uint64) []byte {
 	b := make([]byte, n)
-	var x uint64 = 0x9E3779B97F4A7C15 // fixed seed (golden ratio constant)
+	x := seed
+	if x == 0 {
+		x = defaultPayloadSeed
+	}
 	for i := range n {
 		// xorshift64*
 		x ^= x << 13
@@ -19,4 +34,40 @@ func DeterministicPayload(n int) []byte {
 		b[i] = byte(x)
 	}
 	return b
+}
+
+// DeterministicTextPayload returns exactly n bytes of valid, reproducible
+// mixed-width UTF-8. A short remainder is filled with ASCII so every length,
+// including lengths smaller than one multibyte code point, stays valid.
+func DeterministicTextPayload(n int) []byte {
+	return DeterministicTextPayloadSeed(n, defaultPayloadSeed)
+}
+
+// DeterministicTextPayloadSeed returns exactly n bytes of valid UTF-8 while
+// varying the token stream per explicit seed.
+func DeterministicTextPayloadSeed(n int, seed uint64) []byte {
+	if n <= 0 {
+		return nil
+	}
+	patterns := [...]string{"g", "é", "世", "🙂"}
+	result := make([]byte, 0, n)
+	x := seed
+	if x == 0 {
+		x = defaultPayloadSeed
+	}
+	for len(result) < n {
+		x ^= x << 13
+		x ^= x >> 7
+		x ^= x << 17
+		pattern := patterns[int(x%uint64(len(patterns)))]
+		if len(result)+len(pattern) > n {
+			result = append(result, byte('a'+x%26))
+			continue
+		}
+		result = append(result, pattern...)
+	}
+	if !utf8.Valid(result) {
+		panic("support: deterministic text payload generator produced invalid UTF-8")
+	}
+	return result
 }
