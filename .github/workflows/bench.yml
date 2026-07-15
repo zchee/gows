@@ -1,84 +1,172 @@
 name: bench
 
-# Informational only: this workflow never gates merges. It is manually
-# triggered and its job is allowed to fail without turning the workflow red.
 on:
+  push:
+    branches: [main]
+  pull_request:
   workflow_dispatch:
 
 permissions:
   contents: read
 
+# Phase 0 evidence is produced only by controlled local benchmark sessions.
+# This workflow gates the source, harness, and supported assembly-provenance
+# implementation; it never promotes CI timings to benchmark evidence.
+env:
+  GOENV: "off"
+  GOFIPS140: "latest"
+  GOTOOLCHAIN: "local"
+  GOEXPERIMENT: ""
+  GOFLAGS: "-mod=mod"
+  GOWORK: "off"
+
 jobs:
-  bench:
-    name: bench (informational)
+  source-and-harness:
+    name: source and harness (stock Go, linux/amd64)
     runs-on: ubuntu-latest
-    continue-on-error: true
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
 
       - uses: actions/setup-go@v5
         with:
-          go-version: '1.26.x'
+          go-version: "1.26.5"
+          check-latest: false
           cache: true
+          cache-dependency-path: |
+            go.sum
+            bench/go.sum
+            flatekp/go.sum
 
-      - name: Run benchmarks
+      - name: Verify stock toolchain identity
         shell: bash
         run: |
-          set -o pipefail
-
-          root_command="go test -run='^$' -bench='^Benchmark(Upgrade|Conn)' -benchmem -count=6 ."
-          internal_command="go test -run='^$' -bench=. -benchmem -count=6 ./internal/..."
-
-          {
-            printf 'timestamp_utc=%s\n' "$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
-            printf 'commit=%s\n' "$(git rev-parse HEAD)"
-            if test -n "$(git status --porcelain=v1)"; then
-              printf 'git_dirty=true\n'
-            else
-              printf 'git_dirty=false\n'
-            fi
-            printf 'runner_os=%s\n' "${RUNNER_OS:-unknown}"
-            printf 'runner_arch=%s\n' "${RUNNER_ARCH:-unknown}"
-            printf 'decision_policy=diagnostic_only\n'
-            printf 'performance_decision_requirement=controlled_comparable_benchstat_rerun\n'
-            printf 'streaming_benchmark=not_added_no_named_diagnostic_gap\n'
-            printf 'uname=' && uname -a
-            printf 'go_version=' && go version
-            printf '\n[go env]\n'
-            go env
-            printf '\n[cpu]\n'
-            lscpu
-            printf '\n[commands]\nroot=%s\ninternal=%s\n' \
-              "$root_command" "$internal_command"
-          } > bench-metadata.txt 2>&1
-
-          set +e
-          go test -run='^$' -bench='^Benchmark(Upgrade|Conn)' -benchmem -count=6 . \
-            2>&1 | tee bench-root.out
-          root_status=${PIPESTATUS[0]}
-          go test -run='^$' -bench=. -benchmem -count=6 ./internal/... \
-            2>&1 | tee bench-internal.out
-          internal_status=${PIPESTATUS[0]}
-          set -e
-
-          {
-            printf 'command\texit_status\n'
-            printf 'root\t%s\n' "$root_status"
-            printf 'internal\t%s\n' "$internal_status"
-          } > bench-status.tsv
-
-          if (( root_status != 0 || internal_status != 0 )); then
+          set -euo pipefail
+          version="$(go env GOVERSION)"
+          test "$version" = "go1.26.5" || {
+            printf 'unexpected Go version: %s\n' "$version" >&2
             exit 1
-          fi
+          }
+          test -z "$(go env GOEXPERIMENT)" || {
+            printf 'custom GOEXPERIMENT is not allowed: %s\n' \
+              "$(go env GOEXPERIMENT)" >&2
+            exit 1
+          }
+          case "$(go version)" in
+            *" X:"*)
+              printf 'custom Go build is not allowed: %s\n' "$(go version)" >&2
+              exit 1
+              ;;
+          esac
+          test "${GOENV}" = "off"
+          test "${GOFIPS140}" = "latest"
+          test "${GOTOOLCHAIN}" = "local"
+          test "${GOFLAGS}" = "-mod=mod"
 
-      - name: Upload benchmark results
-        if: always()
-        uses: actions/upload-artifact@v4
+      - name: Download locked module graphs
+        run: |
+          go mod download
+          go -C bench mod download
+          go -C flatekp mod download
+
+      - name: Verify generated benchmark metadata
+        run: go -C bench run ./harness/cmd/benchdoc
+
+      - name: Root unit and vet gates
+        run: |
+          go test ./... -count=1
+          go vet ./...
+
+      - name: Root race gate
+        run: go test -race ./... -count=1
+
+      - name: Phase 0 harness adversarial gates
+        run: |
+          go -C bench test \
+            ./harness/artifact \
+            ./harness/cmd/benchdoc \
+            ./harness/cmd/benchcmp \
+            ./harness/cmd/benchrun \
+            ./harness/cmd/echoserver \
+            ./harness/cmd/loadgen \
+            ./harness/doccheck \
+            ./harness/evidence \
+            ./harness/paired \
+            ./harness/policy \
+            ./harness/support \
+            -count=1
+          go -C bench test . ./internal/... -count=1
+          go -C bench vet ./...
+
+      - name: Flatekp unit and vet gates
+        run: |
+          go -C flatekp test ./... -count=1
+          go -C flatekp vet ./...
+
+      - name: Reject generated source drift
+        shell: bash
+        run: |
+          set -euo pipefail
+          git diff --check
+          status="$(git status --porcelain=v1 --untracked-files=all)"
+          test -z "$status" || {
+            printf 'validation changed the checkout:\n%s\n' "$status" >&2
+            exit 1
+          }
+
+  darwin-assembly-provenance:
+    name: assembly provenance (darwin/amd64 and darwin/arm64)
+    runs-on: macos-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
         with:
-          name: bench-results
-          path: |
-            bench-metadata.txt
-            bench-status.tsv
-            bench-root.out
-            bench-internal.out
-          if-no-files-found: warn
+          go-version: "1.26.5"
+          check-latest: false
+          cache: true
+          cache-dependency-path: |
+            go.sum
+            bench/go.sum
+
+      - name: Verify supported native stock toolchain
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(go env GOVERSION)" = "go1.26.5"
+          test "$(go env GOOS)" = "darwin"
+          case "$(go env GOARCH)" in
+            amd64|arm64) ;;
+            *)
+              printf 'unsupported runner architecture: %s\n' \
+                "$(go env GOARCH)" >&2
+              exit 1
+              ;;
+          esac
+          test -z "$(go env GOEXPERIMENT)"
+          test "$(go env GOFIPS140)" = "latest"
+          case "$(go version)" in
+            *" X:"*)
+              printf 'custom Go build is not allowed: %s\n' "$(go version)" >&2
+              exit 1
+              ;;
+          esac
+
+      - name: Download locked benchmark module graph
+        run: go -C bench mod download
+
+      - name: Compile, link, and validate supported assembly provenance
+        run: go -C bench test ./harness/assembly -count=1 -v
+
+      - name: Reject generated source drift
+        shell: bash
+        run: |
+          set -euo pipefail
+          git diff --check
+          status="$(git status --porcelain=v1 --untracked-files=all)"
+          test -z "$status" || {
+            printf 'assembly validation changed the checkout:\n%s\n' \
+              "$status" >&2
+            exit 1
+          }
