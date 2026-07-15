@@ -41,10 +41,10 @@ const reservoirCap = 20_000
 type clientKind string
 
 const (
-	// clientGows drives load through gows's own client stack (Dial +
+	// clientGoWS drives load through gows's own client stack (Dial +
 	// NewClientConn + WriteMessage/ReadMessage). Its NEON masking kernel and
 	// copy-free write path are the point of this transport.
-	clientGows clientKind = "gows"
+	clientGoWS clientKind = "gows"
 	// clientGobwas drives load through the original gobwas/ws client, kept so
 	// the pre-A2c configuration remains reproducible and any client-bias
 	// question stays testable.
@@ -56,10 +56,10 @@ const (
 // the resolution logic is unit-testable without a network.
 func parseClientKind(s string) (clientKind, error) {
 	switch clientKind(s) {
-	case clientGows, clientGobwas:
+	case clientGoWS, clientGobwas:
 		return clientKind(s), nil
 	default:
-		return "", fmt.Errorf("loadgen: -client must be %q or %q, got %q", clientGows, clientGobwas, s)
+		return "", fmt.Errorf("loadgen: -client must be %q or %q, got %q", clientGoWS, clientGobwas, s)
 	}
 }
 
@@ -145,7 +145,7 @@ func (g *gowsClient) Close() error { return g.conn.Close() }
 // payloadLen sizes the gobwas scratch buffer and is ignored by the gows client.
 func dialClient(ctx context.Context, kind clientKind, url string, payloadLen int) (wsClient, error) {
 	switch kind {
-	case clientGows:
+	case clientGoWS:
 		conn, hs, err := gows.Dial(ctx, url)
 		if err != nil {
 			return nil, err
@@ -164,7 +164,7 @@ func dialClient(ctx context.Context, kind clientKind, url string, payloadLen int
 func main() {
 	addr := flag.String("addr", "127.0.0.1:9001", "echoserver websocket address (host:port)")
 	debugAddr := flag.String("debug-addr", "127.0.0.1:9101", "echoserver /debug/memstats address")
-	client := flag.String("client", string(clientGows), "client transport: gows (NEON-masking gows client stack) or gobwas (original gobwas/ws client)")
+	client := flag.String("client", string(clientGoWS), "client transport: gows (NEON-masking gows client stack) or gobwas (original gobwas/ws client)")
 	conns := flag.Int("conns", 200, "number of concurrent connections")
 	payloadSize := flag.Int("payload", 1024, "message payload size in bytes")
 	inflight := flag.Int("inflight", 1, "messages kept outstanding per connection (1 = closed request/response loop, >1 = pipelined)")

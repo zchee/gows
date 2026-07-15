@@ -2,7 +2,7 @@
 // the gows plan §6 Phase 0 item 3: gorilla maskBytes, coder maskGo, gws
 // MaskXOR, and gobwas Cipher, vendored under internal/thirdparty with
 // attribution (see that package's doc comments) rather than go:linkname'd,
-// for build stability across upstream refactors. BenchmarkMaskGows calls
+// for build stability across upstream refactors. BenchmarkMaskGoWS calls
 // gows's own internal/mask.Mask directly (not vendored -- gows is a real
 // dependency of this module via the local replace in go.mod), exercising
 // its actual runtime CPU-feature dispatch (AVX2/AVX-512/NEON/scalar) rather
@@ -78,11 +78,11 @@ func BenchmarkMaskGobwas(b *testing.B) {
 	}
 }
 
-// BenchmarkMaskGows exercises gows's own internal/mask.Mask, i.e. the exact
+// BenchmarkMaskGoWS exercises gows's own internal/mask.Mask, i.e. the exact
 // kernel dispatch [Conn.ReadMessage]/[Conn.WriteMessage] use in production
 // (see internal/mask's per-architecture calibration godocs for the numbers
 // this benchmark cross-checks on linux/amd64).
-func BenchmarkMaskGows(b *testing.B) {
+func BenchmarkMaskGoWS(b *testing.B) {
 	for _, n := range sizes {
 		b.Run(sizeName(n), func(b *testing.B) {
 			buf := make([]byte, n)

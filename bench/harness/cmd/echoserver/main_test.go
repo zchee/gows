@@ -7,13 +7,13 @@ import (
 	"github.com/zchee/gows"
 )
 
-// TestGowsVariants verifies that every gows -lib variant is registered in the
+// TestGoWSVariants verifies that every gows -lib variant is registered in the
 // runners map and resolves to the read-buffer size, UTF-8 setting, and echo
 // loop the experiments depend on. The read-buffer geometry is hypothesis H1's
 // manipulated variable, and useServe selects the drain-and-coalesce loop that
 // the paired final gate measures as gows-serve, so a wrong value in either
 // would silently invalidate its experiment.
-func TestGowsVariants(t *testing.T) {
+func TestGoWSVariants(t *testing.T) {
 	tests := map[string]struct {
 		wantReadBuf  int
 		wantSkipUTF8 bool
@@ -50,10 +50,10 @@ func TestGowsVariants(t *testing.T) {
 	}
 }
 
-// TestGowsRbuf1kFitsFrame guards the rbuf1kSize invariant: a 1 KiB payload plus
+// TestGoWSRbuf1kFitsFrame guards the rbuf1kSize invariant: a 1 KiB payload plus
 // a maximum frame header must fit in the read buffer, and the buffer must not
 // exceed the 16 KiB adaptive ceiling that the stock and 16k variants bracket.
-func TestGowsRbuf1kFitsFrame(t *testing.T) {
+func TestGoWSRbuf1kFitsFrame(t *testing.T) {
 	if rbuf1kSize < 1024+gows.MaxHeaderSize {
 		t.Fatalf("rbuf1kSize = %d is too small to hold a 1 KiB frame + %d-byte header", rbuf1kSize, gows.MaxHeaderSize)
 	}

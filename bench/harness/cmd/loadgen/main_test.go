@@ -8,7 +8,7 @@ func TestParseClientKind(t *testing.T) {
 		want    clientKind
 		wantErr bool
 	}{
-		"success: gows":            {input: "gows", want: clientGows},
+		"success: gows":            {input: "gows", want: clientGoWS},
 		"success: gobwas":          {input: "gobwas", want: clientGobwas},
 		"error: empty":             {input: "", wantErr: true},
 		"error: unknown value":     {input: "coder", wantErr: true},

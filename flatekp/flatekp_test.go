@@ -269,13 +269,13 @@ func TestBackendCapability(t *testing.T) {
 
 // --- full gows integration: live Conn<->Conn traffic -----------------------
 
-// withGowsDeflateBackend installs b at level/windowBits for the duration
+// withGoWSDeflateBackend installs b at level/windowBits for the duration
 // of t (gows.SetDeflateBackend is process-wide; see its doc), restoring
 // gows's built-in stdlib backend once t completes. It must not be used
 // from a t.Parallel() test -- see compress_test.go's identical
 // withDeflateBackend helper in the parent module for why serializing
 // against the package's other tests is what keeps this safe.
-func withGowsDeflateBackend(t *testing.T, b *gows.DeflateBackend, level, windowBits int) {
+func withGoWSDeflateBackend(t *testing.T, b *gows.DeflateBackend, level, windowBits int) {
 	t.Helper()
 	if err := gows.SetDeflateBackend(b, level, windowBits); err != nil {
 		t.Fatalf("SetDeflateBackend: %v", err)
@@ -340,7 +340,7 @@ func echoRoundTrip(t *testing.T, cli *gows.Conn, op gows.Opcode, p []byte) {
 // end-to-end with this backend, not just its compressor/decompressor in
 // isolation.
 func TestIntegrationEchoFlatekpBothEnds(t *testing.T) {
-	withGowsDeflateBackend(t, flatekp.Backend(), 6, 10)
+	withGoWSDeflateBackend(t, flatekp.Backend(), 6, 10)
 
 	srvConn, cliConn := net.Pipe()
 	serverErr := make(chan error, 1)
@@ -387,7 +387,7 @@ func TestIntegrationEchoFlatekpBothEnds(t *testing.T) {
 }
 
 func TestIntegrationBareClientMaxWindowBitsSub15(t *testing.T) {
-	withGowsDeflateBackend(t, flatekp.Backend(), 6, 9)
+	withGoWSDeflateBackend(t, flatekp.Backend(), 6, 9)
 
 	srvConn, cliConn := net.Pipe()
 	serverResult := make(chan struct {
@@ -470,7 +470,7 @@ func TestMixedBackendWireCompatibility(t *testing.T) {
 // windows-capable server still interoperates with an otherwise-default
 // client offer.
 func TestIntegrationEchoMixedNegotiation(t *testing.T) {
-	withGowsDeflateBackend(t, flatekp.Backend(), 6, 10)
+	withGoWSDeflateBackend(t, flatekp.Backend(), 6, 10)
 
 	srvConn, cliConn := net.Pipe()
 	serverErr := make(chan error, 1)

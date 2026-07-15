@@ -43,7 +43,7 @@ type gowsVariant struct {
 	useServe bool
 }
 
-// gowsVariants enumerates every -lib name served by runGows. "gows" and
+// gowsVariants enumerates every -lib name served by runGoWS. "gows" and
 // "gows-noutf8" keep the harness's shared 4096-byte read buffer (bufferSize);
 // "gows-rbuf1k" and "gows-rbuf16k" are the read-buffer geometry variants for
 // hypothesis H1. UTF-8 validation stays on for every variant except
@@ -57,13 +57,13 @@ var gowsVariants = map[string]gowsVariant{
 	"gows-serve":   {readBufSize: bufferSize, useServe: true},
 }
 
-// runGows serves an echo using gows's zero-copy raw net.Conn upgrade path (no
+// runGoWS serves an echo using gows's zero-copy raw net.Conn upgrade path (no
 // net/http), matching gobwas's integration style. The read-buffer size and
 // UTF-8 setting come from cfg, which main populates from the gows variant named
 // by -lib (see gowsVariants). The listener is obtained through newListener so
 // the -notsent-lowat and -trace-file accept hooks apply here identically to the
 // net/http-based backends.
-func runGows(ctx context.Context, addr string, cfg serverConfig) error {
+func runGoWS(ctx context.Context, addr string, cfg serverConfig) error {
 	ln, err := newListener(addr, cfg)
 	if err != nil {
 		return err
@@ -81,13 +81,13 @@ func runGows(ctx context.Context, addr string, cfg serverConfig) error {
 			}
 			return err
 		}
-		go serveGowsConn(conn, cfg)
+		go serveGoWSConn(conn, cfg)
 	}
 }
 
-// serveGowsConn upgrades one accepted connection and runs its echo loop until
+// serveGoWSConn upgrades one accepted connection and runs its echo loop until
 // the peer disconnects or a protocol error tears the connection down.
-func serveGowsConn(conn net.Conn, cfg serverConfig) {
+func serveGoWSConn(conn net.Conn, cfg serverConfig) {
 	defer conn.Close()
 
 	hs, err := gows.Upgrade(conn)

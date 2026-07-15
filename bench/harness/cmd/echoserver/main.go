@@ -40,13 +40,13 @@ var runners = map[string]runner{
 	"quickws":  runQuickWS,
 	"fasthttp": runFastHTTP,
 	"nbio":     runNBIO,
-	// The four gows variants share runGows; their read-buffer size and UTF-8
+	// The four gows variants share runGoWS; their read-buffer size and UTF-8
 	// setting come from gowsVariants, applied to cfg before dispatch.
-	"gows":         runGows,
-	"gows-noutf8":  runGows,
-	"gows-rbuf1k":  runGows,
-	"gows-rbuf16k": runGows,
-	"gows-serve":   runGows,
+	"gows":         runGoWS,
+	"gows-noutf8":  runGoWS,
+	"gows-rbuf1k":  runGoWS,
+	"gows-rbuf16k": runGoWS,
+	"gows-serve":   runGoWS,
 }
 
 // knownLibs returns the registered -lib names in sorted order, so the flag
