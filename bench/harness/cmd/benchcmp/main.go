@@ -11,9 +11,14 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"runtime"
+	"runtime/debug"
+	"strings"
 	"time"
 
+	phase0 "github.com/zchee/gows/bench/harness/evidence"
 	"github.com/zchee/gows/bench/harness/paired"
 	"github.com/zchee/gows/bench/harness/policy"
 	"github.com/zchee/gows/bench/harness/support"
@@ -61,16 +66,31 @@ type Verdict struct {
 }
 
 func main() {
+	if delegated, code, err := delegateToStockController(); delegated {
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "benchcmp: stock controller: %v\n", err)
+			os.Exit(exitUsage)
+		}
+		os.Exit(code)
+	}
 	os.Exit(run())
 }
 
 func run() int {
 	runDir := flag.String("run", "", "path to a benchrun output directory (required)")
 	policyPath := flag.String("policy", "", "policy JSON path (default <run>/policy.json)")
+	writeVerdict := flag.String("write-verdict", "", "write a newly generated Phase 0 verdict (must be <run>/verdict.json)")
 	flag.Parse()
 
 	if *runDir == "" {
 		fmt.Fprintln(os.Stderr, "benchcmp: -run is required")
+		return exitUsage
+	}
+	if phase0.IsPhase0Directory(*runDir) {
+		return runPhase0(*runDir, *writeVerdict)
+	}
+	if *writeVerdict != "" {
+		fmt.Fprintln(os.Stderr, "benchcmp: -write-verdict is valid only for the Phase 0 evaluator")
 		return exitUsage
 	}
 	pp := *policyPath
@@ -79,6 +99,10 @@ func run() int {
 	}
 	pol, rawPolicy, err := policy.Load(pp)
 	if err != nil {
+		fmt.Fprintf(os.Stderr, "benchcmp: %v\n", err)
+		return exitUsage
+	}
+	if err := validateLegacyPolicy(pol); err != nil {
 		fmt.Fprintf(os.Stderr, "benchcmp: %v\n", err)
 		return exitUsage
 	}
@@ -106,6 +130,154 @@ func run() int {
 	}
 	return exitGate
 }
+
+func validateLegacyPolicy(pol *policy.Policy) error {
+	if pol.Series.RunKind != policy.RunKindDiagnostic || pol.Series.EvidenceClass != policy.EvidenceClassDiagnostic {
+		return fmt.Errorf("legacy flat-bootstrap evaluator accepts diagnostic policies only; use the Phase 0 receipt evaluator for %s/%s evidence", pol.Series.RunKind, pol.Series.EvidenceClass)
+	}
+	return nil
+}
+
+func runPhase0(runDir, writeVerdict string) int {
+	wantVerdict := filepath.Join(runDir, phase0.VerdictFile)
+	if writeVerdict != "" {
+		got, err := filepath.Abs(writeVerdict)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "benchcmp: %v\n", err)
+			return exitUsage
+		}
+		want, err := filepath.Abs(wantVerdict)
+		if err != nil || got != want {
+			fmt.Fprintf(os.Stderr, "benchcmp: -write-verdict must be %s\n", wantVerdict)
+			return exitUsage
+		}
+	}
+	verdict, raw, err := phase0.EvaluateDirectory(runDir, writeVerdict == "")
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "benchcmp: %v\n", err)
+		return exitUsage
+	}
+	if writeVerdict != "" {
+		if err := support.WriteFileAtomic(writeVerdict, raw, 0o644); err != nil {
+			fmt.Fprintf(os.Stderr, "benchcmp: %v\n", err)
+			return exitUsage
+		}
+	}
+	fmt.Printf("benchcmp: Phase 0 source=%s receipt=%s\n", verdict.SourceHead, verdict.ReceiptSHA256)
+	fmt.Printf("  A/A sessions=%d false-positive=%.6f pass=%s\n", len(verdict.AA.SessionIDs), verdict.AA.FalsePositive, passLabel(verdict.AA.Pass))
+	fmt.Printf("  baselines=%d assemblies=%d verification-checks=%d\n", len(verdict.Baselines), len(verdict.Assemblies), len(verdict.Verification.Checks))
+	fmt.Printf("VERDICT: %s\n", passLabel(verdict.Pass))
+	if verdict.Pass {
+		return exitPass
+	}
+	return exitGate
+}
+
+const stockControllerMarker = "GOWS_BENCHCMP_STOCK_CONTROLLER=1"
+
+// delegateToStockController preserves the frozen external command without
+// trusting the environment that compiled its bootstrap process. The bootstrap
+// always builds and executes the same source with the absolute Go tool from
+// runtime.GOROOT; the marked child then proves its build and process controls
+// before evaluating evidence.
+func delegateToStockController() (delegated bool, code int, resultErr error) {
+	info, ok := debug.ReadBuildInfo()
+	if !ok {
+		return true, exitUsage, fmt.Errorf("build info is unavailable")
+	}
+	settings := make(map[string]string, len(info.Settings))
+	for _, setting := range info.Settings {
+		settings[setting.Key] = setting.Value
+	}
+	if os.Getenv("GOWS_BENCHCMP_STOCK_CONTROLLER") == "1" {
+		if err := validateControlledController(info.GoVersion, settings, os.Getenv); err != nil {
+			return true, exitUsage, err
+		}
+		return false, 0, nil
+	}
+	goTool := filepath.Join(runtime.GOROOT(), "bin", "go")
+	if file, err := os.Lstat(goTool); err != nil || !file.Mode().IsRegular() {
+		return true, exitUsage, fmt.Errorf("absolute Go tool %s is unavailable", goTool)
+	}
+	temporary, err := os.MkdirTemp("", "gows-benchcmp-stock-")
+	if err != nil {
+		return true, exitUsage, err
+	}
+	defer os.RemoveAll(temporary)
+	binary := filepath.Join(temporary, "benchcmp")
+	environment := controlledEnvironment(os.Environ())
+	build := exec.Command(goTool, "build", "-mod=mod", "-o", binary, "./harness/cmd/benchcmp")
+	build.Env = environment
+	build.Stdout = os.Stdout
+	build.Stderr = os.Stderr
+	if err := build.Run(); err != nil {
+		return true, exitUsage, fmt.Errorf("build controlled evaluator: %w", err)
+	}
+	child := exec.Command(binary, os.Args[1:]...)
+	child.Env = append(environment, stockControllerMarker)
+	child.Stdin = os.Stdin
+	child.Stdout = os.Stdout
+	child.Stderr = os.Stderr
+	if err := child.Run(); err != nil {
+		var exitErr *exec.ExitError
+		if errors.As(err, &exitErr) {
+			return true, exitErr.ExitCode(), nil
+		}
+		return true, exitUsage, err
+	}
+	return true, exitPass, nil
+}
+
+func controlledEnvironment(base []string) []string {
+	overrides := []string{
+		"GOENV=off", "GOTOOLCHAIN=local", "GOEXPERIMENT=", "GOFLAGS=-mod=mod",
+		"GOFIPS140=latest", "GOWORK=off", "CGO_ENABLED=0",
+		"GOOS=" + runtime.GOOS, "GOARCH=" + runtime.GOARCH, "GOAMD64=", "GOARM64=",
+	}
+	if runtime.GOARCH == "amd64" {
+		overrides[len(overrides)-2] = "GOAMD64=v1"
+	} else if runtime.GOARCH == "arm64" {
+		overrides[len(overrides)-1] = "GOARM64=v8.0"
+	}
+	keys := map[string]bool{
+		"GOENV": true, "GOTOOLCHAIN": true, "GOEXPERIMENT": true, "GOFLAGS": true,
+		"GOFIPS140": true, "GOWORK": true, "CGO_ENABLED": true,
+		"GOOS": true, "GOARCH": true, "GOAMD64": true, "GOARM64": true,
+		"GOWS_BENCHCMP_STOCK_CONTROLLER": true,
+	}
+	result := make([]string, 0, len(base)+len(overrides))
+	for _, value := range base {
+		key, _, _ := strings.Cut(value, "=")
+		if !keys[key] {
+			result = append(result, value)
+		}
+	}
+	return append(result, overrides...)
+}
+
+func validateControlledController(goVersion string, settings map[string]string, getenv func(string) string) error {
+	if strings.Contains(goVersion, "-X:") || settings["GOEXPERIMENT"] != "" || settings["CGO_ENABLED"] != "0" ||
+		settings["GOFIPS140"] != "latest" || settings["GOOS"] != runtime.GOOS || settings["GOARCH"] != runtime.GOARCH ||
+		buildSettingEnabled(settings["-race"]) || buildSettingEnabled(settings["-asan"]) || buildSettingEnabled(settings["-msan"]) {
+		return fmt.Errorf("controlled evaluator build settings are invalid: GoVersion=%q settings=%v", goVersion, settings)
+	}
+	if runtime.GOARCH == "amd64" && (settings["GOAMD64"] != "v1" || settings["GOARM64"] != "") ||
+		runtime.GOARCH == "arm64" && (settings["GOARM64"] != "v8.0" || settings["GOAMD64"] != "") {
+		return fmt.Errorf("controlled evaluator architecture baseline is invalid")
+	}
+	wantEnvironment := map[string]string{
+		"GOENV": "off", "GOTOOLCHAIN": "local", "GOEXPERIMENT": "", "GOFLAGS": "-mod=mod",
+		"GOFIPS140": "latest", "GOWORK": "off", "CGO_ENABLED": "0",
+	}
+	for key, want := range wantEnvironment {
+		if got := getenv(key); got != want {
+			return fmt.Errorf("controlled evaluator environment %s=%q, want %q", key, got, want)
+		}
+	}
+	return nil
+}
+
+func buildSettingEnabled(value string) bool { return value != "" && value != "false" }
 
 // evaluate computes the full verdict from samples under a policy. It is pure
 // and deterministic for a fixed policy seed (GeneratedAt is left empty for the

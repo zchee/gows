@@ -1,6 +1,7 @@
 package main
 
 import (
+	"slices"
 	"testing"
 	"time"
 
@@ -8,6 +9,44 @@ import (
 	"github.com/zchee/gows/bench/harness/policy"
 	"github.com/zchee/gows/bench/harness/support"
 )
+
+func TestControlledEnvironmentOverridesToolchainInputs(t *testing.T) {
+	got := controlledEnvironment([]string{
+		"PATH=/bin", "GOENV=/tmp/goenv", "GOTOOLCHAIN=auto", "GOEXPERIMENT=greenteagc", "GOFLAGS=-race",
+		"GOFIPS140=off", "GOWORK=/tmp/go.work", "CGO_ENABLED=1", "GOWS_BENCHCMP_STOCK_CONTROLLER=stale",
+	})
+	for _, want := range []string{
+		"PATH=/bin", "GOENV=off", "GOTOOLCHAIN=local", "GOEXPERIMENT=", "GOFLAGS=-mod=mod",
+		"GOFIPS140=latest", "GOWORK=off", "CGO_ENABLED=0",
+	} {
+		if !slices.Contains(got, want) {
+			t.Fatalf("controlled environment lacks %q: %v", want, got)
+		}
+	}
+	for _, forbidden := range []string{
+		"GOENV=/tmp/goenv", "GOTOOLCHAIN=auto", "GOEXPERIMENT=greenteagc", "GOFLAGS=-race",
+		"GOFIPS140=off", "GOWORK=/tmp/go.work", "CGO_ENABLED=1", "GOWS_BENCHCMP_STOCK_CONTROLLER=stale",
+	} {
+		if slices.Contains(got, forbidden) {
+			t.Fatalf("controlled environment retained %q: %v", forbidden, got)
+		}
+	}
+}
+
+func TestLegacyEvaluatorAcceptsDiagnosticPoliciesOnly(t *testing.T) {
+	diagnostic := testPolicy()
+	diagnostic.Series.RunKind = policy.RunKindDiagnostic
+	diagnostic.Series.EvidenceClass = policy.EvidenceClassDiagnostic
+	if err := validateLegacyPolicy(diagnostic); err != nil {
+		t.Fatalf("diagnostic policy rejected: %v", err)
+	}
+	baseline := testPolicy()
+	baseline.Series.RunKind = policy.RunKindBaseline
+	baseline.Series.EvidenceClass = policy.EvidenceClassBaseline
+	if err := validateLegacyPolicy(baseline); err == nil {
+		t.Fatal("legacy flat bootstrap accepted promotable baseline evidence")
+	}
+}
 
 func sample(scenario, lib string, rep int, throughput float64, p99, p999 int64) paired.Sample {
 	return paired.Sample{
