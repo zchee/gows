@@ -125,8 +125,8 @@ func TestAdaptReadBufferBounds(t *testing.T) {
 
 // TestAdaptReadBufferRecyclesToPoolClass verifies the adaptive single-frame
 // buffer swap draws its replacement from the shared pool at a power-of-two
-// class capacity, so pool.Put at teardown retains it. Before US-B367 (audit
-// #13) the swap used an exact-size make([]byte, payload+MaxHeaderSize) whose
+// class capacity, so pool.Put at teardown retains it. Previously the swap
+// used an exact-size make([]byte, payload+MaxHeaderSize) whose
 // non-class capacity pool.Put silently dropped at teardown, leaking the adapted
 // buffer past the pool. Recyclability is exactly pool.go's retain rule: a
 // class-sized capacity within [128B, 256KiB].
@@ -424,9 +424,9 @@ func TestWriteMessageServerAllocs(t *testing.T) {
 }
 
 // TestWriteMessageCompressedZeroAllocs pins the deflate write path to zero
-// steady-state allocations. Before US-B367 the pooled compressor path allocated
-// a &sliceWriter{} sink and a release closure on every compressed WriteMessage
-// (audit #4); both are gone -- the sink is the reusable per-Conn c.wslice and
+// steady-state allocations. Previously the pooled compressor path allocated
+// a &sliceWriter{} sink and a release closure on every compressed
+// WriteMessage; both are gone -- the sink is the reusable per-Conn c.wslice and
 // the release is carried by value in the compressorLease.
 func TestWriteMessageCompressedZeroAllocs(t *testing.T) {
 	c := NewServerConn(&loopConn{frame: []byte{0x00}}, WithCompression(true))

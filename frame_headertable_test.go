@@ -20,9 +20,9 @@ import (
 	"testing"
 )
 
-// The tests in this file validate the US-B4 table-driven frame-header decoder
+// The tests in this file validate the table-driven frame-header decoder
 // ([decodeFrameHeaderFast] and its [headerTables]) against the semantics of the
-// pre-US-B4 [DecodeHeader]+checkFrameHeader pair it replaced. The oracle below
+// [DecodeHeader]+checkFrameHeader pair it replaced. The oracle below
 // reconstructs that pair: it drives the still-present [DecodeHeader] and then
 // applies checkFrameHeader's role/RSV rules exactly as reader.go did at commit
 // 2c13770, so any divergence in accept/reject decision, decoded Header, or
@@ -41,9 +41,9 @@ const (
 // oracleDecodeHeader is the independent reference implementation of the frame
 // header hot path for a Conn with the given role and negotiated compression
 // state. It composes the retained [DecodeHeader] with a verbatim
-// reconstruction of the pre-US-B4 checkFrameHeader (reader.go @2c13770), and
+// reconstruction of the former checkFrameHeader (reader.go @2c13770), and
 // reports, for a rejected header, the exact close code and message reader.go
-// failed the connection with before US-B4. It is deliberately written from the
+// failed the connection with at that commit. It is deliberately written from the
 // original two-step formulation, not in terms of [decodeFrameHeaderFast], so
 // that it is a genuine oracle rather than a restatement of the code under test.
 func oracleDecodeHeader(client, compression bool, b []byte) (h Header, n int, kind oracleKind, code CloseCode, msg string) {
@@ -518,7 +518,8 @@ func TestDecodeFrameHeaderFastRejects(t *testing.T) {
 
 // TestFrameHeaderRejectReasonParity drives the whole reader (not just the pure
 // decoder) so that the 1002 close code and the exact reason string surfaced to
-// the peer and the caller through [Conn.ReadMessage] match the pre-US-B4 text.
+// the peer and the caller through [Conn.ReadMessage] match the former two-step
+// decode's text.
 // It complements TestReadMessageProtocolErrors, which asserts the code but not
 // the message, closing the error-string parity gap at the integration boundary.
 func TestFrameHeaderRejectReasonParity(t *testing.T) {
@@ -624,7 +625,7 @@ func headerBenchShapes() []headerBenchShape {
 
 // BenchmarkHeaderDecode measures the table-driven frame-header decoder across
 // representative wire shapes, including the 16-bit masked binary shape the
-// pre-US-B4 code special-cased. The identically named benchmark in the
+// former code special-cased. The identically named benchmark in the
 // 2c13770 worktree measures the old DecodeHeader+checkFrameHeader path over the
 // same shapes for an apples-to-apples comparison.
 func BenchmarkHeaderDecode(b *testing.B) {

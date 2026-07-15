@@ -200,8 +200,8 @@ func (c *Conn) readHeaderWithPartialEOF(promotePartialEOF bool) (Header, error) 
 	for {
 		// One table-driven pass fully decodes and validates the next header for
 		// this Conn's role and negotiated extension set. decodeFrameHeaderFast
-		// fuses the wire-level checks with the role/RSV checks that a separate
-		// checkFrameHeader step performed before US-B4, so the caller needs no
+		// fuses the wire-level checks with the role/RSV checks that the former
+		// separate checkFrameHeader step performed, so the caller needs no
 		// downstream re-validation. rejectShort means the buffered bytes do not
 		// yet form a complete header; every other rejection fails the connection
 		// with the same 1002 close code and byte-identical message as before.

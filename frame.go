@@ -294,7 +294,8 @@ func DecodeHeader(b []byte) (h Header, n int, err error) {
 // precomputed once per b0 value (see [headerTables]) so the hot path pays a
 // single indexed load instead of re-deriving the opcode's legality, the RSV
 // bits' legality, and the control/data split on every frame -- the redundant
-// per-frame work the pre-US-B4 [DecodeHeader]+checkFrameHeader pair performed.
+// per-frame work of the former [DecodeHeader]+checkFrameHeader two-step decode
+// it replaced (reader.go @2c13770).
 //
 // b0 packs Fin (bit 7), the three RSV bits (bits 6-4), and the opcode (bits
 // 3-0); none of those depend on the connection's role, so the classification
@@ -315,9 +316,9 @@ type headerClass struct {
 // hdrReject identifies which RFC 6455 rule a frame header violated (or that
 // more bytes are needed), so [decodeFrameHeaderFast] stays free of side
 // effects while its caller maps the reason to the exact close code and message
-// the connection must fail with. The variants are ordered to mirror the
-// precedence [DecodeHeader] followed by checkFrameHeader applied before US-B4:
-// reserved opcode, then short header, then the length-encoding checks, then the
+// the connection must fail with. Rejections surface in the same first-violation
+// precedence the former [DecodeHeader]-then-checkFrameHeader two-step decode
+// applied: reserved opcode, then the length-encoding checks, then the
 // control-frame checks, then the RSV check, then the mask-role check.
 type hdrReject uint8
 
@@ -334,7 +335,7 @@ const (
 )
 
 // closeMessage returns the exact failure text a rejected header must close with,
-// byte-for-byte identical to the pre-US-B4 message produced by
+// byte-for-byte identical to the message formerly produced by
 // [Conn.readHeaderWithPartialEOF] (for the [DecodeHeader]-level rejections) and
 // checkFrameHeader (for the RSV and mask-role rejections). The mask-role text is
 // role-specific, so client reports the receiving side. It returns the empty
@@ -419,8 +420,8 @@ func headerTableFor(client, compression bool) (*[256]headerClass, byte) {
 // decodeFrameHeaderFast decodes and fully validates the frame header at the
 // start of b for a Conn described by tbl (its b0-classification table) and
 // maskBit (its expected b1 mask bit). It fuses the wire-level checks
-// [DecodeHeader] performs with the role/RSV checks checkFrameHeader performed
-// before US-B4, so a caller needs neither afterward. It reads only b, has no
+// [DecodeHeader] performs with the role/RSV checks the former checkFrameHeader
+// step performed, so a caller needs neither afterward. It reads only b, has no
 // side effects, and never allocates, which is what lets the differential fuzz
 // diff it against the DecodeHeader+checkFrameHeader oracle.
 //

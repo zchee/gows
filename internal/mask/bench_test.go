@@ -25,8 +25,7 @@ var benchSizes = []int{16, 64, 256, 1024, 4096, 16384, 65536, 262144}
 
 // benchCalibSizes are fine-grained sizes straddling the generic<->NEON
 // crossover. BenchmarkKernelCalib sweeps them so thresholdSIMD can be read off
-// the point where NEON first beats the generic word loop (see
-// mask-calibration.md §5).
+// the point where NEON first beats the generic word loop.
 var benchCalibSizes = []int{8, 16, 24, 32, 48, 64, 96, 128}
 
 func benchMask(b *testing.B, fn func([]byte, uint32) uint32, size int) {

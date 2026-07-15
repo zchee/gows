@@ -23,7 +23,7 @@ import (
 // field layout is packed against.
 const cacheLine = 128
 
-// TestConnFieldLayout pins the cache-line packing of Conn (US-B367 audit #6):
+// TestConnFieldLayout pins the cache-line packing of Conn:
 // the read-hot working set fits in the first 128-byte line, the write block
 // starts on the next 128-byte boundary, and compression-only scratch is pushed
 // off both hot lines. It is a layout guard, not a behavioral test: it fails if a

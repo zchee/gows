@@ -39,12 +39,9 @@ const (
 // maxCoalescedWriteSize is the largest server payload the vectored write path
 // copies together with its header into one buffer to avoid a scatter-gather
 // writev's fixed per-call cost; larger payloads stay zero-copy through
-// [net.Buffers]. It is a var, not a const, purely so the threshold stays
-// adjustable: the 2 KiB value is a provisional pick pending a benchstat
-// calibration sweep with the load harness (a follow-up), not yet a measured
-// optimum. It has no effect on the staged (non-vectored) transport path, which
-// always copies header and payload contiguously regardless of size.
-var maxCoalescedWriteSize = 2 << 10
+// [net.Buffers]. It has no effect on the staged (non-vectored) transport path,
+// which always copies header and payload contiguously regardless of size.
+const maxCoalescedWriteSize = 2 << 10
 
 // Conn is a WebSocket connection layered over a net.Conn, implementing the
 // RFC 6455 framing, fragmentation, control-frame, and closing-handshake
