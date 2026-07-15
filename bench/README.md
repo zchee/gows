@@ -1,326 +1,423 @@
 # bench
 
-Cross-library WebSocket benchmark harness for the `gows` project. This is a
-**separate Go module** (`github.com/zchee/gows/bench`) so the seven
-comparison libraries never appear in the core `gows` module's dependency
-graph (core stays zero-dependency; see plan ADR §3, AC9). `gows` itself now
-joins this harness via `require github.com/zchee/gows v0.0.0` +
-`replace github.com/zchee/gows => ../` — the local path replace means the
-harness always measures the working tree, never a tagged release.
+`bench` is the separate benchmark module for `gows`. Comparison libraries and
+the HDR histogram dependency remain outside the root module's production
+dependency graph. The local replacement
+`github.com/zchee/gows => ../` makes every benchmark binary bind to the exact
+repository source recorded in its manifest.
 
-This directory implements the project's fastest-websocket benchmarking
-plan (2026-07-08): Phase 0 items 2–3 plus the corresponding methodology
-sections and AC4/AC5/AC6.
+This document describes the Phase 0 benchmark-truth harness. It does not make a
+current `gows`-versus-`quickws` superiority claim. A current result is valid
+only when the tracked receipt under `evidence/phase0/current` resolves every
+immutable artifact and the fixed evaluator exits zero.
 
-## Libraries compared
+## Evidence classes
 
-| Flag        | Module                              | Version | Server integration used |
-|-------------|--------------------------------------|---------|--------------------------|
-| `gorilla`   | github.com/gorilla/websocket         | v1.5.3  | net/http Hijack, `Upgrader.WriteBufferPool` enabled |
-| `coder`     | github.com/coder/websocket           | v1.8.15 | net/http Hijack, `Accept`/`Read`/`Write` |
-| `gobwas`    | github.com/gobwas/ws (+ wsutil)      | v1.4.0  | zero-copy raw `net.Conn` upgrade (no net/http) |
-| `gws`       | github.com/lxzan/gws                 | v1.9.1  | `Event` callback API, `Server.Run` |
-| `quickws`   | github.com/antlabs/quickws            | v0.2.2  | callback API over net/http Hijack |
-| `fasthttp`  | github.com/fasthttp/websocket (+valyala/fasthttp v1.72.0) | v1.5.12 | `FastHTTPUpgrader` over `fasthttp.Server` |
-| `nbio`      | github.com/lesismal/nbio              | v1.6.11 | `nbhttp` epoll/kqueue reactor engine |
-| `gows`      | github.com/zchee/gows (this repo, via `replace => ../`) | working tree | zero-copy raw `net.Conn` upgrade (`gows.Upgrade` + `NewServerConn`), UTF-8 validation **on** (gows's default) |
-| `gows-noutf8` | same as `gows` | working tree | identical, plus `WithSkipUTF8Validation(true)` — the harness's paired validation-OFF reference config |
+Policy schema version 3 makes purpose and interpretation part of the run
+identity. Samples use schema version 2, and load-generator results embedded in
+them use schema version 4. Unknown fields, versionless policies, and older
+schemas are rejected rather than upgraded implicitly.
 
-**gofiber/contrib/websocket skipped.** The plan asked for "gofiber/contrib
-v3 websocket" as an eighth entry. As of this writing gofiber/contrib's
-`websocket` package (latest v1.3.4) has no v2/v3-suffixed module path and its
-`go.mod` still requires `github.com/gofiber/fiber/v2`, not fiber v3 — there
-is no released fiber-v3-compatible websocket contrib module to pull in.
-Functionally it is confirmed to be a thin handler-registration wrapper around
-`fasthttp/websocket` (same `Upgrader`/`Conn`, same mask code, same UTF-8
-behavior — see plan §4.1), so it would not add a distinct performance data
-point; it would only add fiber v2's dependency tree (testify, brotli, uuid,
-etc.) for zero additional signal. Per the task's own instruction, it is
-skipped and documented here instead of vendored.
+<!-- markdownlint-disable MD013 -->
 
-## Fairness rules (plan §8)
+| Run kind | Evidence class | Host mode | Interpretation |
+| --- | --- | --- | --- |
+| `diagnostic` | `diagnostic` | `same_host` | Smoke, debugging, and screening only; never promotable |
+| `aa` | `self_validation` | `same_host` | Same-binary A/A validation of the host and harness |
+| `baseline` | `baseline` | `same_host` | Current implementation measurement; record-only in Phase 0 |
+| `baseline` | `claim` | `separate_host` | A future public-claim class; not produced by the Phase 0 baseline |
 
-Applied identically across every server implementation, verified by reading
-each `harness/cmd/echoserver/server_*.go` file:
+<!-- markdownlint-enable MD013 -->
 
-- **Read/write buffer size: 4096 bytes** wherever the library exposes the
-  knob (`bufferSize` const in `harness/cmd/echoserver/main.go`).
-  - `coder/websocket` exposes no read/write buffer size configuration at all
-    (its `AcceptOptions` has no such field) — this is a real capability gap
-    documented here, not an oversight.
-  - `antlabs/quickws` sizes its internal bufio buffer relative to the
-    observed payload size (`WithServerBufioMultipleTimesPayloadSize`) rather
-    than as an absolute byte count, so no absolute 4096 setting exists to
-    apply; left at the library default.
-  - `gows` exposes `WithReadBufferSize` (set to 4096 here) but no separate
-    write-buffer-size knob: writes go out via a direct scatter-gather
-    `net.Buffers` write of the header plus the caller's payload, with no
-    intermediate write buffer to size.
-- **Compression: off** everywhere (`EnableCompression: false` / zero-value
-  `PermessageDeflate` / `CompressionDisabled`, per library).
-- **TCP_NODELAY**: left at each library/runtime's default, which is on for
-  Go's `net` package (plan §4.2) and for fasthttp/nbio's socket setup.
-- **No logging in the hot path.** `nbio`'s engine prints a handful of INFO
-  lines at start/stop only (not per-message).
-- **Each library's own recommended API is used**, including advantageous
-  options the library's own docs recommend (e.g. gorilla/fasthttp's
-  `WriteBufferPool`), per plan §8's explicit fairness allowance.
-- **UTF-8 validation**: `gws` (`CheckUtf8Enabled`) and `quickws`
-  (`WithServerEnableUTF8Check`) default to *off* in this harness, matching
-  gorilla/coder/fasthttp/gobwas's default (non-)validation. `gows` is the
-  one library in this harness where validation defaults *on*
-  (`WithSkipUTF8Validation` is opt-out, not opt-in) — the plan's explicit
-  differentiator (RFC 6455 §8.1 conformance by default) at the cost of
-  doing work no other library here does by default. Both configs are
-  published: `gows` (validation on, the AC5/AC6 gate per plan §13) and
-  `gows-noutf8` (`WithSkipUTF8Validation(true)`, the reference "OFF" number
-  published alongside it, matching every other library's default) — see
-  plan §8's ON/OFF policy.
+`stock` and custom `GOEXPERIMENT` series have different artifact roots and
+identities. The Phase 0 A/A and current baseline are stock-Go evidence.
+Validation-off configurations are diagnostic only; strict evidence uses
+`strict_on`.
+
+## Compared libraries and benchmark-only dependencies
+
+The version column below is the current `bench/go.mod` module graph. Verify it
+instead of copying this table into a report:
+
+```sh
+GOENV=off GOTOOLCHAIN=local GOEXPERIMENT= GOFLAGS=-mod=mod \
+GOFIPS140=latest GOWORK=off CGO_ENABLED=0 \
+  "$(go env GOROOT)/bin/go" -C bench list -m -f \
+  '{{if not .Main}}{{.Path}} {{.Version}}{{end}}' all
+```
+
+<!-- markdownlint-disable MD013 -->
+
+<!-- BEGIN GENERATED: module-metadata -->
+| Harness role | Module | Version | Integration |
+| --- | --- | ---: | --- |
+| `latency histogram` | `github.com/HdrHistogram/hdrhistogram-go` | `v1.3.0` | mergeable HDR observations (MIT) |
+| `gorilla` | `github.com/gorilla/websocket` | `v1.5.3` | `net/http` upgrader |
+| `coder` | `github.com/coder/websocket` | `v1.8.15` | `Accept` / `Read` / `Write` |
+| `gobwas` | `github.com/gobwas/ws` | `v1.4.0` | raw `net.Conn` upgrade |
+| `gws` | `github.com/lxzan/gws` | `v1.10.0` | callback server API |
+| `quickws` | `github.com/antlabs/quickws` | `v0.2.2` | callback API over `net/http` hijack |
+| `fasthttp` | `github.com/fasthttp/websocket` | `v1.5.12` | `fasthttp` upgrader (`fasthttp v1.72.0`) |
+| `nbio` | `github.com/lesismal/nbio` | `v1.6.12` | `nbhttp` reactor engine |
+| `gows` / `gows-serve` | `github.com/zchee/gows` | `working tree` | raw upgrade / drain-and-coalesce server |
+<!-- END GENERATED: module-metadata -->
+
+<!-- markdownlint-enable MD013 -->
+
+The HDRHistogram module listed in the generated table is benchmark-only. It is
+MIT-licensed and is used by `harness/support` because
+mergeable histograms preserve every recorded message across connections and
+make bounds, bucket counts, drops, and overflow auditable. Confirm the graph
+edge with:
+
+```sh
+GOENV=off GOTOOLCHAIN=local GOEXPERIMENT= GOFLAGS=-mod=mod \
+GOFIPS140=latest GOWORK=off CGO_ENABLED=0 \
+  "$(go env GOROOT)/bin/go" -C bench mod why \
+  github.com/HdrHistogram/hdrhistogram-go
+```
+
+## Comparator and client contract
+
+The policy identifies the adapter class, validation profile, and client; they
+cannot be substituted after a run.
+
+<!-- markdownlint-disable MD013 -->
+
+| Series | Purpose | Required behavior |
+| --- | --- | --- |
+| `best_api` | Compare each server through its intended high-performance API | Same wire semantics and hard error accounting |
+| `semantic_parity` | Hold callback/reply behavior as close as practical | Separate policy and adapter hashes |
+| `gows` client | Canonical baseline client | Same client binary for both servers in a pair |
+| `gobwas` client | Independent-client check | Separate baseline role and receipt |
+| `raw` client | Minimal independent RFC 6455 check | Separate baseline role and receipt |
+
+<!-- markdownlint-enable MD013 -->
+
+The Phase 0 strict adapter explicitly enables quickws UTF-8 checking with
+`WithServerEnableUTF8Check`. A quickws callback write failure is reported to
+the server runner, closes the connection, and terminates the server; it is not
+silently discarded. Protocol errors, I/O errors, payload mismatches, rejected
+messages, dropped messages, queue overflow, and histogram loss are hard
+measurement failures for every client and server.
+
+Validation-off `gows-noutf8` data may be useful diagnostically, but it is not a
+strict Phase 0 baseline or headline series.
 
 ## Harness components
 
-- `harness/support`: shared, non-hot-path utilities.
-  - `payload.go`: `DeterministicPayload(n)` — xorshift64*-filled, fixed seed,
-    reproducible across runs and processes.
-  - `latency.go`: `Recorder` — reservoir sampling (Algorithm R) latency
-    recorder bounded at 20,000 samples/connection so long high-rate runs
-    don't grow memory unbounded; `ComputePercentiles` returns p50/p90/p99/p999.
-  - `memstats.go`: `StartDebugServer` exposes `GET /debug/memstats` (JSON
-    `runtime.MemStats` subset) on a separate debug listener, polled by
-    `loadgen` only before/after the measurement window — never on the
-    message hot path.
-- `harness/cmd/echoserver`: `-lib {gorilla|coder|gobwas|gws|quickws|fasthttp|nbio|gows|gows-noutf8} -addr :9001 -debug-addr :9101`.
-  Plain binary echo: read one message, write the same opcode + payload back.
-- `harness/cmd/loadgen`: `-addr host:port -debug-addr host:port -conns N -payload BYTES -inflight K -duration DUR -warmup DUR -rate N`.
-  Drives load using **gobwas/ws's low-level client API** (`ws.Dial` +
-  `wsutil.WriteClientMessage`/`wsutil.ReadServerData`) against every server
-  under test, so the client side of every comparison is identical. `-rate 0`
-  (default) saturates: each connection is a closed request/response loop
-  (send, wait for echo, send again) with no artificial throttling; `-rate N`
-  spreads a target aggregate messages/sec across all connections via a
-  per-connection ticker. `-inflight K` (default 1) keeps K messages
-  outstanding per connection: K=1 is the closed loop above; K>1 pipelines by
-  splitting each connection's synchronous gobwas read and write onto two
-  goroutines (a writer that keeps the window primed and a reader that drains
-  and verifies echoes), so the writer never wedges on a full socket buffer
-  while echoes go unread — a single interleaved goroutine could deadlock there
-  once K*payload exceeds the buffers. Latency is timed from the instant a
-  message is handed to the send path; under saturation that equals the
-  intended send time, so there is no coordinated-omission correction to make.
-  Every echo is verified byte-for-byte against the deterministic payload and a
-  mismatch aborts the run. K*payload is capped at 1 MiB, and `-rate` with
-  K>1 is rejected (open-loop pacing and pipelining measure different things).
-- `internal/thirdparty/{gorilla,coder,gws,gobwas}`: minimal vendored copies
-  of each library's unexported (or, for gobwas, exported-but-otherwise-
-  identical) masking kernel, used only by `kernels_test.go`. Vendored rather
-  than `go:linkname`'d for build stability across upstream internal
-  refactors; each file's doc comment names its exact source file, version,
-  and license (gorilla BSD-2-Clause, coder ISC, gws Apache-2.0, gobwas MIT).
-  These files are intentionally left byte-faithful to upstream — including
-  patterns `modernize`/lint would otherwise flag — because the whole point
-  is to benchmark exactly what each library ships today.
-- `kernels_test.go`: `BenchmarkMask{Gorilla,Coder,GWS,Gobwas}` at sizes
-  `{64B,256B,1KB,4KB,16KB,64KB}` using `b.Loop()` + `b.SetBytes`.
+### `benchrun`
 
-## How to run
+`harness/cmd/benchrun` executes a strict policy and creates a new immutable run
+directory. It:
 
-### Kernel benchmarks (any machine)
+- rejects dirty final runs, unknown or changed source identity, mixed
+  toolchains, unrecorded binaries, and policy/adapter hash drift;
+- builds with a controlled toolchain environment (`GOENV=off`,
+  `GOTOOLCHAIN=local`, `GOFLAGS=-mod=mod`, `GOFIPS140=latest`,
+  `GOWORK=off`, stock or policy-declared `GOEXPERIMENT`, `CGO_ENABLED=0`)
+  and records binary SHA-256 plus
+  `go version -m`;
+- records Git remote/branch/HEAD/tree/status, `go env -json`,
+  `go list -m -json all`, module-file hashes, OS/kernel, CPU/system profile,
+  limits, runtime settings, host boot identity, uptime, load, power, and
+  thermal state in `manifest.json` and provenance files;
+- generates deterministic balanced AB/BA blocks and records `session_id`,
+  `block_id`, order, binary hash, policy hash, and adapter hash in every
+  schema-v2 sample;
+- continuously guards the host and immutable binaries during a measurement;
+  source drift, reboot, thermal/power/load drift, or competing work aborts the
+  run; and
+- writes `INVALIDATED.json` after any post-directory failure. An invalidated
+  run can never be sealed or evaluated.
 
-```sh
-cd bench
-go test -run=NONE -bench=BenchmarkMask -benchmem -count=10 . | tee results/kernels-baseline-<goos>-<goarch>.txt
-# Compare two runs (e.g. before/after a gows kernel lands) with benchstat:
-go run golang.org/x/perf/cmd/benchstat@latest old.txt new.txt
-```
+Run directories are never overwritten or implicitly resumed. Diagnostic,
+self-validation, baseline, stock, and custom series are separated below
+`.omx/bench`.
 
-Do not run kernel benchmarks in parallel with anything else on the machine
-(user Absolute Rule — benchmarks competing for CPU invalidate results). A
-single `go test -bench` invocation is already serial across subtests.
+### `loadgen` and observation accounting
 
-### Echo harness (local)
+`harness/cmd/loadgen` supports `gows`, `gobwas`, and independent `raw` clients;
+binary or Text messages; and `closed_loop`, `pipelined`, and `open_loop`
+arrival contracts.
 
-```sh
-cd bench
-go build -o /tmp/echoserver ./harness/cmd/echoserver
-go build -o /tmp/loadgen ./harness/cmd/loadgen
+Open loop schedules against intended arrival time rather than a lossy ticker.
+Every policy preregisters `max_scheduler_lateness`, no greater than one arrival
+interval. A late scheduler rejects missed slots and any over-limit current slot
+instead of replaying them as a catch-up burst. Queue rejection remains a
+separate counter. A queued exchange whose worker does not start before the
+measurement boundary is a post-window drop and a hard failure. An exchange
+that did start before the boundary may complete successfully during the
+bounded drain; the drain duration is recorded, and its valid response remains
+an achieved latency observation. A drain timeout or I/O error is a hard
+failure.
 
-/tmp/echoserver -lib gorilla -addr 127.0.0.1:9001 -debug-addr 127.0.0.1:9101 &
-/tmp/loadgen -addr 127.0.0.1:9001 -debug-addr 127.0.0.1:9101 \
-  -conns 200 -payload 1024 -duration 15s -warmup 3s -rate 0
-kill %1
-```
+The result records the exact scheduled offered count, requested/offered/
+achieved/rejected rates, scheduler-late messages, maximum and allowed scheduler
+lateness, queue overflow, post-window messages, drops, drain duration, and
+scheduled-start response-time correction independently. Overload is never
+relabeled as success.
 
-Repeat per `-lib` value. `loadgen` polls `/debug/memstats` once right before
-the measurement window starts (after warmup) and once right after it ends,
-and reports the delta — this is the "server allocs" figure in the results
-table, not a per-request instrumentation hook.
+Latency uses mergeable HDR histograms, not a per-connection reservoir. The raw
+and coordinated-omission-corrected histograms contain their geometry, bucket
+counts, and `seen`/`recorded`/`dropped`/`overflow` counters. Merging preserves
+message weighting rather than weighting each connection equally. The p50,
+p90, p99, and p999 summaries must reconstruct exactly from the corrected
+histogram.
 
-### Remote (linux/amd64, e.g. 8481C)
+Server and client allocation snapshots carry raw before/after deltas,
+observation overhead, net allocations, allocated bytes, allocations/message,
+and bytes/message. Process CPU and peak RSS come from OS-specific `rusage`
+collectors; MaxRSS is normalized to bytes and unavailable data is represented
+as unavailable, never as a fabricated zero. Microbenchmark `0 alloc/op` and
+macro allocation rate are distinct contracts.
 
-```sh
-./run-remote.sh debian-trixie-xslq.asia-northeast1-c.gaudiy-platform
-```
+### Immutable artifacts and tracked receipts
 
-It tars the repo to the remote host (excluding `bench/results`, which is
-recreated empty remotely so nothing tries to write into a missing
-directory), runs the kernel benchmarks and the full 7-library echo harness
-there with the remote's Go toolchain (absolute path — bare `go` does not
-resolve over non-interactive ssh), pins `echoserver`/`loadgen` to disjoint
-`taskset` CPU sets (plan §8), raises the remote shell's `ulimit -n` to
-65535 for the 1000-conn runs (fd limits don't persist across separate ssh
-invocations, so this is set once at the top of the combined per-library
-remote command rather than per-binary), and pulls `results/` back via
-tar-over-ssh (not `scp`: its SFTP-protocol mode doesn't reliably glob a
-remote path built from a literal `"$HOME"` token — this was hit and fixed
-during the first real run against the 8481C).
+Successful runs are sealed into the content-addressed store at
+`.omx/artifacts`. Every reference has the form
+`omx-cas://sha256/<digest>` and carries its SHA-256, size, and media type.
+Run receipts bind the exact source tree, module files, Go tool, policy,
+adapters, client, binaries, samples, histograms, logs, and provenance files.
+Assembly and verification directories use equally strict directory receipts.
 
-Already executed once against the 8481C — see
-`results/kernels-baseline-linux-amd64.txt` and
-`results/echo-baseline-linux-amd64.md` for the resulting baseline and
-cross-platform summary.
+Raw artifacts are intentionally not copied into Git. The compact tracked
+`evidence/phase0/current/receipt.json` is the only root the evaluator follows;
+it never scans legacy `bench/results`, old `.omx`/`.omc` trees, or unrelated
+CAS objects. A missing store, missing blob, digest mismatch, symlink,
+`INVALIDATED.json`, non-ancestor source, dirty current tree, unknown JSON
+field, or identity mismatch fails closed. Historical/versionless evidence is
+not silently promoted.
 
-## Known caveats
+The generated Phase 0 verdict contains no timestamp. The same tracked receipt,
+raw bytes, policy, and seed must regenerate byte-identical `verdict.json`.
 
-- `coder/websocket`'s `Server` shutdown on this harness relies on process
-  termination for `gws` and `nbio`-style engines that don't expose a
-  context-cancelable `Run`; `echoserver` handles `SIGINT`/`SIGTERM` for the
-  net/http- and fasthttp-based servers (gorilla, coder, gobwas, quickws,
-  fasthttp) but `gws.Server.Run` and `nbio`'s `Engine.Stop` are invoked from
-  a signal-driven goroutine that returns once the process is asked to exit;
-  in practice each `-lib` run is a fresh process killed after measurement,
-  so this has no effect on the numbers.
-- `loadgen`'s allocation counters are proxies: "allocs/msg" divides the
-  server's `runtime.MemStats.Mallocs` delta by the client's *sent* message
-  count for the window, since echo semantics make sent == received.
-- Local darwin/arm64 runs use whatever `ulimit -n` the shell already has;
-  this machine's default (524288) comfortably covers `-conns 200` with room
-  to scale to the plan's 1k/10k linux targets without change.
+### Assembly provenance
 
-## Paired verdict runner (`benchrun` / `benchcmp`)
+`harness/cmd/asmprobe` supports only the Phase 0 production targets:
+`amd64` and `arm64`. For each target its bundle records the controlled stock
+toolchain, target baseline (`GOAMD64=v1` or `GOARM64=v8.0`), `go list -json`
+selection, linked production graph, selected source hashes, package-object
+hashes, binary hash, symbol table, per-symbol `go tool objdump`, CPU features,
+runtime-selected mask/UTF-8 profiles, and runtime self-checks. Reference-oracle
+packages must be absent from the production probe graph.
 
-`benchrun` and `benchcmp` turn a candidate-vs-comparator comparison into a
-machine-checkable verdict: `benchrun` executes a policy's scenario matrix
-under strict host hygiene and records raw samples; `benchcmp` pairs those
-samples, computes deterministic median-bootstrap confidence intervals, applies
-the policy's gate thresholds, and writes `verdict.json`. `loadgen -json`
-emits one JSON result line (the fixed-schema `LoadgenResult`: message count,
-window durations, throughput, p50/p90/p99/p999 ns, error count, and the
-client's own `getrusage(RUSAGE_SELF)` CPU seconds and peak RSS), which
-`benchrun` consumes; the human summary is unchanged when `-json` is absent.
+The required linked profiles are SSE2/AVX2/AVX-512 masking plus AVX2 UTF-8 on
+amd64, and NEON masking/UTF-8 on arm64. The probe does not force unsupported
+ISA execution. Phase 0 does not add or qualify pure-Go/no-assembly production
+fallbacks or any other architecture.
 
-### Policy schema (`harness/policy`)
+## Phase 0 policies
 
-A policy is JSON with Go duration strings for the windows. The canonical
-darwin/arm64 policy is `harness/policy/darwin-arm64.json`: seven primary
-cells — five closed-loop (`binary-64b-1k`, `binary-1k-200`, `binary-1k-1k`,
-`binary-16k-200`, `binary-16k-1k`) plus the two pipelined cells
-(`binary-1k-200-inflight8` at inflight 8, `binary-1k-1k-inflight4` at
-inflight 4), promoted to primary by the 2026-07-14 Phase D
-pre-registration — all warmup `5s`, duration `30s`, 20 repetitions. Each
-scenario carries an `inflight` window (>= 1) that `benchrun` passes to
-`loadgen`; the schema rejects `inflight < 1` and any
-`inflight*payload_bytes` above the 1 MiB pipeline cap. Primary cells gate the
-verdict; non-primary cells are evaluated and reported in `verdict.json` for
-context but never flip the pass/fail decision or the throughput geomean.
-`darwin-arm64-quick.json` and `darwin-arm64-screen.json` are shorter
-screening presets (reduced warmup/duration/repetitions, pipelined cells left
-non-primary); their verdicts are iteration aids, never the pre-registered
-gate. `harness/policy/experiments/` holds the single-hypothesis A/B policies
-from the causal study (H1 read-buffer geometry, H2 GOEXPERIMENT, H5
-TCP_NOTSENT_LOWAT).
+<!-- markdownlint-disable MD013 -->
 
-```json
-{
-  "candidate": "gows",
-  "comparator": "quickws",
-  "seed": 12648430,
-  "bootstrap": {"replicates": 20000, "confidence": 0.95},
-  "thresholds": {
-    "throughput_lower_bound": 1.0,
-    "throughput_geomean": 1.05,
-    "p99_upper_bound": 1.01,
-    "p999_center_upper_bound": 1.05
-  },
-  "guard": {"max_load1": 6.0, "forbidden_process_patterns": ["echoserver", "loadgen"]},
-  "scenarios": [
-    {"name": "binary-1k-200", "primary": true, "payload_bytes": 1024,
-     "connections": 200, "inflight": 1, "warmup": "5s", "duration": "30s",
-     "repetitions": 20}
-  ]
-}
-```
+<!-- BEGIN GENERATED: phase0-policy-metadata -->
+| Evidence role | Policy | Client | Adapter | Window |
+| --- | --- | --- | --- | --- |
+| A/A sessions 1-3 | `harness/policy/phase0/darwin-arm64-aa.json` | `gows` | same binary, `aa` | 5s warmup, 30s measure, n=20/session |
+| Best API baseline | `harness/policy/darwin-arm64.json` | `gows` | `best_api` | 5s/30s, n=20/cell |
+| Semantic parity | `harness/policy/phase0/darwin-arm64-semantic-parity.json` | `gows` | `semantic_parity` | 5s/30s, n=20 |
+| Independent client | `harness/policy/phase0/darwin-arm64-independent-gobwas.json` | `gobwas` | `best_api` | 5s/30s, n=20 |
+| Independent raw client | `harness/policy/phase0/darwin-arm64-independent-raw.json` | `raw` | `best_api` | 5s/30s, n=20 |
+<!-- END GENERATED: phase0-policy-metadata -->
 
-### Running
+<!-- markdownlint-enable MD013 -->
+
+The full best-API policy contains saturated closed-loop cells and
+server-sensitive pipelined cells. The other policies keep their semantic or
+client question isolated. No baseline ratio is required to beat quickws in
+Phase 0: every complete metric and unfavorable cell is recorded, while the
+baseline verdict field `superiority_gate` remains `false`.
+
+The A/A policy deliberately includes one saturated closed-loop cell and one
+server-sensitive pipelined cell. Its null relabel therefore exercises both
+branches of the preregistered full-claim predicate instead of validating only
+one workload class.
+
+## A/A self-validation gate
+
+Optimization A/B data is not interpretable until three independent A/A
+sessions pass all of these gates:
+
+- exactly the same binary and adapter hashes under different A/A labels;
+- at least 20 paired repetitions per session with balanced AB/BA blocks;
+- session/block-preserving hierarchical 95% confidence intervals;
+- throughput and p99 ratio intervals wholly within `[0.98, 1.02]`;
+- p999 ratio intervals wholly within `[0.95, 1.05]`;
+- each interval width no greater than its equivalence-band width;
+- AB/BA order-effect interval wholly within `[0.99, 1.01]`;
+- at least 1,000 deterministic session/block-preserving null relabels/sign
+  flips with empirical full-verdict false-positive rate at most 5%; and
+- zero errors, mismatches, drops, rejected messages, queue overflows,
+  scheduler-late messages, post-window messages, or histogram loss.
+
+The verdict also emits session-aware 95% intervals for the primary geomean,
+p999, CPU/message, RSS/connection, allocations/message, and allocated
+bytes/message.
+
+## Running Phase 0
+
+Resolve and verify the stock controller before disabling the user's Go
+environment. Do not derive the controller from `GOENV=off`: on a development
+machine that can expose a different custom GOROOT than the selected stock SDK.
 
 ```sh
-cd bench
-go build -o /tmp/benchrun ./harness/cmd/benchrun
-go build -o /tmp/benchcmp ./harness/cmd/benchcmp
-
-# Full run (writes results/v-next/darwin-arm64/claude-run-<UTCstamp>-<gitshort>).
-/tmp/benchrun -policy harness/policy/darwin-arm64.json
-# End-to-end sanity pass (warmup 1s / measure 3s / 2 reps per cell).
-/tmp/benchrun -policy harness/policy/darwin-arm64.json -smoke -out /tmp/smoke
-
-/tmp/benchcmp -run /tmp/smoke   # exit 0 pass, 1 gate failure, 2 usage/data error
+repo="$(git rev-parse --show-toplevel)"
+stock_go="$(go env GOROOT)/bin/go"
+test "$("$stock_go" env GOVERSION)" = go1.26.5
+case "$("$stock_go" version)" in *' X:'*) exit 1 ;; esac
+test -z "$(git -C "$repo" status --porcelain=v1 --untracked-files=all)"
+source_short="$(git -C "$repo" rev-parse --short HEAD)"
 ```
 
-`benchrun` builds its own `echoserver`/`loadgen` binaries into the run
-directory with `-mod=mod` (so the working-tree `gows` is linked, not the
-vendored snapshot), copies the policy in, and records provenance
-(`meta.json`), before/after environment snapshots (`env-start.json` /
-`env-end.json`: load averages, power via `pmset -g batt`, thermal/throttle
-state via `pmset -g therm`, logical CPU count, memory bytes), one line per
-(scenario, library, repetition) in `samples.jsonl`, and a `done.json`
-completion marker. Execution is paired and
-seeded: for each repetition the candidate/comparator order is shuffled with a
-`math/rand/v2` PCG seeded from `policy.seed`, each library gets a fresh
-`echoserver` child process, and the two ports alternate off a base (19301) to
-dodge TIME_WAIT. Any child or JSON-parse failure is written to `errors.log`
-and aborts the run (non-zero exit) — never a silent skip.
+Every evidence-producing command below uses the same controlled environment:
 
-### Host-guard behavior
+```text
+GOENV=off
+GOTOOLCHAIN=local
+GOEXPERIMENT=
+GOFLAGS=-mod=mod
+GOFIPS140=latest
+GOWORK=off
+CGO_ENABLED=0
+```
 
-Before spawning anything, `benchrun` enforces three preconditions and aborts
-(non-zero exit, clear message) on any of them:
+First create the typed verification result. The runner executes the complete
+root, benchmark-module, and `flatekp` gates sequentially, then seals the
+verification logs and the two assembly bundles into the repository-local CAS.
 
-- **Load average**: `sysctl -n vm.loadavg` `load1` must not exceed
-  `guard.max_load1`.
-- **Foreign processes**: `pgrep -fl` must not match any
-  `guard.forbidden_process_patterns` (benchrun's own pid is excluded; the
-  check runs before its children exist).
-- **Exclusive lock**: `/tmp/gows-benchrun.lock` is created `O_CREATE|O_EXCL`
-  with benchrun's pid. A live holder aborts; a stale lock (dead pid) is
-  removed and retried once. The lock is released on exit, including on
-  `SIGINT`/`SIGTERM`.
+```sh
+verification="$repo/.omx/phase0-verification-$(date -u +%Y%m%dT%H%M%SZ)"
+env GOENV=off GOTOOLCHAIN=local GOEXPERIMENT= GOFLAGS=-mod=mod \
+  GOFIPS140=latest GOWORK=off CGO_ENABLED=0 \
+  "$stock_go" -C "$repo/bench" run ./harness/cmd/phase0verify \
+  -repo "$repo" -out "$verification"
+verification_result="$verification/result.json"
+```
 
-### Measurement rule: no `net.Conn` wrapper on gating paths
+Run the three A/A sessions sequentially. The default output root includes the
+exact series identity and source HEAD; `phase0receipt` accepts either the run
+directory or its `receipt.json`.
 
-All resource accounting (CPU seconds, peak RSS) comes **only** from process
-rusage — never from wrapping `net.Conn` to count bytes or messages on a path
-that feeds a gate. The server figures come from `benchrun` reading the
-echoserver child's `os.ProcessState.SysUsage().(*syscall.Rusage)` after
-SIGTERM; the client figures come from `loadgen`'s own
-`getrusage(RUSAGE_SELF)`, emitted in its `-json` line. Per-message and
-per-connection figures in `samples.jsonl` (`server_cpu_seconds_per_message`,
-`server_rss_bytes_per_connection`, `client_cpu_seconds_per_message`) are
-derived from that rusage plus the loadgen-reported message count. On darwin
-`Rusage.Maxrss` is already bytes.
+```sh
+env GOENV=off GOTOOLCHAIN=local GOEXPERIMENT= GOFLAGS=-mod=mod \
+  GOFIPS140=latest GOWORK=off CGO_ENABLED=0 \
+  "$stock_go" -C "$repo/bench" run ./harness/cmd/benchrun \
+  -policy harness/policy/phase0/darwin-arm64-aa.json \
+  -session-id p0-aa-01
+env GOENV=off GOTOOLCHAIN=local GOEXPERIMENT= GOFLAGS=-mod=mod \
+  GOFIPS140=latest GOWORK=off CGO_ENABLED=0 \
+  "$stock_go" -C "$repo/bench" run ./harness/cmd/benchrun \
+  -policy harness/policy/phase0/darwin-arm64-aa.json \
+  -session-id p0-aa-02
+env GOENV=off GOTOOLCHAIN=local GOEXPERIMENT= GOFLAGS=-mod=mod \
+  GOFIPS140=latest GOWORK=off CGO_ENABLED=0 \
+  "$stock_go" -C "$repo/bench" run ./harness/cmd/benchrun \
+  -policy harness/policy/phase0/darwin-arm64-aa.json \
+  -session-id p0-aa-03
 
-### Verdict and gates (`harness/paired`, `benchcmp`)
+aa_root="$repo/.omx/bench/stock/self_validation/same_host/aa/phase0-darwin-arm64-aa"
+aa1="$aa_root/p0-aa-01-$source_short"
+aa2="$aa_root/p0-aa-02-$source_short"
+aa3="$aa_root/p0-aa-03-$source_short"
+aa_verdict="$repo/.omx/phase0-aa-$source_short/verdict.json"
+mkdir -p "$(dirname "$aa_verdict")"
+env GOENV=off GOTOOLCHAIN=local GOEXPERIMENT= GOFLAGS=-mod=mod \
+  GOFIPS140=latest GOWORK=off CGO_ENABLED=0 \
+  "$stock_go" -C "$repo/bench" run ./harness/cmd/phase0receipt \
+  aa-preflight -repo "$repo" -verification-result "$verification_result" \
+  -session-1 "$aa1" -session-2 "$aa2" -session-3 "$aa3" \
+  -out "$aa_verdict"
+```
 
-For each primary scenario `benchcmp` pairs candidate repetition *i* with
-comparator repetition *i* (equal counts required) and forms candidate/
-comparator ratios. `Bootstrap` resamples the ratio set with replacement, takes
-the **median** as the statistic, and reports the `(1-confidence)/2` percentile
-interval — fully deterministic for a given seed. Gates (all must hold to pass):
+Only after the A/A preflight passes, run all four current-baseline roles. Phase
+0 records every result and does not require any ratio to beat quickws.
 
-- every primary scenario throughput CI lower bound `> throughput_lower_bound`;
-- geomean of the primary throughput centers `>= throughput_geomean`;
-- every primary p99 CI upper bound `<= p99_upper_bound`;
-- every primary p999 center `<= p999_center_upper_bound`.
+```sh
+env GOENV=off GOTOOLCHAIN=local GOEXPERIMENT= GOFLAGS=-mod=mod \
+  GOFIPS140=latest GOWORK=off CGO_ENABLED=0 \
+  "$stock_go" -C "$repo/bench" run ./harness/cmd/benchrun \
+  -policy harness/policy/darwin-arm64.json \
+  -session-id p0-baseline-best-api
+env GOENV=off GOTOOLCHAIN=local GOEXPERIMENT= GOFLAGS=-mod=mod \
+  GOFIPS140=latest GOWORK=off CGO_ENABLED=0 \
+  "$stock_go" -C "$repo/bench" run ./harness/cmd/benchrun \
+  -policy harness/policy/phase0/darwin-arm64-semantic-parity.json \
+  -session-id p0-baseline-semantic-parity
+env GOENV=off GOTOOLCHAIN=local GOEXPERIMENT= GOFLAGS=-mod=mod \
+  GOFIPS140=latest GOWORK=off CGO_ENABLED=0 \
+  "$stock_go" -C "$repo/bench" run ./harness/cmd/benchrun \
+  -policy harness/policy/phase0/darwin-arm64-independent-gobwas.json \
+  -session-id p0-baseline-gobwas
+env GOENV=off GOTOOLCHAIN=local GOEXPERIMENT= GOFLAGS=-mod=mod \
+  GOFIPS140=latest GOWORK=off CGO_ENABLED=0 \
+  "$stock_go" -C "$repo/bench" run ./harness/cmd/benchrun \
+  -policy harness/policy/phase0/darwin-arm64-independent-raw.json \
+  -session-id p0-baseline-raw
 
-`verdict.json` records `pass`, the throughput `geomean`, per-scenario centers/
-intervals/gate outcomes, the resource ratio centers, the thresholds, and the
-`policy_sha256`. A `-smoke` run (short windows, 2 reps) is sanity evidence
-only — never a gating measurement.
+baseline_root="$repo/.omx/bench/stock/baseline/same_host/baseline"
+best="$baseline_root/darwin-arm64/p0-baseline-best-api-$source_short"
+semantic="$baseline_root/phase0-darwin-arm64-semantic-parity/p0-baseline-semantic-parity-$source_short"
+gobwas="$baseline_root/phase0-darwin-arm64-independent-gobwas/p0-baseline-gobwas-$source_short"
+raw="$baseline_root/phase0-darwin-arm64-independent-raw/p0-baseline-raw-$source_short"
+tracked="$repo/bench/evidence/phase0/current"
+mkdir -p "$tracked"
+env GOENV=off GOTOOLCHAIN=local GOEXPERIMENT= GOFLAGS=-mod=mod \
+  GOFIPS140=latest GOWORK=off CGO_ENABLED=0 \
+  "$stock_go" -C "$repo/bench" run ./harness/cmd/phase0receipt build \
+  -repo "$repo" -verification-result "$verification_result" \
+  -session-1 "$aa1" -session-2 "$aa2" -session-3 "$aa3" \
+  -baseline-best-api-gows-client "$best" \
+  -baseline-semantic-parity-gows-client "$semantic" \
+  -baseline-independent-gobwas-client "$gobwas" \
+  -baseline-independent-raw-client "$raw" \
+  -out "$tracked/receipt.json"
+```
+
+Commit `receipt.json` without changing the implementation source, generate the
+deterministic verdict, then commit only `verdict.json`. The final read-only
+command must remain exactly the frozen evaluator below.
+
+```sh
+GOEXPERIMENT= GOFLAGS=-mod=mod go -C bench run \
+  ./harness/cmd/benchcmp -run evidence/phase0/current \
+  -write-verdict evidence/phase0/current/verdict.json
+
+GOEXPERIMENT= GOFLAGS=-mod=mod go -C bench run \
+  ./harness/cmd/benchcmp -run evidence/phase0/current
+```
+
+Short smoke windows are accepted only by an explicitly diagnostic policy and
+are never eligible for A/A or baseline receipts.
+
+The path-stable, read-only final evaluator command is:
+
+```sh
+GOEXPERIMENT= GOFLAGS=-mod=mod go -C bench run \
+  ./harness/cmd/benchcmp -run evidence/phase0/current
+```
+
+It exits zero only after the tracked verdict is reproduced byte-for-byte and
+all A/A, baseline, assembly, provenance, verification, and scope gates pass.
+Until the tracked receipt and immutable artifact store exist, a nonzero result
+is the intended fail-closed behavior.
+
+## Verification
+
+The Phase 0 verification receipt binds fresh output from root, benchmark, and
+`flatekp` tests/vet/race/build checks, supported amd64/arm64 assembly probes,
+static checks, and the production-scope audit. The final evaluator validates
+those command identities and their immutable log hashes; a short smoke run is
+not verification evidence.
+
+For local development, run the benchmark module checks with the same stock
+environment:
+
+```sh
+env GOENV=off GOTOOLCHAIN=local GOEXPERIMENT= GOFLAGS=-mod=mod \
+  GOFIPS140=latest GOWORK=off CGO_ENABLED=0 \
+  "$stock_go" -C "$repo/bench" test ./... -count=1
+env GOENV=off GOTOOLCHAIN=local GOEXPERIMENT= GOFLAGS=-mod=mod \
+  GOFIPS140=latest GOWORK=off CGO_ENABLED=0 \
+  "$stock_go" -C "$repo/bench" vet ./...
+```

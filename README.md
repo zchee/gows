@@ -2,18 +2,17 @@
 
 A zero-dependency [RFC 6455](https://www.rfc-editor.org/rfc/rfc6455) /
 [RFC 7692](https://www.rfc-editor.org/rfc/rfc7692) (permessage-deflate)
-WebSocket library for Go, engineered for maximum performance — with honest,
-reproducible benchmarks. Every number on this page comes from a recorded
-measurement; the committed reports live under
-[`bench/results/`](bench/results/) (paired-runner output under
-`bench/results/v-next/` stays local, reproducible via
-[`bench/README.md`](bench/README.md)), and where gows didn't win, that's
-said plainly too. Headline (2026-07-14, paired final gate on darwin/arm64):
-wherever the workload lets a server architecture matter, gows beats
-quickws — the closest competitor measured — by **+28-36% throughput with
-22-26% lower p99**, ties it everywhere else, and does so at 0.73-0.80× the
-CPU and memory. See [Benchmarks](#benchmarks) for the full picture,
-including what remains open.
+WebSocket library for Go, engineered for performance and conformance.
+
+> **Benchmark evidence status (2026-07-15):** every numeric performance
+> statement in this README, including the feature bullets and tables below,
+> is a **historical, non-current measurement** unless it is explicitly tied
+> to an immutable Phase 0 receipt under
+> [`bench/evidence/phase0/current`](bench/evidence/phase0/current). Historical
+> reports and local run-directory names do not prove current-HEAD performance
+> and must not support a current `gows`-versus-`quickws` superiority claim.
+> Current performance remains unknown until the fail-closed evaluator in
+> [`bench/README.md`](bench/README.md) resolves all receipts and exits zero.
 
 ## Features
 
@@ -30,34 +29,35 @@ including what remains open.
 - **SIMD frame masking** (SSE2 / AVX2 / AVX-512 on amd64, NEON on arm64),
   runtime-dispatched by CPU feature detection with a `GOWS_SIMD` kill
   switch and a pure-Go fallback (`purego` build tag) for every kernel.
-  Peaks at **166.8 GB/s at 16KB on an Intel Xeon 8481C (Sapphire Rapids)**,
+  Historical calibration peaked at **166.8 GB/s at 16KB on an Intel Xeon
+  8481C (Sapphire Rapids)**,
   ~154 GB/s at 4KB — 2.4-2.7× SSE2's throughput at those sizes, and up to
   **4.9× the fastest of four vendored competitor masking kernels** (gorilla,
   coder, gws, gobwas) benchmarked head-to-head in the same process
   (4.4× at 4KB, 4.9× at 16KB; see
   [`bench/results/phase5-linux-amd64.md`](bench/results/phase5-linux-amd64.md)
   and the calibration godocs in [`internal/mask`](internal/mask/)).
-- **Streaming SIMD UTF-8 validation, on by default.** Of the 8 libraries
-  measured in this project's comparison harness, gows is the only one that
-  validates UTF-8 text-message payloads by default (RFC 6455 §8.1
-  conformance out of the box, not an opt-in) — see
-  [`bench/README.md`](bench/README.md)'s fairness rules. The validator
+- **Streaming SIMD UTF-8 validation, on by default.** gows validates UTF-8
+  Text-message payloads by default (RFC 6455 §8.1 conformance out of the
+  box, not an opt-in). The Phase 0 strict comparison also enables quickws
+  UTF-8 checking explicitly, so current strict evidence does not compare
+  validation ON with validation OFF. See
+  [`bench/README.md`](bench/README.md)'s comparator contract. The validator
   itself (NEON on arm64, AVX2 on amd64, both gated behind exhaustive
   differential testing against `unicode/utf8.Valid` plus fuzzing) is
   27-45× faster than the scalar DFA it augments, depending on workload and
   size, with zero regression on pure-ASCII input (calibration documented
   in [`internal/utf8x`](internal/utf8x/)'s godocs).
-  It costs nothing measurable in the echo benchmarks below: a CPU profile
-  under saturating load shows zero sampled time in the validator, and
-  turning it off doesn't reliably beat turning it on (see
-  [Benchmarks](#benchmarks)).
-- **Zero-copy handshake.** `Upgrader{RawPath: true}.Upgrade` completes in
+  Its historical calibration is not a current macro-performance claim.
+- **Zero-copy handshake.** A historical `BenchmarkUpgrade` run measured
+  `Upgrader{RawPath: true}.Upgrade` at
   **363-369 ns/op, 0 B/op, 0 allocs/op** (~2.6-2.7× faster than a gobwas
   reference point of 973 ns/op), reproducible via `BenchmarkUpgrade`.
 - **0-allocation `ReadMessage`, ≤1-allocation `WriteMessage`.**
-  `BenchmarkConnReadMessage`: 0 B/op, 0 allocs/op (~49.5 ns/op, ~20.7 GB/s).
+  Historical microbenchmarks reported `BenchmarkConnReadMessage`: 0 B/op,
+  0 allocs/op (~49.5 ns/op, ~20.7 GB/s), and
   `BenchmarkConnWriteMessage`: 24 B/op, 1 allocs/op (~25.3 ns/op, ~40.6
-  GB/s) — the one allocation is the client-role masking copy; see
+  GB/s). The one allocation is the client-role masking copy; see
   [`writer.go`](writer.go)'s `WriteMessage` doc comment. Compressed
   (permessage-deflate) `WriteMessage` is also **0 allocs/op** steady-state
   on the pooled path.
@@ -67,8 +67,8 @@ including what remains open.
   64) and flushes the framed replies in one write — an echo handler settles
   a whole drain round with **one syscall each way** (1/64th the write
   syscalls on coalesced input at identical ns/op, 0 allocs/msg both
-  directions). This is the mechanism behind the +28-36% pipelined win
-  below; see [`serve.go`](serve.go).
+  directions). It was associated with a historical pipelined result; that
+  result is not current Phase 0 evidence. See [`serve.go`](serve.go).
 - **Transport-aware single-write guarantee.** `net.Buffers` writev is only
   real on `*net.TCPConn`; through `crypto/tls` or any wrapping `net.Conn`
   it silently degrades to one `Write` per buffer. gows picks its write
@@ -76,8 +76,9 @@ including what remains open.
   everything else gets contiguous staging — **one `Write` per message over
   TLS** (down from two), pinned by a `crypto/tls` loopback regression test.
 - **Table-driven frame-header decode**: role- and negotiation-specialized
-  256-entry classification tables replace the general branch tree —
-  **-34% header-decode time (geomean across five frame shapes)**, held
+  256-entry classification tables replace the general branch tree. A
+  historical microbenchmark measured **-34% header-decode time (geomean
+  across five frame shapes)**; correctness is held
   byte-identical to the reference decoder by a 16.9M-execution
   differential fuzz over accept/reject, fields, close codes, and error
   strings.
@@ -99,21 +100,32 @@ including what remains open.
 
 ## Benchmarks
 
-Methodology: a shared echo-server harness (`bench/harness`) drives every
-library through an identical client, with fairness rules documented and
-applied identically across all configurations — see
-[`bench/README.md`](bench/README.md) for the full rules, library versions,
-and integration notes. The 2026-07-14 paired results below use `benchrun`
-(seeded randomized paired blocks, fresh server process per repetition, a
-host-quiescence guard, and process-rusage resource accounting) judged by
-`benchcmp` (paired-ratio bootstrap, 20,000 replicates, 95% CIs) with a
-gows-based load client (identical for every server under test); the
-earlier tables used gobwas/ws's low-level client. `gows-noutf8` is gows
-with `WithSkipUTF8Validation(true)`, published alongside gows's own
-validation-on default as the apples-to-apples "what if validation were
-off, like every other library here" reference point.
+The current Phase 0 harness uses strict policy schema v3, sample schema v2, and
+load-generator result schema v4; balanced AB/BA blocks; session/block-
+preserving hierarchical inference; mergeable HDR histograms; and fail-closed
+open-loop accounting for exact offered arrivals, scheduler lateness, queue
+rejection, post-window backlog, and bounded drain completion. Missed or
+over-limit scheduler slots are rejected rather than replayed and remain
+distinct from full-queue rejection. Only an exchange whose worker starts
+before the measurement boundary may complete successfully during the bounded
+drain; queued work first started at or after the boundary is a post-window
+drop. The harness also records `gows`/`gobwas`/raw client series, strict
+quickws UTF-8 and write-error accounting, normalized rusage/allocation fields,
+immutable CAS receipts, and amd64/arm64 assembly provenance. Stock and custom
+`GOEXPERIMENT` series are non-interchangeable. The current baseline is
+record-only: Phase 0 requires complete honest measurements, not quickws
+superiority. See [`bench/README.md`](bench/README.md) for the exact gate and
+fixed evaluator command.
 
-### darwin/arm64 paired final gate (Apple M3 Max) — gows-serve vs quickws, n=20, 2026-07-14
+### Historical benchmark archive (not current Phase 0 evidence)
+
+The tables and prose below describe 2026-07-14 and earlier runs. They predate
+the complete Phase 0 receipt contract; some use the old flat paired bootstrap,
+shorter windows, historical clients, local-only run directories, or validation
+profiles that are not eligible for the strict current baseline. They remain
+for engineering history only and are not mixed into the current evaluator.
+
+#### darwin/arm64 paired final gate (Apple M3 Max) — gows-serve vs quickws, n=20, 2026-07-14
 
 Pre-registered gate (commit 9b5993e, before the optimization code landed):
 seven cells, ratios are gows/quickws with bootstrap 95% CIs, 280/280
@@ -145,7 +157,7 @@ verdict.json, provenance, and environment snapshots, including the
 disclosed measurement-window deviation (3s+10s windows instead of the
 frozen 5s+30s, n=20 and all thresholds unchanged).
 
-### linux/amd64 (Intel Xeon 8481C, Sapphire Rapids, 44 vCPU) — 1KB payload, 1000 connections, n=5
+#### linux/amd64 (Intel Xeon 8481C, Sapphire Rapids, 44 vCPU) — 1KB payload, 1000 connections, n=5
 
 | lib | msg/s (median) | p50 | p90 | p99 | p999 | allocs/msg |
 |---|---:|---|---|---|---|---:|
@@ -166,7 +178,7 @@ tuning), landing in a 972,112-974,876 msg/s band every time. Full detail,
 every session, in
 [`bench/results/phase5-linux-amd64.md`](bench/results/phase5-linux-amd64.md).
 
-### darwin/arm64 (Apple M3 Max, NEON) — 1KB payload, 200 connections, n=5
+#### darwin/arm64 (Apple M3 Max, NEON) — 1KB payload, 200 connections, n=5
 
 | lib | msg/s (median) | p50 | p90 | p99 | p999 | allocs/msg |
 |---|---:|---|---|---|---|---:|
@@ -183,7 +195,7 @@ every session, in
 Full table and machine-load caveats in
 [`bench/results/phase6-darwin-arm64.md`](bench/results/phase6-darwin-arm64.md).
 
-### Allocations per message
+#### Allocations per message
 
 The one ranking that reproduced identically, with zero reversals, across
 every platform and session in this project: `gows` / `gows-noutf8` tied
@@ -193,12 +205,12 @@ lowest at **1.00 alloc/msg**, `quickws` close behind at 1.00-1.19,
 and [`bench/results/phase6-darwin-arm64.md`](bench/results/phase6-darwin-arm64.md)
 for the cross-platform reproduction.
 
-### The honest part: on closed-loop echo, gows and quickws are statistical peers
+#### Historical closed-loop interpretation
 
-The verdict above supersedes the older "statistical peers" story for
-pipelined traffic — that one is now a decisive, reproducible gows win.
-What remains true is the closed-loop half: **on strict 1-request-1-response
-same-host echo, gows and quickws are statistical performance peers —
+At the time, the verdict above superseded an older "statistical peers" story
+for pipelined traffic. Its closed-loop interpretation was: **on strict
+1-request-1-response same-host echo, gows and quickws are statistical
+performance peers —
 across 5 independent measurement sessions on two ISAs (amd64 and arm64),
 whichever of throughput or p99 either library "won" flipped between
 overlapping sample distributions every time. Every other library measured
@@ -234,12 +246,12 @@ every configuration measured, and its tail latency is statistically
 indistinguishable from the one library that sometimes edges it out. This
 is reported as a tie, not rounded up to a win.
 
-### The honest part: the 16KB story, updated
+#### Historical 16KB investigation
 
-The 2026-07-14 paired gate shows the 16KiB cells vs quickws are now
+The 2026-07-14 paired gate reported the 16KiB cells vs quickws as
 statistical ties on darwin/arm64 (throughput ratios 1.0000 and 1.0039,
 CIs straddling 1.0) — the earlier quickws-side gap does not reproduce
-there with the current write path and measurement client. What remains
+there with the then-current write path and measurement client. What remained
 open: the older linux/amd64 sessions had gows trailing `gws` (~2.3-2.6%)
 and `quickws` (~0.9-1.6%) at 16KB with **zero overlap** between throughput
 ranges — a real gap in that context, not noise — and that configuration
@@ -272,13 +284,12 @@ The full read-size histograms, CPU profiles, and strace evidence are in
 [`bench/results/phase5-raw/profiles/`](bench/results/phase5-raw/profiles/) and
 `reader.go`'s own doc comments on `readFramePayload`/`readDirect`.
 
-### Reproducing these numbers
+#### Historical report locations
 
-Every table above is reproducible from a clean checkout — see
-[`bench/README.md`](bench/README.md) for exact commands (kernel
-benchmarks, local echo harness, and the remote linux/amd64 runner), library
-versions, and the fairness rules applied identically to all nine
-configurations.
+Committed historical reports remain under [`bench/results`](bench/results).
+Local run-directory names above are provenance hints, not immutable artifacts,
+and may no longer exist. Reproduce current Phase 0 evidence only through the
+tracked receipt and evaluator described in [`bench/README.md`](bench/README.md).
 
 ## Quick start
 
@@ -478,7 +489,7 @@ under the local, uncommitted `.omx/artifacts/`).
 That residual has since been retired: the full Autobahn|Testsuite
 **517-case matrix ran in both directions ("All cases passed") on
 2026-07-14**, twice — once at commit `44c8417` (after the drain/serving,
-transport-aware write, and header-table changes) and once at the current
+transport-aware write, and header-table changes) and once at the then-current
 head `324b7b8` (after the calibration and allocation-hygiene changes) —
 server leg OK 478 / UNIMPLEMENTED 36 / INFORMATIONAL 3, client leg OK 442
 / UNIMPLEMENTED 72 / INFORMATIONAL 3, zero non-conformant cases
@@ -494,21 +505,21 @@ the suite probes; INFORMATIONAL cases carry no verdict by design).
 - **klauspost in the core module**: the optional backend is implemented in
   `flatekp/`, a separate Go module. It is intentionally not imported by the
   root module, which remains zero-dependency.
-- **Event-loop / reactor mode**: deliberately not pursued. The evidence
-  points the other way for throughput-bound workloads: reactor designs pay
-  mandatory extra copies per message (nbio's own model loses the echo
+- **Event-loop / reactor mode**: deliberately not pursued. Historical
+  evidence pointed the other way for throughput-bound workloads: reactor
+  designs pay mandatory extra copies per message (nbio's own model loses the echo
   matrix above), and the 2026-07 platform study found darwin offers no
   cross-connection batching syscalls for a reactor to exploit — the
   drain-and-coalesce `Serve` loop captures the batching win inside the
   goroutine-per-connection model instead. A reactor only becomes
   interesting again at very high connection counts (C100k+), where
   per-connection memory dominates.
-- **16 KiB performance tuning (linux/amd64 vs gws)**: the darwin/arm64
-  16KiB cells are now measured ties vs quickws (see Benchmarks), but the
+- **16 KiB performance tuning (linux/amd64 vs gws)**: historical darwin/arm64
+  16KiB cells measured ties vs quickws (see Benchmarks), but the
   older linux/amd64 gap vs gws predates the new write path and has not
   been re-measured. Prior syscall-pacing and `MSG_WAITALL` experiments did
   not produce an accepted improvement; further work requires re-running
-  that matrix at the current head first.
+  that matrix under the current Phase 0 contract first.
 - **arm64 SIMD dispatch thresholds are calibrated; amd64's UTF-8 threshold
   is not.** `internal/utf8x/valid_simd_amd64.go` still carries its
   pre-campaign placeholder pending a benchstat pass on amd64 hardware
