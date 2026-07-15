@@ -18,6 +18,7 @@ import (
 	jsonv2 "github.com/go-json-experiment/json"
 	"github.com/go-json-experiment/json/jsontext"
 	"github.com/zchee/gows/bench/harness/artifact"
+	"github.com/zchee/gows/bench/harness/support"
 )
 
 const VerificationSchemaVersion = 2
@@ -431,6 +432,9 @@ func validateVerificationRecord(manifest VerificationManifest, repository Reposi
 	}
 	if manifest.Hostname == "" || manifest.BootIdentity == "" {
 		return nil, fmt.Errorf("evidence: verification host identity is incomplete")
+	}
+	if err := support.ValidateBootIdentity(manifest.GOOS, manifest.BootIdentity); err != nil {
+		return nil, fmt.Errorf("evidence: verification boot identity: %w", err)
 	}
 	if len(manifest.Checks) != len(requiredVerificationChecks) {
 		return nil, fmt.Errorf("evidence: verification checks = %d, want %d", len(manifest.Checks), len(requiredVerificationChecks))

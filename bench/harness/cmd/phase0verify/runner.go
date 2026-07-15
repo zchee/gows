@@ -22,6 +22,7 @@ import (
 	"github.com/zchee/gows/bench/harness/assembly"
 	"github.com/zchee/gows/bench/harness/evidence"
 	"github.com/zchee/gows/bench/harness/phase0"
+	"github.com/zchee/gows/bench/harness/support"
 )
 
 const invalidationSchemaVersion = 1
@@ -443,25 +444,9 @@ func captureHostIdentity() (hostIdentity, error) {
 	if hostname == "" {
 		return hostIdentity{}, errors.New("capture hostname: empty hostname")
 	}
-	var boot string
-	switch runtime.GOOS {
-	case "darwin":
-		raw, err := exec.Command("/usr/sbin/sysctl", "-n", "kern.boottime").Output()
-		if err != nil {
-			return hostIdentity{}, fmt.Errorf("capture Darwin boot identity: %w", err)
-		}
-		boot = strings.TrimSpace(string(raw))
-	case "linux":
-		raw, err := os.ReadFile("/proc/sys/kernel/random/boot_id")
-		if err != nil {
-			return hostIdentity{}, fmt.Errorf("capture Linux boot identity: %w", err)
-		}
-		boot = strings.TrimSpace(string(raw))
-	default:
-		return hostIdentity{}, fmt.Errorf("unsupported verification host OS %q", runtime.GOOS)
-	}
-	if boot == "" {
-		return hostIdentity{}, errors.New("boot identity is empty")
+	boot, err := support.CaptureBootIdentity()
+	if err != nil {
+		return hostIdentity{}, err
 	}
 	return hostIdentity{hostname: hostname, boot: boot}, nil
 }

@@ -116,7 +116,7 @@ func TestCommandSpecsMatchEvaluatorContract(t *testing.T) {
 		ModuleFilesSHA256: repository.ModuleFilesSHA256,
 		GoVersion:         repository.GoVersion, GoBinarySHA256: repository.GoBinarySHA256,
 		GOOS: repository.GOOS, GOARCH: repository.GOARCH,
-		Hostname: "test-host", BootIdentity: "test-boot",
+		Hostname: "test-host", BootIdentity: "darwin:kern.bootsessionuuid=test-boot",
 		Tools: slices.Clone(inputs.Tools), Checks: checks,
 	}
 	if _, err := evidence.MarshalVerificationManifest(manifest, repository, inputs); err != nil {

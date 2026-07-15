@@ -292,6 +292,9 @@ func validateRunIdentity(run resolvedRun, repository RepositoryIdentity, policyS
 	case done.Samples != len(run.Samples) || done.Scenarios != len(p.Scenarios):
 		return fmt.Errorf("evidence: run %s completion counts mismatch", r.SessionID)
 	}
+	if err := support.ValidateBootIdentity(m.GOOS, m.BootIdentityStart); err != nil {
+		return fmt.Errorf("evidence: run %s invalid boot identity: %w", r.SessionID, err)
+	}
 	if err := validateRunTimeline(r.SessionID, envStarted, run.Started, envEnded, run.Ended, finished); err != nil {
 		return err
 	}

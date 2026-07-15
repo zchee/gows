@@ -68,6 +68,9 @@ func TestVerificationRecordRejectsCommandSubstitutionAndNarrowing(t *testing.T) 
 	base := validVerificationManifest(t, dir, identity, inputs)
 
 	tests := map[string]func(*VerificationManifest){
+		"legacy boot identity": func(m *VerificationManifest) {
+			m.BootIdentity = "{ sec = 1, usec = 2 }"
+		},
 		"missing tool identity": func(m *VerificationManifest) {
 			m.Tools = m.Tools[:len(m.Tools)-1]
 		},
@@ -224,7 +227,7 @@ func validVerificationManifest(t *testing.T, dir string, identity RepositoryIden
 	return VerificationManifest{
 		SchemaVersion: VerificationSchemaVersion, SourceHead: identity.SourceHead, SourceTree: identity.SourceTree,
 		ModuleFilesSHA256: identity.ModuleFilesSHA256, GoVersion: identity.GoVersion, GoBinarySHA256: identity.GoBinarySHA256,
-		GOOS: identity.GOOS, GOARCH: identity.GOARCH, Hostname: "host", BootIdentity: "boot",
+		GOOS: identity.GOOS, GOARCH: identity.GOARCH, Hostname: "host", BootIdentity: "darwin:kern.bootsessionuuid=test-boot",
 		Tools: slices.Clone(inputs.Tools), Checks: checks,
 	}
 }

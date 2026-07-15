@@ -140,7 +140,7 @@ func TestValidateRunTimeline(t *testing.T) {
 func TestValidateEnvSnapshotRequiresObservationOverhead(t *testing.T) {
 	snapshot := envSnapshot{
 		PMSetBattery: "Now drawing from 'AC Power'", PMSetThermal: "No thermal warning level has been recorded\nNo performance warning level has been recorded",
-		LogicalCPUs: 8, MemoryBytes: 16 << 30, BootIdentity: "boot", Uptime: "up 1 day",
+		LogicalCPUs: 8, MemoryBytes: 16 << 30, BootIdentity: "darwin:kern.bootsessionuuid=test-boot", Uptime: "up 1 day",
 		CapturedAt: time.Date(2026, 7, 15, 0, 0, 0, 0, time.UTC).Format(time.RFC3339Nano), ObservationNanoseconds: 1,
 	}
 	if err := validateEnvSnapshot(snapshot, true); err != nil {
@@ -156,7 +156,7 @@ func TestRunEnvironmentRejectsRecordedContamination(t *testing.T) {
 	cleanThermal := "No thermal warning level has been recorded\nNo performance warning level has been recorded"
 	baseline := envSnapshot{
 		Load1: 2, PMSetBattery: "Now drawing from 'AC Power'", PMSetThermal: cleanThermal,
-		LogicalCPUs: 8, MemoryBytes: 16 << 30, BootIdentity: "boot",
+		LogicalCPUs: 8, MemoryBytes: 16 << 30, BootIdentity: "darwin:kern.bootsessionuuid=test-boot",
 	}
 	guard := policy.Guard{MaxLoad1: 6, MaxLoad1Drift: 4}
 	if err := validateRunEnvironment(baseline, baseline, guard); err != nil {

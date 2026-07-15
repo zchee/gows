@@ -1132,7 +1132,7 @@ func captureEnv() EnvSnapshot {
 	batt, _ := commandOutput("pmset", "-g", "batt")
 	therm, _ := commandOutput("pmset", "-g", "therm")
 	mem, _ := readMemsize()
-	boot, _ := commandOutput("sysctl", "-n", "kern.boottime")
+	boot, _ := support.CaptureBootIdentity()
 	uptime, _ := commandOutput("uptime")
 	snapshot := EnvSnapshot{
 		Load1:        l1,
@@ -1159,7 +1159,7 @@ func captureContinuousEnv(baseline EnvSnapshot) EnvSnapshot {
 	l1, l5, l15, _ := readLoadavg()
 	batt, _ := commandOutput("pmset", "-g", "batt")
 	therm, _ := commandOutput("pmset", "-g", "therm")
-	boot, _ := commandOutput("sysctl", "-n", "kern.boottime")
+	boot, _ := support.CaptureBootIdentity()
 	snapshot := EnvSnapshot{
 		Load1: l1, Load5: l5, Load15: l15,
 		PMSetBattery: batt, PMSetThermal: therm,
