@@ -4,8 +4,10 @@ A zero-dependency [RFC 6455](https://www.rfc-editor.org/rfc/rfc6455) /
 [RFC 7692](https://www.rfc-editor.org/rfc/rfc7692) (permessage-deflate)
 WebSocket library for Go, engineered for maximum performance — with honest,
 reproducible benchmarks. Every number on this page comes from a recorded
-measurement; the committed raw runs live under
-[`bench/results/`](bench/results/), and where gows didn't win, that's
+measurement; the committed reports live under
+[`bench/results/`](bench/results/) (paired-runner output under
+`bench/results/v-next/` stays local, reproducible via
+[`bench/README.md`](bench/README.md)), and where gows didn't win, that's
 said plainly too. Headline (2026-07-14, paired final gate on darwin/arm64):
 wherever the workload lets a server architecture matter, gows beats
 quickws — the closest competitor measured — by **+28-36% throughput with
@@ -115,8 +117,9 @@ off, like every other library here" reference point.
 
 Pre-registered gate (commit 9b5993e, before the optimization code landed):
 seven cells, ratios are gows/quickws with bootstrap 95% CIs, 280/280
-samples, zero echo-verification errors. Run:
-[`bench/results/v-next/darwin-arm64/claude-final-324b7b8-20260714T091557Z`](bench/results/v-next/darwin-arm64/).
+samples, zero echo-verification errors. Run directory (local benchrun
+output, not committed):
+`bench/results/v-next/darwin-arm64/claude-final-324b7b8-20260714T091557Z`.
 
 | cell | throughput ratio [95% CI] | p99 ratio [95% CI] |
 |---|---|---|
@@ -205,7 +208,7 @@ admission on both sides, scheduler wakeup-latency traces) rejected every
 mechanism that might separate them there and showed an earlier apparent
 +5.2% p99 deficit does not reproduce — the cells are saturated, not
 hiding a difference (per-experiment run directories with verdict.json
-CIs are under [`bench/results/v-next/darwin-arm64/`](bench/results/v-next/):
+CIs live under the local, uncommitted `bench/results/v-next/darwin-arm64/`:
 the `claude-h1-*`, `claude-h5-*`, and `claude-h2-*` runs).
 
 The evidence, session by session (full data in
@@ -470,7 +473,7 @@ The v0.4 feature server/client 517-case matrix was **SKIPPED-RESIDUAL** at
 the signed v0.4 delivery (Docker, OrbStack, and those feature runs were not
 executed then; the signed delivery retains the completed non-container
 root, race, purego, `flatekp`, benchmark, review, and UltraQA evidence
-under `.omx/artifacts/`).
+under the local, uncommitted `.omx/artifacts/`).
 
 That residual has since been retired: the full Autobahn|Testsuite
 **517-case matrix ran in both directions ("All cases passed") on

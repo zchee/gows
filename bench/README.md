@@ -211,16 +211,23 @@ client's own `getrusage(RUSAGE_SELF)` CPU seconds and peak RSS), which
 ### Policy schema (`harness/policy`)
 
 A policy is JSON with Go duration strings for the windows. The canonical
-darwin/arm64 policy is `harness/policy/darwin-arm64.json` (five primary cells:
-`binary-64b-1k`, `binary-1k-200`, `binary-1k-1k`, `binary-16k-200`,
-`binary-16k-1k`; all warmup `5s`, duration `30s`, 20 repetitions) plus two
-non-primary experimental cells that exercise the pipelined client
+darwin/arm64 policy is `harness/policy/darwin-arm64.json`: seven primary
+cells — five closed-loop (`binary-64b-1k`, `binary-1k-200`, `binary-1k-1k`,
+`binary-16k-200`, `binary-16k-1k`) plus the two pipelined cells
 (`binary-1k-200-inflight8` at inflight 8, `binary-1k-1k-inflight4` at
-inflight 4). Each scenario carries an `inflight` window (>= 1) that `benchrun`
-passes to `loadgen`; the schema rejects `inflight < 1` and any
+inflight 4), promoted to primary by the 2026-07-14 Phase D
+pre-registration — all warmup `5s`, duration `30s`, 20 repetitions. Each
+scenario carries an `inflight` window (>= 1) that `benchrun` passes to
+`loadgen`; the schema rejects `inflight < 1` and any
 `inflight*payload_bytes` above the 1 MiB pipeline cap. Primary cells gate the
 verdict; non-primary cells are evaluated and reported in `verdict.json` for
 context but never flip the pass/fail decision or the throughput geomean.
+`darwin-arm64-quick.json` and `darwin-arm64-screen.json` are shorter
+screening presets (reduced warmup/duration/repetitions, pipelined cells left
+non-primary); their verdicts are iteration aids, never the pre-registered
+gate. `harness/policy/experiments/` holds the single-hypothesis A/B policies
+from the causal study (H1 read-buffer geometry, H2 GOEXPERIMENT, H5
+TCP_NOTSENT_LOWAT).
 
 ```json
 {
