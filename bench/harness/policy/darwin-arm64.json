@@ -48,7 +48,7 @@
   "guard": {
     "max_load1": 6.0,
     "max_load1_drift": 16.0,
-    "max_foreign_cpu_percent": 20.0,
+    "max_foreign_cpu_percent": 75.0,
     "forbidden_process_patterns": [
       "echoserver",
       "loadgen"

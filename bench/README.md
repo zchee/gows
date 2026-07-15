@@ -127,7 +127,9 @@ directory. It:
   schema-v2 sample;
 - continuously guards the host and immutable binaries during a measurement;
   source drift, reboot, thermal/power/load drift, or competing work aborts the
-  run; and
+  run. Final Phase 0 policies cap aggregate foreign `ps %CPU` at 75% of one
+  logical CPU: normal multi-core macOS housekeeping remains admissible, while
+  a sustained competing build or benchmark still invalidates the run; and
 - writes `INVALIDATED.json` after any post-directory failure. An invalidated
   run can never be sealed or evaluated.
 
