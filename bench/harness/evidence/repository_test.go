@@ -175,7 +175,12 @@ func newEvidenceTestRepository(t *testing.T) string {
 
 func runTestGit(t *testing.T, root string, args ...string) {
 	t.Helper()
-	command := exec.Command("git", args...)
+	// Synthetic repositories must not inherit the developer's global commit
+	// signing policy. The verification runner intentionally uses a minimal
+	// tool environment, so an inherited commit.gpgsign=true would make fixtures
+	// depend on an unrelated signing executable or key.
+	commandArgs := append([]string{"-c", "commit.gpgsign=false"}, args...)
+	command := exec.Command("git", commandArgs...)
 	command.Dir = root
 	if output, err := command.CombinedOutput(); err != nil {
 		t.Fatalf("git %s: %v\n%s", strings.Join(args, " "), err, output)
