@@ -103,7 +103,10 @@ func checkProcessHygiene(patterns []string, excluded map[int]struct{}, cpuLimit 
 	if err != nil {
 		return err
 	}
-	owned := ownedProcessTree(processes, excluded)
+	owned, err := ownedProcessTree(processes, excluded)
+	if err != nil {
+		return err
+	}
 	for _, pattern := range patterns {
 		re, err := regexp.Compile(pattern)
 		if err != nil {
@@ -153,10 +156,16 @@ func parseProcessUsage(output string) ([]processUsage, error) {
 	return result, nil
 }
 
-func ownedProcessTree(processes []processUsage, roots map[int]struct{}) map[int]struct{} {
+func ownedProcessTree(processes []processUsage, roots map[int]struct{}) (map[int]struct{}, error) {
+	byPID := make(map[int]processUsage, len(processes))
+	for _, process := range processes {
+		byPID[process.PID] = process
+	}
 	owned := make(map[int]struct{}, len(roots)+8)
 	for pid := range roots {
-		owned[pid] = struct{}{}
+		if _, present := byPID[pid]; present {
+			owned[pid] = struct{}{}
+		}
 	}
 	for changed := true; changed; {
 		changed = false
@@ -174,9 +183,19 @@ func ownedProcessTree(processes []processUsage, roots map[int]struct{}) map[int]
 	// benchrun process while measurements execute. Trust that exact ancestor
 	// chain, but add it only after expanding descendants so siblings of the
 	// controller (other builds, agents, or benchmark processes) remain foreign.
-	byPID := make(map[int]processUsage, len(processes))
-	for _, process := range processes {
-		byPID[process.PID] = process
+	controllers := make(map[int]processUsage)
+	for root := range roots {
+		process, ok := byPID[root]
+		if !ok || process.PPID <= 1 {
+			continue
+		}
+		if _, alreadyOwned := owned[process.PPID]; alreadyOwned {
+			continue
+		}
+		parent, ok := byPID[process.PPID]
+		if ok {
+			controllers[parent.PID] = parent
+		}
 	}
 	for root := range roots {
 		seen := make(map[int]struct{})
@@ -193,7 +212,40 @@ func ownedProcessTree(processes []processUsage, roots map[int]struct{}) map[int]
 			pid = process.PPID
 		}
 	}
-	return owned
+	// On Darwin, `caffeinate utility ...` execs the utility in the original
+	// process and leaves an assertion-holder child whose command line retains
+	// the original caffeinate invocation. It is therefore a sibling of the
+	// benchmark below a controller ancestor, not a benchmark descendant. Trust
+	// only that exact stock sidecar. Phase 0 fixes the launcher spelling to
+	// `/usr/bin/caffeinate -dimsu`; accepting any other option set requires an
+	// explicit code and policy review. Do not expand descendants again, or a
+	// child of the assertion helper could become owned without proof.
+	controllerPIDs := make([]int, 0, len(controllers))
+	for pid := range controllers {
+		controllerPIDs = append(controllerPIDs, pid)
+	}
+	sort.Ints(controllerPIDs)
+	for _, controllerPID := range controllerPIDs {
+		controller := controllers[controllerPID]
+		want := "/usr/bin/caffeinate -dimsu " + controller.Command
+		var match int
+		for _, process := range processes {
+			if _, alreadyOwned := owned[process.PID]; alreadyOwned {
+				continue
+			}
+			if process.PPID != controllerPID || process.Command != want {
+				continue
+			}
+			if match != 0 {
+				return nil, fmt.Errorf("host guard: ambiguous caffeinate sidecars for controller PID %d", controllerPID)
+			}
+			match = process.PID
+		}
+		if match != 0 {
+			owned[match] = struct{}{}
+		}
+	}
+	return owned, nil
 }
 
 func foreignCPUUsage(processes []processUsage, owned map[int]struct{}) (float64, []string) {
