@@ -107,19 +107,21 @@ func (c *Conn) Serve(h func(op Opcode, p []byte) error) error {
 			return err
 		}
 		if err := h(op, p); err != nil {
+			c.discardBuffered()
 			return err
 		}
 
 		// Drain round: process further complete messages already resident in
 		// the read buffer without a blocking read, bounded by the fairness
-		// budget. bufferedMessageReady guarantees the next message is fully
-		// present, so readMessageBody cannot block here.
+		// budget. bufferedMessageReady guarantees the next data message is
+		// fully present, so readMessageBody cannot block here.
 		for budget := serveDrainBudget - 1; budget > 0 && c.bufferedMessageReady(); budget-- {
 			op, p, err := c.readMessageBody()
 			if err != nil {
 				return err
 			}
 			if err := h(op, p); err != nil {
+				c.discardBuffered()
 				return err
 			}
 		}
@@ -127,13 +129,16 @@ func (c *Conn) Serve(h func(op Opcode, p []byte) error) error {
 }
 
 // bufferedMessageReady reports whether the read buffer already holds a
-// complete, self-contained data message or a complete control frame that the
-// drain loop can process without blocking on the transport. It never advances
-// the read window and performs no validation beyond what is needed to bound the
-// resident bytes: an empty buffer, a partial frame, a fragmented message's
-// opening frame, or a malformed header all report false, deferring that case to
-// the round-boundary blocking read, which decodes and validates it exactly as
-// [Conn.ReadMessage] would.
+// complete, self-contained data message that the drain loop can consume
+// without blocking on the transport. It never advances the read window and
+// performs no validation beyond what is needed to bound the resident bytes: an
+// empty buffer, a partial frame, a fragmented message's opening frame, a
+// malformed header, or a control frame all report false, deferring that case
+// to the round-boundary blocking read, which decodes and validates it exactly
+// as [Conn.ReadMessage] would. A control frame must end the round even when
+// fully resident: one that writes no reply (a Pong) would send readMessageBody
+// past it into a blocking read while the round's replies sit unflushed,
+// breaking Serve's flush-before-blocking-read guarantee.
 func (c *Conn) bufferedMessageReady() bool {
 	if c.r0 == c.r1 {
 		return false
@@ -147,12 +152,9 @@ func (c *Conn) bufferedMessageReady() bool {
 	if int64(c.r1-c.r0-n) < h.Length {
 		return false
 	}
-	if h.Opcode.IsControl() {
-		return true
-	}
-	// A final data frame is a whole single-frame message; a fragment (non-Fin,
-	// or a bare continuation) is left to the blocking path, which reassembles
-	// it.
+	// A final data frame is a whole single-frame message; anything else (a
+	// fragment, a bare continuation, a control frame) is left to the blocking
+	// path.
 	return h.Fin && h.Opcode.IsData()
 }
 
@@ -219,6 +221,16 @@ func (c *Conn) appendFrameLocked(dst []byte, op Opcode, payload []byte) []byte {
 	dst = append(dst, payload...)
 	mask.Mask(dst[start:], key)
 	return dst
+}
+
+// discardBuffered drops any pending [Conn.WriteMessageBuffered] batch without
+// writing it, retaining the buffer's capacity for reuse. [Conn.Serve] calls it
+// when the handler returns an error, so the documented discard semantics hold
+// and a later write cannot resurrect the stale replies.
+func (c *Conn) discardBuffered() {
+	c.wmu.Lock()
+	c.wbatch = c.wbatch[:0]
+	c.wmu.Unlock()
 }
 
 // Flush writes any frames accumulated by [Conn.WriteMessageBuffered] to the

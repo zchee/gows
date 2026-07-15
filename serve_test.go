@@ -19,6 +19,7 @@ import (
 	"errors"
 	"io"
 	"net"
+	"slices"
 	"testing"
 )
 
@@ -262,6 +263,86 @@ func TestServeHandlerError(t *testing.T) {
 	}
 	if calls != 1 {
 		t.Fatalf("handler called %d times, want 1", calls)
+	}
+}
+
+// TestServeFlushBeforeBlockingRead pins Serve's guarantee that pending
+// buffered replies are flushed before every blocking read: a drain round whose
+// resident bytes end in a control frame that writes no reply (a Pong) must not
+// carry the batch into the next transport read. The script's EOF stands in for
+// a peer that sends nothing further until it sees the reply; with the
+// guarantee violated the echo never reaches the wire at all.
+func TestServeFlushBeforeBlockingRead(t *testing.T) {
+	t.Parallel()
+
+	tests := map[string]struct {
+		in        []byte
+		wantEchos []string
+	}{
+		"pong ends the resident burst": {
+			in: slices.Concat(
+				clientFrame(true, OpcodeText, []byte("one")),
+				clientFrame(true, OpcodePong, []byte("pp")),
+			),
+			wantEchos: []string{"one"},
+		},
+		"pong between resident data frames": {
+			in: slices.Concat(
+				clientFrame(true, OpcodeText, []byte("one")),
+				clientFrame(true, OpcodePong, []byte("pp")),
+				clientFrame(true, OpcodeText, []byte("two")),
+			),
+			wantEchos: []string{"one", "two"},
+		},
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			sc := &scriptConn{in: tt.in}
+			c := NewServerConn(sc)
+			if err := serveBufferedEcho(c); !errors.Is(err, io.EOF) {
+				t.Fatalf("Serve returned %v, want io.EOF", err)
+			}
+			frames := parseFrames(t, sc.out.Bytes())
+			if len(frames) != len(tt.wantEchos) {
+				t.Fatalf("wrote %d frames, want %d: %+v", len(frames), len(tt.wantEchos), frames)
+			}
+			for i, want := range tt.wantEchos {
+				if frames[i].h.Opcode != OpcodeText || string(frames[i].payload) != want {
+					t.Fatalf("frame %d = {%v %q}, want {Text %q}", i, frames[i].h.Opcode, frames[i].payload, want)
+				}
+			}
+		})
+	}
+}
+
+// TestServeHandlerErrorDiscardsBatch pins the Serve contract that a handler
+// error discards not-yet-flushed buffered replies: a later direct write must
+// not resurrect the stale batch ahead of its own frame.
+func TestServeHandlerErrorDiscardsBatch(t *testing.T) {
+	t.Parallel()
+
+	wantErr := errors.New("handler stop")
+	sc := &scriptConn{in: clientFrame(true, OpcodeText, []byte("stale"))}
+	c := NewServerConn(sc)
+
+	err := c.Serve(func(op Opcode, p []byte) error {
+		if err := c.WriteMessageBuffered(op, p); err != nil {
+			t.Errorf("WriteMessageBuffered: %v", err)
+		}
+		return wantErr
+	})
+	if !errors.Is(err, wantErr) {
+		t.Fatalf("Serve returned %v, want %v", err, wantErr)
+	}
+
+	if err := c.WriteMessage(OpcodeText, []byte("fresh")); err != nil {
+		t.Fatalf("WriteMessage after handler error: %v", err)
+	}
+	frames := parseFrames(t, sc.out.Bytes())
+	if len(frames) != 1 || string(frames[0].payload) != "fresh" {
+		t.Fatalf("wire frames = %+v, want exactly one \"fresh\" frame", frames)
 	}
 }
 
