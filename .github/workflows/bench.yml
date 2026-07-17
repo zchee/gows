@@ -89,9 +89,12 @@ jobs:
             ./harness/cmd/benchrun \
             ./harness/cmd/echoserver \
             ./harness/cmd/loadgen \
+            ./harness/cmd/phase0receipt \
+            ./harness/cmd/phase0verify \
             ./harness/doccheck \
             ./harness/evidence \
             ./harness/paired \
+            ./harness/phase0 \
             ./harness/policy \
             ./harness/support \
             -count=1

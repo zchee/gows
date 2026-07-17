@@ -8,7 +8,7 @@ WebSocket library for Go, engineered for performance and conformance.
 > statement in this README, including the feature bullets and tables below,
 > is a **historical, non-current measurement** unless it is explicitly tied
 > to an immutable Phase 0 receipt under
-> [`bench/evidence/phase0/current`](bench/evidence/phase0/current). Historical
+> `bench/evidence/phase0/current` (created by a benchmark session). Historical
 > reports and local run-directory names do not prove current-HEAD performance
 > and must not support a current `gows`-versus-`quickws` superiority claim.
 > Current performance remains unknown until the fail-closed evaluator in
