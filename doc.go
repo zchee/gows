@@ -28,7 +28,11 @@
 // that drains every complete buffered message per wakeup and, combined
 // with [Conn.WriteMessageBuffered] and [Conn.Flush], coalesces replies
 // into a single write. A [PreparedMessage] encodes a payload once for
-// broadcast across many connections. The frame-level primitives
+// broadcast across many connections. The closing handshake is driven
+// with [Conn.Close] (or the context-bounded [Conn.CloseContext]) when
+// the calling goroutine owns the read side, or started with
+// [Conn.WriteClose] from any goroutine while a reader is active. The
+// frame-level primitives
 // ([Header], [DecodeHeader], [AppendHeader]) are exported for callers
 // that need to process frames directly.
 //

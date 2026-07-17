@@ -18,16 +18,25 @@ import (
 	"bytes"
 	"context"
 	"crypto/tls"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"net"
+	"net/http"
 	"net/url"
 	"strings"
+	"time"
 
 	"github.com/zchee/gows/internal/extension"
 	"github.com/zchee/gows/internal/httpx"
 	"github.com/zchee/gows/internal/pool"
 )
+
+// maxRedirects bounds a [Dialer.CheckRedirect]-enabled redirect chain:
+// past this many followed hops, [Dialer.Dial] fails with
+// [ErrTooManyRedirects]. It matches net/http's default policy, and a
+// redirect loop necessarily hits it.
+const maxRedirects = 10
 
 // deflateOffer builds this Dialer's permessage-deflate offer: the header
 // value for the handshake request's Sec-WebSocket-Extensions, and its
@@ -113,15 +122,38 @@ func Dial(ctx context.Context, rawURL string) (net.Conn, Handshake, error) {
 // Sec-WebSocket-Accept header matching the value computed from the
 // Sec-WebSocket-Key this call generated. If the response selects a
 // Sec-WebSocket-Protocol not in [Dialer.Subprotocols], Dial fails with
-// [ErrUnrequestedSubprotocol].
+// [ErrUnrequestedSubprotocol]. A well-formed response status other than
+// 101 fails Dial with a [*UnexpectedStatusError] (matching
+// [ErrUnexpectedStatus]) carrying the numeric status.
+//
+// ctx governs every phase of the exchange, not just the TCP dial: the
+// proxy CONNECT, the TLS handshake, the request write, the
+// response-header read, and each redirect hop. Its deadline, if any, is
+// applied to the connection, and its cancellation force-closes the
+// connection to interrupt whichever phase is in flight -- also on a ctx
+// with no deadline. When ctx ends the dial early, Dial returns an error
+// wrapping the context's cancellation cause, so errors.Is matches
+// [context.Canceled], [context.DeadlineExceeded], or a
+// [context.WithCancelCause] cause. An already-ended ctx fails before
+// any network I/O. On success, the ctx-derived deadline is cleared from
+// the returned net.Conn, and the cancellation callback is stopped and
+// fully synchronized, before Dial returns -- a late callback can never
+// close a connection the caller owns.
+//
+// [Dialer.HTTPHeader] adds extra request headers from a snapshot taken
+// before any network I/O; [Dialer.Proxy] selects an HTTP proxy; and
+// [Dialer.CheckRedirect] opts in to following redirects. See each
+// field's documentation.
 //
 // On any failure after a connection was established, Dial closes it and
-// returns a non-nil error alongside a nil net.Conn. On success, the
-// caller owns the returned net.Conn (e.g. to build a Conn on top of it,
-// once that type exists) and any bytes the server had already sent past
-// the handshake response (e.g. a pipelined first WebSocket frame) are
-// returned as Handshake.Buffered; see [Handshake] for the contract a
-// caller building a Conn on top of the returned net.Conn must follow.
+// returns a non-nil error alongside a nil net.Conn; a canceled or
+// failed connection is never reused. On success, the caller owns the
+// returned net.Conn (e.g. to build a Conn on top of it) and any bytes
+// the server had already sent past the handshake response (e.g. a
+// pipelined first WebSocket frame) are returned as Handshake.Buffered;
+// see [Handshake] for the contract a caller building a Conn on top of
+// the returned net.Conn must follow. When redirects are followed, only
+// the final hop's Handshake (and Buffered) is returned.
 //
 // Dial is not on gows's zero-allocation hot path (a handshake happens
 // once per connection, not once per message) and allocates freely to
@@ -142,40 +174,138 @@ func (d *Dialer) Dial(ctx context.Context, rawURL string) (net.Conn, Handshake, 
 		return nil, Handshake{}, err
 	}
 
+	// Snapshot the caller's extra headers -- map and value slices both --
+	// before any validation or network I/O. Everything downstream
+	// (validation, redirect credential stripping, serialization) sees
+	// only this snapshot, so the caller may mutate the source freely
+	// once Dial returns.
+	hdr := d.HTTPHeader.Clone()
+	if err := validateExtraHeaders(hdr); err != nil {
+		return nil, Handshake{}, err
+	}
+
 	u, err := url.Parse(rawURL)
 	if err != nil {
 		return nil, Handshake{}, fmt.Errorf("gows: parse dial URL: %w", err)
 	}
-
-	var useTLS bool
-	switch u.Scheme {
-	case "ws":
-		useTLS = false
-	case "wss":
-		useTLS = true
-	default:
+	if u.Scheme != "ws" && u.Scheme != "wss" {
 		return nil, Handshake{}, ErrNotWebSocketScheme
 	}
 
-	host := u.Hostname()
-	port := u.Port()
-	if port == "" {
-		if useTLS {
-			port = "443"
-		} else {
-			port = "80"
+	var via []*http.Request
+	for {
+		conn, hs, location, err := d.dialHop(ctx, u, hdr)
+		if err != nil {
+			return nil, Handshake{}, err
+		}
+		if location == "" {
+			return conn, hs, nil
+		}
+		// The hop answered with a followable redirect and its connection
+		// is already closed. Resolve and vet the next URL, consult the
+		// caller's policy, and strip credentials on an origin change --
+		// deletion from the snapshot is sticky, so a chain returning to
+		// the original origin never resurrects a dropped credential.
+		next, err := resolveRedirect(u, location)
+		if err != nil {
+			return nil, Handshake{}, err
+		}
+		via = append(via, newHopRequest(u, hdr))
+		if len(via) > maxRedirects {
+			return nil, Handshake{}, ErrTooManyRedirects
+		}
+		if !sameOrigin(u, next) {
+			deleteHeaderFold(hdr, "Authorization")
+			deleteHeaderFold(hdr, "Cookie")
+		}
+		// The policy callback sees the upcoming request exactly as it
+		// will be sent -- after the credential stripping above, matching
+		// net/http's CheckRedirect ordering.
+		if err := d.CheckRedirect(newHopRequest(next, hdr), via); err != nil {
+			return nil, Handshake{}, fmt.Errorf("gows: redirect blocked: %w", err)
+		}
+		u = next
+	}
+}
+
+// dialHop performs one complete dial attempt against u: proxy
+// resolution, TCP connect, an optional CONNECT tunnel, TLS, and the
+// opening handshake exchange. It returns either an established
+// connection (location == ""), or -- when [Dialer.CheckRedirect] is set
+// and the hop answered with a redirect carrying a Location -- the raw
+// Location value, with the hop's connection already closed. On error,
+// the hop's connection is closed before dialHop returns.
+func (d *Dialer) dialHop(ctx context.Context, u *url.URL, hdr http.Header) (net.Conn, Handshake, string, error) {
+	useTLS := u.Scheme == "wss"
+
+	var proxyURL *url.URL
+	if d.Proxy != nil {
+		var err error
+		proxyURL, err = d.Proxy(newProxyRequest(u, hdr))
+		if err != nil {
+			return nil, Handshake{}, "", fmt.Errorf("gows: resolve proxy: %w", err)
 		}
 	}
-	addr := net.JoinHostPort(host, port)
+	var proxyAuth string
+	if proxyURL != nil {
+		if proxyURL.Scheme != "http" {
+			return nil, Handshake{}, "", ErrProxyUnsupportedScheme
+		}
+		proxyAuth = proxyBasicAuth(proxyURL.User)
+	}
+
+	originAddr := net.JoinHostPort(u.Hostname(), effectivePort(u))
+	dialAddr := originAddr
+	if proxyURL != nil {
+		port := proxyURL.Port()
+		if port == "" {
+			port = "80"
+		}
+		dialAddr = net.JoinHostPort(proxyURL.Hostname(), port)
+	}
+
+	// Fail before any network I/O on an already-ended context; a custom
+	// [Dialer.NetDial] is not obliged to check it.
+	if ctx.Err() != nil {
+		return nil, Handshake{}, "", fmt.Errorf("gows: dial %s: %w", dialAddr, context.Cause(ctx))
+	}
 
 	dial := d.NetDial
 	if dial == nil {
 		var nd net.Dialer
 		dial = nd.DialContext
 	}
-	conn, err := dial(ctx, "tcp", addr)
+	conn, err := dial(ctx, "tcp", dialAddr)
 	if err != nil {
-		return nil, Handshake{}, fmt.Errorf("gows: dial %s: %w", addr, err)
+		if cause := context.Cause(ctx); cause != nil && !errors.Is(err, cause) {
+			return nil, Handshake{}, "", fmt.Errorf("gows: dial %s: %w: %w", dialAddr, cause, err)
+		}
+		return nil, Handshake{}, "", fmt.Errorf("gows: dial %s: %w", dialAddr, err)
+	}
+
+	// One guard owns the ctx-to-connection lifecycle for every phase of
+	// this hop (CONNECT, TLS, request write, response read): the ctx
+	// deadline bounds the connection's I/O directly, and cancellation
+	// force-closes the raw connection to unblock whichever phase is in
+	// flight (a TLS wrapper delegates deadlines and reads to it anyway).
+	deadline, _ := ctx.Deadline()
+	g := guardConn(ctx, conn, deadline)
+	fail := func(err error) (net.Conn, Handshake, string, error) {
+		g.abort()
+		if cause := context.Cause(ctx); cause != nil && !errors.Is(err, cause) {
+			// When ctx ended mid-exchange the transport-level error is
+			// usually just the interrupt's symptom (a closed connection or
+			// expired deadline); report the cancellation cause as the
+			// primary error, keeping the underlying error in the chain.
+			return nil, Handshake{}, "", fmt.Errorf("gows: dial: %w: %w", cause, err)
+		}
+		return nil, Handshake{}, "", err
+	}
+
+	if proxyURL != nil && useTLS {
+		if err := proxyConnect(conn, originAddr, proxyAuth); err != nil {
+			return fail(err)
+		}
 	}
 
 	if useTLS {
@@ -186,37 +316,264 @@ func (d *Dialer) Dial(ctx context.Context, rawURL string) (net.Conn, Handshake, 
 			cfg = cfg.Clone()
 		}
 		if cfg.ServerName == "" {
-			cfg.ServerName = host
+			// Always the origin's hostname -- never the proxy's: inside a
+			// CONNECT tunnel the TLS peer is the origin.
+			cfg.ServerName = u.Hostname()
 		}
 		tlsConn := tls.Client(conn, cfg)
 		if err := tlsConn.HandshakeContext(ctx); err != nil {
-			conn.Close()
-			return nil, Handshake{}, fmt.Errorf("gows: tls handshake: %w", err)
+			return fail(fmt.Errorf("gows: tls handshake: %w", err))
 		}
 		conn = tlsConn
 	}
 
-	hs, err := d.handshake(conn, u)
+	hs, location, err := d.handshake(conn, u, hdr, proxyURL != nil && !useTLS, proxyAuth)
 	if err != nil {
-		conn.Close()
-		return nil, Handshake{}, err
+		return fail(err)
 	}
-	return conn, hs, nil
+	if location != "" {
+		// Followable redirect: this hop's connection is finished. abort
+		// both joins the cancellation callback and closes the connection;
+		// if ctx ended concurrently, the next hop's entry check reports it.
+		g.abort()
+		return nil, Handshake{}, location, nil
+	}
+	if !g.release() {
+		// ctx fired at the success boundary: the callback closed the
+		// connection concurrently, and the caller asked for cancellation
+		// regardless -- fail the dial, like [net.Dialer.DialContext] does.
+		// release has already waited for the callback, so nothing can
+		// touch the connection after this return.
+		return nil, Handshake{}, "", fmt.Errorf("gows: handshake: %w", context.Cause(ctx))
+	}
+	// Do not leak the guard's handshake deadline into the caller's
+	// ownership of the connection.
+	_ = conn.SetDeadline(time.Time{})
+	return conn, hs, "", nil
+}
+
+// newHopRequest synthesizes the net/http-shaped request describing one
+// dial hop, as handed to [Dialer.Proxy] and [Dialer.CheckRedirect]. The
+// URL and header are copies, so a callback cannot mutate the validated
+// snapshot or the loop's URL state.
+func newHopRequest(u *url.URL, hdr http.Header) *http.Request {
+	h := hdr.Clone()
+	if h == nil {
+		h = make(http.Header)
+	}
+	uu := *u
+	return &http.Request{
+		Method:     http.MethodGet,
+		URL:        &uu,
+		Proto:      "HTTP/1.1",
+		ProtoMajor: 1,
+		ProtoMinor: 1,
+		Header:     h,
+		Host:       uu.Host,
+	}
+}
+
+// newProxyRequest is [newHopRequest] with the URL scheme translated to
+// the carrying HTTP protocol ("http" for ws, "https" for wss):
+// [net/http.ProxyFromEnvironment] resolves proxies for http and https
+// URLs only (it returns nil for a ws or wss URL), and the translation
+// is what lets it be assigned to [Dialer.Proxy] directly.
+func newProxyRequest(u *url.URL, hdr http.Header) *http.Request {
+	req := newHopRequest(u, hdr)
+	if req.URL.Scheme == "wss" {
+		req.URL.Scheme = "https"
+	} else {
+		req.URL.Scheme = "http"
+	}
+	return req
+}
+
+// resolveRedirect resolves a redirect Location against the current hop
+// URL and vets the result: ws and wss pass through, http and https map
+// onto them, anything else fails with [ErrNotWebSocketScheme], and a
+// hostless or unparseable result fails with [ErrMalformedLocation].
+// Errors deliberately never include the Location value (url.Parse's own
+// error would echo it, credentials, query and all).
+func resolveRedirect(current *url.URL, location string) (*url.URL, error) {
+	ref, err := url.Parse(location)
+	if err != nil {
+		return nil, ErrMalformedLocation
+	}
+	next := current.ResolveReference(ref)
+	switch next.Scheme {
+	case "ws", "wss":
+	case "http":
+		next.Scheme = "ws"
+	case "https":
+		next.Scheme = "wss"
+	default:
+		return nil, fmt.Errorf("gows: redirect: %w", ErrNotWebSocketScheme)
+	}
+	if next.Host == "" {
+		return nil, ErrMalformedLocation
+	}
+	// URL userinfo is neither dialed with nor forwarded; drop it so it
+	// cannot resurface through [Dialer.CheckRedirect]'s req or an error.
+	next.User = nil
+	return next, nil
+}
+
+// sameOrigin reports whether a and b share scheme, canonical
+// (case-insensitive) hostname, and effective port -- the definition the
+// redirect path's credential stripping uses.
+func sameOrigin(a, b *url.URL) bool {
+	return a.Scheme == b.Scheme &&
+		strings.EqualFold(a.Hostname(), b.Hostname()) &&
+		effectivePort(a) == effectivePort(b)
+}
+
+// effectivePort returns u's explicit port, or the scheme default (443
+// for wss, 80 for ws).
+func effectivePort(u *url.URL) string {
+	if p := u.Port(); p != "" {
+		return p
+	}
+	if u.Scheme == "wss" {
+		return "443"
+	}
+	return "80"
+}
+
+// proxyBasicAuth renders proxy-URL userinfo as a Proxy-Authorization
+// value (RFC 7617 basic credentials), or "" when user is nil.
+func proxyBasicAuth(user *url.Userinfo) string {
+	if user == nil {
+		return ""
+	}
+	pass, _ := user.Password()
+	return "Basic " + base64.StdEncoding.EncodeToString([]byte(user.Username()+":"+pass))
+}
+
+// proxyConnect establishes an RFC 7231 §4.3.6 CONNECT tunnel to
+// originAddr over the already-dialed proxy connection, sending
+// proxyAuth (when non-empty) as Proxy-Authorization on the CONNECT
+// only. Anything but a well-formed, body-less 200 response is an error;
+// a non-200 status surfaces as [ErrProxyConnectFailed] wrapping a
+// [*UnexpectedStatusError], with no proxy-controlled text.
+func proxyConnect(conn net.Conn, originAddr, proxyAuth string) error {
+	var req bytes.Buffer
+	fmt.Fprintf(&req, "CONNECT %s HTTP/1.1\r\nHost: %s\r\n", originAddr, originAddr)
+	if proxyAuth != "" {
+		fmt.Fprintf(&req, "Proxy-Authorization: %s\r\n", proxyAuth)
+	}
+	req.WriteString("\r\n")
+	if _, err := conn.Write(req.Bytes()); err != nil {
+		return fmt.Errorf("gows: write proxy CONNECT: %w", err)
+	}
+
+	data, filled, err := readHeaderBlock(conn, pool.Get(4096), defaultMaxHeaderBytes)
+	if err != nil {
+		pool.Put(data)
+		if errors.Is(err, ErrHeaderTooLarge) {
+			return fmt.Errorf("%w: %w", ErrProxyConnectFailed, err)
+		}
+		return fmt.Errorf("gows: read proxy CONNECT response: %w", err)
+	}
+	defer pool.Put(data)
+
+	idx := bytes.Index(data[:filled], doubleCRLF)
+	status, _, err := httpx.ParseStatusLine(data[:idx+4])
+	if err != nil {
+		return fmt.Errorf("gows: parse proxy CONNECT response: %w", err)
+	}
+	code, ok := parseStatusCode(status.Code)
+	if !ok {
+		return fmt.Errorf("gows: parse proxy CONNECT response: %w", httpx.ErrMalformedStatusLine)
+	}
+	if code != 200 {
+		return fmt.Errorf("%w: %w", ErrProxyConnectFailed, &UnexpectedStatusError{StatusCode: code, Reason: string(status.Reason)})
+	}
+	if idx+4 < filled {
+		// A 2xx CONNECT response has no body (RFC 7231 §4.3.6), and the
+		// origin cannot have spoken before this side's TLS ClientHello:
+		// bytes here mean a broken or hostile proxy.
+		return fmt.Errorf("%w: unexpected data after the CONNECT response", ErrProxyConnectFailed)
+	}
+	return nil
+}
+
+// parseStatusCode parses an HTTP status-code field: exactly three
+// ASCII digits (RFC 7230 §3.1.2). A malformed field makes the whole
+// status line malformed -- reported distinctly from a well-formed but
+// unexpected status.
+func parseStatusCode(b []byte) (int, bool) {
+	if len(b) != 3 {
+		return 0, false
+	}
+	n := 0
+	for _, c := range b {
+		if c < '0' || c > '9' {
+			return 0, false
+		}
+		n = n*10 + int(c-'0')
+	}
+	return n, true
+}
+
+// isRedirectStatus reports whether code is a followable redirect
+// status: 301, 302, 303, 307, or 308.
+func isRedirectStatus(code int) bool {
+	switch code {
+	case 301, 302, 303, 307, 308:
+		return true
+	}
+	return false
+}
+
+// findLocation returns the first Location value in the scanned header
+// block, or "" when none is present (or the block is malformed before
+// one appears).
+func findLocation(headers []byte) string {
+	sc := httpx.NewHeaderScanner(headers)
+	for sc.Next() {
+		if httpx.EqualFold(sc.Key(), "location") {
+			return string(sc.Value())
+		}
+	}
+	return ""
 }
 
 // handshake writes the handshake request to conn and validates the
-// response, per RFC 6455 §4.1.
-func (d *Dialer) handshake(conn net.Conn, u *url.URL) (Handshake, error) {
+// response, per RFC 6455 §4.1. hdr is the already-validated
+// [Dialer.HTTPHeader] snapshot. absoluteForm selects the RFC 7230
+// §5.3.2 absolute-form request-target used on the "ws"-through-proxy
+// leg; proxyAuth, when non-empty, is emitted with it (and only with
+// it), serialized apart from hdr. When [Dialer.CheckRedirect] is set
+// and the response is a well-formed redirect carrying a Location,
+// handshake returns that Location with a nil error and lets the caller
+// decide; any other non-101 status fails with [*UnexpectedStatusError].
+func (d *Dialer) handshake(conn net.Conn, u *url.URL, hdr http.Header, absoluteForm bool, proxyAuth string) (Handshake, string, error) {
 	wsKey, err := httpx.AppendKey(nil)
 	if err != nil {
-		return Handshake{}, fmt.Errorf("gows: generate Sec-WebSocket-Key: %w", err)
+		return Handshake{}, "", fmt.Errorf("gows: generate Sec-WebSocket-Key: %w", err)
 	}
 
 	var req bytes.Buffer
-	fmt.Fprintf(&req, "GET %s HTTP/1.1\r\n", requestTarget(u))
+	if absoluteForm {
+		// The proxy routes on the absolute-form target's authority. The
+		// scheme is written as "http" -- the carrying protocol of the
+		// opening handshake -- which any HTTP proxy understands, where a
+		// literal "ws" scheme is one RFC 7230 intermediaries need not.
+		fmt.Fprintf(&req, "GET http://%s%s HTTP/1.1\r\n", u.Host, requestTarget(u))
+	} else {
+		fmt.Fprintf(&req, "GET %s HTTP/1.1\r\n", requestTarget(u))
+	}
 	fmt.Fprintf(&req, "Host: %s\r\n", u.Host)
 	req.WriteString("Upgrade: websocket\r\n")
 	req.WriteString("Connection: Upgrade\r\n")
+	if absoluteForm && proxyAuth != "" {
+		// Proxy credentials ride the proxy leg only -- the absolute-form
+		// GET here, or the CONNECT in proxyConnect -- never an origin
+		// request inside a tunnel, and never merged into (or serialized
+		// through) the caller's header snapshot, which rejected any
+		// Proxy-Authorization entry during validation.
+		fmt.Fprintf(&req, "Proxy-Authorization: %s\r\n", proxyAuth)
+	}
 	fmt.Fprintf(&req, "Sec-WebSocket-Key: %s\r\n", wsKey)
 	req.WriteString("Sec-WebSocket-Version: 13\r\n")
 	if len(d.Subprotocols) > 0 {
@@ -226,19 +583,22 @@ func (d *Dialer) handshake(conn net.Conn, u *url.URL) (Handshake, error) {
 	if d.EnableCompression {
 		fmt.Fprintf(&req, "Sec-WebSocket-Extensions: %s\r\n", offerHeader)
 	}
+	if len(hdr) > 0 {
+		req.Write(appendExtraHeaders(nil, hdr))
+	}
 	req.WriteString("\r\n")
 
 	if _, err := conn.Write(req.Bytes()); err != nil {
-		return Handshake{}, fmt.Errorf("gows: write handshake request: %w", err)
+		return Handshake{}, "", fmt.Errorf("gows: write handshake request: %w", err)
 	}
 
 	data, filled, err := readHeaderBlock(conn, pool.Get(4096), defaultMaxHeaderBytes)
 	if err != nil {
 		pool.Put(data)
 		if errors.Is(err, ErrHeaderTooLarge) {
-			return Handshake{}, err
+			return Handshake{}, "", err
 		}
-		return Handshake{}, fmt.Errorf("gows: read handshake response: %w", err)
+		return Handshake{}, "", fmt.Errorf("gows: read handshake response: %w", err)
 	}
 	defer pool.Put(data)
 
@@ -247,12 +607,21 @@ func (d *Dialer) handshake(conn net.Conn, u *url.URL) (Handshake, error) {
 
 	status, consumed, err := httpx.ParseStatusLine(headerBlock)
 	if err != nil {
-		return Handshake{}, fmt.Errorf("gows: parse status line: %w", err)
-	}
-	if string(status.Code) != "101" {
-		return Handshake{}, fmt.Errorf("%w: %s %s", ErrUnexpectedStatus, status.Code, status.Reason)
+		return Handshake{}, "", fmt.Errorf("gows: parse status line: %w", err)
 	}
 	headers := headerBlock[consumed:]
+	code, ok := parseStatusCode(status.Code)
+	if !ok {
+		return Handshake{}, "", fmt.Errorf("gows: parse status line: %w", httpx.ErrMalformedStatusLine)
+	}
+	if code != 101 {
+		if d.CheckRedirect != nil && isRedirectStatus(code) {
+			if loc := findLocation(headers); loc != "" {
+				return Handshake{}, loc, nil
+			}
+		}
+		return Handshake{}, "", &UnexpectedStatusError{StatusCode: code, Reason: string(status.Reason)}
+	}
 
 	var upgradeOK, connectionOK bool
 	var accept, serverProtocol, serverExtensions []byte
@@ -273,14 +642,14 @@ func (d *Dialer) handshake(conn net.Conn, u *url.URL) (Handshake, error) {
 		}
 	}
 	if err := sc.Err(); err != nil {
-		return Handshake{}, fmt.Errorf("gows: scan handshake response headers: %w", err)
+		return Handshake{}, "", fmt.Errorf("gows: scan handshake response headers: %w", err)
 	}
 
 	if !upgradeOK {
-		return Handshake{}, ErrNotUpgrade
+		return Handshake{}, "", ErrNotUpgrade
 	}
 	if !connectionOK {
-		return Handshake{}, ErrNotConnectionUpgrade
+		return Handshake{}, "", ErrNotConnectionUpgrade
 	}
 	// The Sec-WebSocket-Accept comparison need not run in constant time:
 	// it is a proof that the peer echoed a value derived from a nonce we
@@ -288,7 +657,7 @@ func (d *Dialer) handshake(conn net.Conn, u *url.URL) (Handshake, error) {
 	// anything an attacker doesn't already know.
 	wantAccept := httpx.AppendAccept(nil, wsKey)
 	if !bytes.Equal(accept, wantAccept) {
-		return Handshake{}, ErrAcceptMismatch
+		return Handshake{}, "", ErrAcceptMismatch
 	}
 
 	selected := ""
@@ -300,7 +669,7 @@ func (d *Dialer) handshake(conn net.Conn, u *url.URL) (Handshake, error) {
 			}
 		}
 		if selected == "" {
-			return Handshake{}, ErrUnrequestedSubprotocol
+			return Handshake{}, "", ErrUnrequestedSubprotocol
 		}
 	}
 
@@ -309,7 +678,7 @@ func (d *Dialer) handshake(conn net.Conn, u *url.URL) (Handshake, error) {
 	if d.EnableCompression && serverExtensions != nil && hasDeflateElement(serverExtensions) {
 		respParams, verr := extension.ValidateDeflateResponse(offerParams, serverExtensions)
 		if verr != nil {
-			return Handshake{}, fmt.Errorf("%w: %w", ErrInvalidCompressionResponse, verr)
+			return Handshake{}, "", fmt.Errorf("%w: %w", ErrInvalidCompressionResponse, verr)
 		}
 		agreedParams = respParams
 		compressed = true
@@ -331,14 +700,14 @@ func (d *Dialer) handshake(conn net.Conn, u *url.URL) (Handshake, error) {
 		// A response may tighten the ceiling below what the offer-time check
 		// already accepted (e.g. we offered 10, server replied 8).
 		if err := checkWindowBitsSupported(cp.ClientMaxWindowBits); err != nil {
-			return Handshake{}, err
+			return Handshake{}, "", err
 		}
 		h.CompressionParams = cp
 	}
 	if idx+4 < filled {
 		h.Buffered = append([]byte(nil), data[idx+4:filled]...)
 	}
-	return h, nil
+	return h, "", nil
 }
 
 // requestTarget returns u's request-target (RFC 7230 §5.3.1) for a

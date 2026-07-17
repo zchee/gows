@@ -14,7 +14,10 @@
 
 package gows
 
-import "errors"
+import (
+	"errors"
+	"strconv"
+)
 
 // Sentinel errors returned by [Upgrader.Upgrade], [Upgrader.UpgradeHTTP],
 // [Dialer.Dial], [Conn.Close], [Conn.WriteMessage], and [Conn.NextWriter].
@@ -27,7 +30,9 @@ import "errors"
 var (
 	// ErrHeaderTooLarge indicates a handshake request or response header
 	// block did not fit within the configured (or default) size limit
-	// before its terminating blank line was found.
+	// before its terminating blank line was found, or that the extra
+	// request headers supplied via [Dialer.HTTPHeader] would serialize
+	// past that same ceiling (reported before any network I/O).
 	ErrHeaderTooLarge = errors.New("gows: handshake header block too large")
 	// ErrMissingHost indicates a handshake request had no Host header,
 	// which RFC 6455 §4.2.1 requires.
@@ -51,8 +56,12 @@ var (
 	// ErrNotWebSocketScheme indicates a [Dialer.Dial] URL's scheme was
 	// neither "ws" nor "wss".
 	ErrNotWebSocketScheme = errors.New("gows: dial URL scheme is not ws or wss")
-	// ErrUnexpectedStatus indicates a handshake response's status code
-	// was not 101 (Switching Protocols).
+	// ErrUnexpectedStatus indicates an HTTP response carried a
+	// well-formed numeric status other than the one the exchange
+	// required: 101 (Switching Protocols) for the opening handshake, or
+	// 200 for a proxy CONNECT. It is surfaced via
+	// [*UnexpectedStatusError], which carries the numeric status;
+	// errors.Is(err, ErrUnexpectedStatus) matches it.
 	ErrUnexpectedStatus = errors.New("gows: handshake response status is not 101 Switching Protocols")
 	// ErrAcceptMismatch indicates a handshake response's
 	// Sec-WebSocket-Accept header did not match the value computed from
@@ -108,4 +117,80 @@ var (
 	// (Pong, Close) are exempt and may still interleave between
 	// fragments.
 	ErrWriterBusy = errors.New("gows: a NextWriter message is already open")
+	// ErrReservedHeader indicates a [Dialer.HTTPHeader] entry named a
+	// header this package owns as part of the opening handshake or of
+	// the HTTP exchange carrying it: Host, Upgrade, Connection, any
+	// Sec-WebSocket-* field, Content-Length, Transfer-Encoding, Trailer,
+	// TE, or Proxy-Authorization. Reserved headers cannot be supplied
+	// through the extra-header seam; use the dedicated configuration
+	// field where one exists (e.g. [Dialer.Subprotocols] for
+	// Sec-WebSocket-Protocol, the [Dialer.Proxy] URL for proxy
+	// credentials). [Dialer.Dial] returns it (wrapped with the
+	// offending name) before any network I/O.
+	ErrReservedHeader = errors.New("gows: extra handshake header overrides a reserved header")
+	// ErrMalformedHeader indicates a [Dialer.HTTPHeader] entry had a
+	// name that is not a valid RFC 7230 token, or a value containing
+	// bytes outside RFC 7230 field-content (CR, LF, NUL, or another
+	// control byte), which could otherwise inject header lines into the
+	// handshake block. [Dialer.Dial] returns it (wrapped with the
+	// offending name, never the value) before any network I/O.
+	ErrMalformedHeader = errors.New("gows: extra handshake header is malformed")
+	// ErrCloseTimeout indicates a [Conn.CloseContext] closing handshake
+	// did not complete within the Conn's own close-timeout budget
+	// ([WithCloseTimeout]): the Close-frame write or the wait for the
+	// peer's Close frame ran out of it. When the context's deadline is
+	// the binding bound instead, CloseContext reports the context's
+	// cause (matching ctx.Err()), not this sentinel. The connection is
+	// closed either way; the error only means the closing handshake did
+	// not complete cleanly.
+	ErrCloseTimeout = errors.New("gows: closing handshake timed out")
+	// ErrProxyUnsupportedScheme indicates [Dialer.Proxy] returned a
+	// proxy URL whose scheme is not "http". [Dialer.Dial] returns it
+	// before any network I/O for that hop.
+	ErrProxyUnsupportedScheme = errors.New("gows: proxy URL scheme is not http")
+	// ErrProxyConnectFailed indicates the HTTP proxy refused or failed
+	// the CONNECT tunnel a "wss" dial requested through it. When the
+	// proxy answered with a well-formed non-200 status the error also
+	// carries the numeric status via [*UnexpectedStatusError] (matching
+	// [ErrUnexpectedStatus]); no proxy-controlled text is included.
+	ErrProxyConnectFailed = errors.New("gows: proxy CONNECT failed")
+	// ErrTooManyRedirects indicates a [Dialer.CheckRedirect]-enabled
+	// dial followed the maximum number of redirect hops (10) without
+	// reaching a terminal response; a redirect loop surfaces as this
+	// same error.
+	ErrTooManyRedirects = errors.New("gows: too many redirects")
+	// ErrMalformedLocation indicates a redirect response's Location
+	// header did not parse as a URL or resolved to one with no host.
+	// The offending Location value is deliberately not included.
+	ErrMalformedLocation = errors.New("gows: redirect Location is malformed")
 )
+
+// UnexpectedStatusError reports a syntactically valid HTTP response
+// whose status was not the one the exchange required: an opening
+// handshake response other than 101 Switching Protocols or, wrapped in
+// [ErrProxyConnectFailed], a proxy CONNECT response other than 200.
+// errors.Is(err, [ErrUnexpectedStatus]) matches it.
+type UnexpectedStatusError struct {
+	// StatusCode is the numeric HTTP status the peer sent (e.g. 403).
+	StatusCode int
+	// Reason is the peer-controlled reason phrase, verbatim. It is
+	// carried for callers that explicitly inspect it and deliberately
+	// excluded from Error's text, so peer-reflected content (which may
+	// echo credentials or other request material) never reaches logs
+	// through the error chain.
+	Reason string
+}
+
+// Error implements the error interface. The text carries only the
+// locally computed numeric status -- never the peer's reason phrase,
+// headers, or body.
+func (e *UnexpectedStatusError) Error() string {
+	return "gows: unexpected HTTP response status " + strconv.Itoa(e.StatusCode)
+}
+
+// Is reports whether target is [ErrUnexpectedStatus], letting callers
+// test an UnexpectedStatusError with errors.Is without a type
+// assertion.
+func (e *UnexpectedStatusError) Is(target error) bool {
+	return target == ErrUnexpectedStatus
+}

@@ -15,8 +15,11 @@
 package gows
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"net"
+	"os"
 	"strconv"
 	"sync"
 	"sync/atomic"
@@ -57,13 +60,17 @@ const maxCoalescedWriteSize = 2 << 10
 // reading from the reader returned by [Conn.NextReader], which drives
 // the same read side and shares the same buffers -- this is a deliberate
 // divergence from gorilla/websocket's looser ergonomics, so the safe
-// pattern for the common "shut this connection down from another
-// goroutine" need is worth spelling out explicitly: to interrupt a
-// [Conn.ReadMessage] call (or a NextReader stream's Read) that is blocked
-// in another goroutine, first call [Conn.SetReadDeadline] with a time in
-// the past (which unblocks the pending read with a timeout error) and
-// only then call [Conn.Close]; calling Close directly while either is
-// still blocked races the read side's buffers.
+// patterns for the common "shut this connection down from another
+// goroutine" need are worth spelling out explicitly. To close gracefully
+// while a reader is active in another goroutine, call [Conn.WriteClose]
+// (write-only, safe alongside the reader) and let that reader observe
+// the peer's Close reply as its usual [*CloseError]. Once the read side
+// is quiescent, [Conn.Close] or the context-bounded [Conn.CloseContext]
+// performs the full closing handshake. To instead abruptly interrupt a
+// blocked read, first call [Conn.SetReadDeadline] with a time in the
+// past (which unblocks the pending read with a timeout error) and only
+// then call [Conn.Close]; calling Close directly while either is still
+// blocked races the read side's buffers.
 //
 // The zero value is not usable; construct a Conn with [NewServerConn] or
 // [NewClientConn].
@@ -439,6 +446,9 @@ func (c *Conn) SetWriteDeadline(t time.Time) error {
 //
 // Close reads from the connection and therefore must not be called
 // concurrently with [Conn.ReadMessage]; it takes over the read side.
+// For the same handshake bounded by a context and one absolute
+// deadline, use [Conn.CloseContext]; to send the Close frame from
+// another goroutine while a reader is active, use [Conn.WriteClose].
 func (c *Conn) Close(code CloseCode, reason string) error {
 	// Idempotent: once the connection is torn down (by a peer Close, a
 	// protocol/IO failure on the read path, or a prior Close), there is nothing
@@ -447,14 +457,8 @@ func (c *Conn) Close(code CloseCode, reason string) error {
 	if c.tornDown.Load() {
 		return nil
 	}
-	if !ValidCloseCode(code) {
-		return &CloseError{Code: code, Reason: "invalid close code", Sent: true}
-	}
-	if !utf8x.Valid([]byte(reason)) {
-		return ErrInvalidCloseReason
-	}
-	if 2+len(reason) > 125 {
-		return fmt.Errorf("gows: close reason too long (%d bytes, max 123)", len(reason))
+	if err := validateCloseArgs(code, reason); err != nil {
+		return err
 	}
 
 	sendErr := c.sendClose(code, []byte(reason))
@@ -520,6 +524,174 @@ func (c *Conn) teardown() {
 		}
 		c.tornDown.Store(true)
 	})
+}
+
+// WriteClose sends a Close frame with the given code and reason -- the
+// write-only half of the closing handshake (RFC 6455 §7) -- without
+// touching the read side. Unlike [Conn.Close] and [Conn.CloseContext],
+// it is safe to call while another goroutine is blocked in
+// [Conn.ReadMessage], [Conn.Serve], or a [Conn.NextReader] stream's
+// Read: the frame write is serialized under the same writer lock as
+// every other frame, and the active reader keeps draining toward the
+// peer's Close reply, which it reports as the usual [*CloseError].
+// WriteClose does not wait for that reply and does not close the
+// underlying connection; completion is driven by the reader observing
+// the peer's Close, or by [Conn.Close]/[Conn.CloseContext] once the
+// read side is quiescent.
+//
+// code and reason are validated exactly as for [Conn.Close], with the
+// same helper: code must be sendable per [ValidCloseCode], reason must
+// be valid UTF-8 ([ErrInvalidCloseReason]) and fit a control frame's
+// 125-byte payload alongside the 2-byte code. On a validation failure
+// nothing is written. WriteClose is idempotent and safe for concurrent
+// use: once a Close frame has been sent (by any API) or the connection
+// is torn down, it returns nil without writing. A transport failure
+// while writing the frame is returned as-is.
+//
+// Like every frame write, WriteClose blocks until the frame is written
+// or the connection's write deadline expires; bound it with
+// [Conn.SetWriteDeadline] against a peer that has stopped reading.
+func (c *Conn) WriteClose(code CloseCode, reason string) error {
+	if c.tornDown.Load() {
+		return nil
+	}
+	if err := validateCloseArgs(code, reason); err != nil {
+		return err
+	}
+	return c.sendClose(code, []byte(reason))
+}
+
+// CloseContext performs the full WebSocket closing handshake
+// (RFC 6455 §7) like [Conn.Close], bounded by ctx and by one absolute
+// deadline: it sends a Close frame with the given code and reason
+// (unless one was already sent), drains inbound frames until the peer's
+// Close frame is observed, and closes the underlying connection.
+//
+// CloseContext takes over the read side exactly as Close does, so it
+// must only be called once no other goroutine is using the Conn's read
+// side ([Conn.ReadMessage], [Conn.Serve], or a [Conn.NextReader]
+// stream) -- from the reading goroutine itself, or after that goroutine
+// has returned. It is not a cross-goroutine interrupt: to nudge a live
+// connection toward closure while a reader is active elsewhere, use
+// [Conn.WriteClose] and let that reader observe the peer's reply.
+//
+// The whole handshake -- the Close-frame write and the wait for the
+// peer's Close -- shares a single absolute deadline: the earlier of
+// time.Now() plus the Conn's close timeout ([WithCloseTimeout]) and
+// ctx's deadline, fixed once on entry; no phase renews or extends the
+// budget. When the close-timeout half is the binding one and expires,
+// CloseContext force-closes the connection and returns
+// [ErrCloseTimeout]. Whenever ctx is what ends the handshake early --
+// cancellation, or its own deadline being the binding half -- the
+// connection is force-closed to unblock whichever I/O is in flight and
+// the returned error wraps ctx's cancellation cause, so
+// errors.Is(err, ctx.Err()) holds; the cancellation callback is
+// stopped and fully synchronized before CloseContext returns, and the
+// connection is closed on every path -- the error only reports whether
+// the closing handshake completed cleanly.
+//
+// code and reason are validated exactly as for [Conn.Close] before any
+// I/O, and like Close, CloseContext is idempotent: once the connection
+// is torn down it returns nil immediately.
+func (c *Conn) CloseContext(ctx context.Context, code CloseCode, reason string) error {
+	if c.tornDown.Load() {
+		return nil
+	}
+	if err := validateCloseArgs(code, reason); err != nil {
+		return err
+	}
+	if ctx.Err() != nil {
+		// Already ended: close the connection without writing anything.
+		c.teardown()
+		return fmt.Errorf("gows: close: %w", context.Cause(ctx))
+	}
+
+	// One absolute deadline for the whole handshake: the Close-frame
+	// write and the peer-Close drain share it, so the total time is
+	// bounded by a single budget rather than per-phase renewals. The
+	// guard also force-closes the connection if ctx ends mid-handshake.
+	deadline := time.Now().Add(c.closeTimeout)
+	ctxBound := false
+	if d, ok := ctx.Deadline(); ok && d.Before(deadline) {
+		deadline = d
+		ctxBound = true
+	}
+	g := guardConn(ctx, c.conn, deadline)
+
+	sendErr := c.sendClose(code, []byte(reason))
+	var drainErr error
+	if sendErr == nil && !c.closeRcvd.Load() {
+		for {
+			if _, _, err := c.readMessage(); err != nil {
+				drainErr = err
+				break
+			}
+		}
+	}
+	clean := g.release()
+	closeRcvd := c.closeRcvd.Load()
+	c.teardown()
+
+	// budgetExpired maps a shared-deadline expiry to its owner. When the
+	// binding half of the deadline came from ctx, the connection's timer
+	// can fire a beat before the context's own -- report the context's
+	// cause either way (waiting out that beat: the ctx timer is due at
+	// the very deadline that just expired), so errors.Is(err, ctx.Err())
+	// holds deterministically. Only a closeTimeout-derived expiry is
+	// [ErrCloseTimeout].
+	budgetExpired := func(cause error) error {
+		if ctxBound {
+			<-ctx.Done()
+			return fmt.Errorf("gows: close: %w", context.Cause(ctx))
+		}
+		if cause != nil {
+			return fmt.Errorf("%w: %w", ErrCloseTimeout, cause)
+		}
+		return ErrCloseTimeout
+	}
+
+	switch {
+	case !clean || ctx.Err() != nil:
+		// ctx ended (release joined the force-close callback, so nothing
+		// races the caller after this return); the transport errors above
+		// were just the interrupt's symptom.
+		return fmt.Errorf("gows: close: %w", context.Cause(ctx))
+	case sendErr != nil:
+		if errors.Is(sendErr, os.ErrDeadlineExceeded) {
+			// The Close-frame write ran out of the shared budget against a
+			// peer that stopped reading -- the same "peer unresponsive
+			// during the closing handshake" condition as the drain timing
+			// out, so surface the same shape with the cause chained.
+			return budgetExpired(sendErr)
+		}
+		return sendErr
+	case !closeRcvd:
+		// The peer's Close never arrived: the shared budget expired, or
+		// the transport failed first.
+		if drainErr != nil && !errors.Is(drainErr, os.ErrDeadlineExceeded) {
+			return drainErr
+		}
+		return budgetExpired(nil)
+	}
+	return nil
+}
+
+// validateCloseArgs checks a closing-handshake code and reason exactly
+// as [Conn.Close], [Conn.CloseContext], and [Conn.WriteClose] document:
+// code must be sendable per [ValidCloseCode], reason must be valid
+// UTF-8 (RFC 6455 §5.5.1) and, with the 2-byte code, fit a control
+// frame's 125-byte payload (RFC 6455 §5.5).
+func validateCloseArgs(code CloseCode, reason string) error {
+	if !ValidCloseCode(code) {
+		return &CloseError{Code: code, Reason: "invalid close code", Sent: true}
+	}
+	if !utf8x.Valid([]byte(reason)) {
+		return ErrInvalidCloseReason
+	}
+	if 2+len(reason) > 125 {
+		return fmt.Errorf("gows: close reason too long (%d bytes, max 123)", len(reason))
+	}
+	return nil
 }
 
 // errWriteClosed is returned by writes attempted after a Close frame has been

@@ -56,6 +56,7 @@ func Run(args []string, cfg Config, stdout, stderr io.Writer) int {
 	server := fs.String("server", "ws://127.0.0.1:9001", "client mode: fuzzingserver base URL")
 	echo := fs.String("echo", "message", `echo loop: "message" (ReadMessage/WriteMessage) or "stream" (NextReader/NextWriter)`)
 	takeover := fs.Bool("takeover", false, "offer/accept permessage-deflate context takeover and honor the negotiated params per connection")
+	agent := fs.String("agent", "", "client mode: agent name reported to the fuzzingserver (default: the built-in name); the feature gate's provenance check requires the report index to be keyed by its per-direction agent, which only the client itself can set")
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
@@ -65,6 +66,9 @@ func Run(args []string, cfg Config, stdout, stderr io.Writer) int {
 		return 2
 	}
 
+	if *agent != "" {
+		cfg.AgentName = *agent
+	}
 	if cfg.AgentName == "" {
 		fmt.Fprintln(stderr, "autobahn: empty agent name")
 		return 2

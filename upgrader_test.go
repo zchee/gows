@@ -639,6 +639,14 @@ func TestTrustedClientWindowBitsHintPublicPipeline(t *testing.T) {
 		}
 		t.Run(name, func(t *testing.T) {
 			const probe = "PUBLIC-HINT-CROSS-MESSAGE-PROBE-1234567890-"
+			// Go 1.27's rewritten flate emits a Flush with fewer than 128
+			// pending bytes as a stored/Huffman-only block with no match
+			// search at levels 1-6, so the second message must reach that
+			// threshold for the peer encoder to emit the cross-message
+			// back-reference these cases are about; the padding shares
+			// nothing with the first message, keeping the probe's far
+			// reference the only cross-message match available.
+			secondMsg := probe + strings.Repeat("=", 128)
 			for _, risk := range []bool{false, true} {
 				caseName := "conforming-within-hint"
 				filler := strings.Repeat("near-", 100)
@@ -649,7 +657,7 @@ func TestTrustedClientWindowBitsHintPublicPipeline(t *testing.T) {
 				t.Run(caseName, func(t *testing.T) {
 					server, peer, hs := establishTrustedHintConn(t, httpUpgrade)
 					conn := gows.NewServerConn(server, gows.WithCompressionParams(hs.CompressionParams))
-					wire := independentTakeoverFrames(t, probe+filler, probe)
+					wire := independentTakeoverFrames(t, probe+filler, secondMsg)
 					go func() {
 						_, _ = peer.Write(wire)
 						_, _ = io.Copy(io.Discard, peer)
@@ -662,7 +670,7 @@ func TestTrustedClientWindowBitsHintPublicPipeline(t *testing.T) {
 						if err == nil {
 							t.Fatalf("trusted 1KB hint accepted >1KB independent peer history: %q", second)
 						}
-					} else if err != nil || string(second) != probe {
+					} else if err != nil || string(second) != secondMsg {
 						t.Fatalf("within-hint second ReadMessage = %q, %v", second, err)
 					}
 				})

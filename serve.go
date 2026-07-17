@@ -73,8 +73,10 @@ const (
 // Concurrency: Serve occupies the Conn's single reader role for its whole
 // duration and must not run concurrently with [Conn.ReadMessage],
 // [Conn.NextReader], or [Conn.Close] (the same contract those methods share
-// with each other); to unblock a Serve blocked in another goroutine, set a past
-// [Conn.SetReadDeadline] and only then Close. The handler runs on Serve's
+// with each other); to end a Serve blocked in another goroutine, call
+// [Conn.WriteClose] for a graceful closing handshake (Serve then returns the
+// [*CloseError] once the peer replies), or set a past [Conn.SetReadDeadline]
+// and only then Close for an abrupt interrupt. The handler runs on Serve's
 // goroutine, so writes it issues (WriteMessageBuffered, [Conn.WriteMessage], or
 // a [Conn.NextWriter] stream) need no additional synchronization; a concurrent
 // writer on another goroutine is still permitted and stays serialized by the

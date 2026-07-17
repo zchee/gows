@@ -19,6 +19,8 @@ import (
 	"crypto/tls"
 	"io"
 	"net"
+	"net/http"
+	"net/url"
 
 	"github.com/zchee/gows/internal/pool"
 )
@@ -347,10 +349,99 @@ type Dialer struct {
 	TLSConfig *tls.Config
 
 	// NetDial, if non-nil, replaces [net.Dialer.DialContext] for
-	// establishing the underlying TCP connection, e.g. to dial through a
-	// proxy or use a custom resolver. It receives "tcp" as the network
-	// argument and "host:port" as addr.
+	// establishing the underlying TCP connection, e.g. to use a custom
+	// resolver or transport. It receives "tcp" as the network argument
+	// and "host:port" as addr. When [Dialer.Proxy] selects a proxy,
+	// NetDial receives the proxy's address rather than the origin's.
 	NetDial func(ctx context.Context, network, addr string) (net.Conn, error)
+
+	// HTTPHeader optionally supplies extra HTTP headers for the opening
+	// handshake request -- e.g. Authorization, Cookie, Origin,
+	// User-Agent, or ordinary application extension headers. Keys are
+	// emitted in sorted order, one line per value in slice order.
+	//
+	// [Dialer.Dial] deep-copies the map and every value slice at the
+	// start of the call, before any network I/O, and uses only that
+	// snapshot for validation, redirects, and serialization. Per Go's
+	// ordinary collection-ownership rules the caller must not mutate
+	// the map or its value slices concurrently with an in-flight Dial,
+	// but is free to do so as soon as Dial returns: later mutations are
+	// never observed by the snapshot or the established connection.
+	//
+	// Headers this package computes itself -- and headers that would
+	// desynchronize HTTP framing, routing, or hop-by-hop state -- are
+	// reserved and rejected with [ErrReservedHeader]: Host, Upgrade,
+	// Connection, every Sec-WebSocket-* field (use
+	// [Dialer.Subprotocols] and the compression fields instead),
+	// Content-Length, Transfer-Encoding, Trailer, TE, and
+	// Proxy-Authorization (proxy credentials belong in the
+	// [Dialer.Proxy] URL and are sent only to the proxy). Names must be
+	// valid RFC 7230 tokens and values valid field-content (no CR, LF,
+	// NUL, or other control bytes) or Dial fails with
+	// [ErrMalformedHeader], and the combined serialized size of every
+	// entry must fit the 8KB handshake header ceiling or Dial fails
+	// with [ErrHeaderTooLarge] -- all before any network I/O. Error
+	// text names the offending header but never includes a value.
+	//
+	// When redirects are followed (see [Dialer.CheckRedirect]),
+	// Authorization and Cookie entries are dropped from the snapshot at
+	// the first hop whose origin (scheme, canonical hostname, effective
+	// port) differs from the previous hop's, and stay dropped even if a
+	// later hop returns to the original origin. A nil map adds no
+	// headers and no cost.
+	HTTPHeader http.Header
+
+	// Proxy, if non-nil, selects the HTTP proxy for the handshake
+	// exactly like [net/http.Transport.Proxy]: it receives the request
+	// about to be issued and returns the proxy URL to use, or nil for a
+	// direct connection. The request's URL scheme is translated to the
+	// carrying HTTP protocol ("http" for a ws dial, "https" for wss),
+	// so [net/http.ProxyFromEnvironment] -- which resolves only http
+	// and https URLs, honoring HTTP_PROXY, HTTPS_PROXY, and NO_PROXY --
+	// may be assigned directly. Only
+	// "http" proxy URLs are supported; any other proxy scheme fails
+	// [Dialer.Dial] with [ErrProxyUnsupportedScheme] before any network
+	// I/O for that hop.
+	//
+	// For a "ws" URL, Dial connects to the proxy and issues the
+	// handshake as an absolute-form GET (RFC 7230 §5.3.2) whose Host
+	// header remains the origin's authority. For a "wss" URL, Dial
+	// establishes an RFC 7231 §4.3.6 CONNECT tunnel through the proxy,
+	// then performs the origin TLS handshake inside it, with ServerName
+	// defaulted to the origin hostname and certificate verification
+	// unchanged from a direct dial. Credentials in the proxy URL's
+	// userinfo are sent as a Proxy-Authorization header on the proxy
+	// leg only (the absolute-form GET or the CONNECT), never to the
+	// origin, and are never merged into [Dialer.HTTPHeader]. A CONNECT
+	// the proxy refuses fails Dial with an error matching
+	// [ErrProxyConnectFailed] that carries the numeric status
+	// ([*UnexpectedStatusError]) and no proxy-controlled text.
+	//
+	// The zero value (nil) preserves this package's original behavior
+	// exactly: every URL is dialed directly.
+	Proxy func(*http.Request) (*url.URL, error)
+
+	// CheckRedirect, if non-nil, opts this Dialer in to following HTTP
+	// redirects (status 301, 302, 303, 307, or 308 with a Location
+	// header). It is consulted before each followed hop, like
+	// [net/http.Client.CheckRedirect]: req is the upcoming request
+	// (URL scheme "ws" or "wss") and via lists the requests already
+	// issued, oldest first; returning a non-nil error stops the chain
+	// and fails [Dialer.Dial] with an error wrapping it. A chain is
+	// bounded at 10 hops, past which Dial fails with
+	// [ErrTooManyRedirects] -- a redirect loop hits the same bound. A
+	// relative Location is resolved against the current URL; http and
+	// https Locations map to ws and wss. Only the final hop's
+	// [Handshake] (and [Handshake.Buffered]) is returned, and every
+	// intermediate connection is closed before the next hop is dialed.
+	// Each hop re-runs scheme, proxy, TLS, and port handling against
+	// its own URL; see [Dialer.HTTPHeader] for the credential-stripping
+	// rules applied on cross-origin hops.
+	//
+	// The zero value (nil) preserves this package's original behavior
+	// exactly: nothing is followed, and a redirect status fails Dial
+	// like any other non-101 response, with a [*UnexpectedStatusError].
+	CheckRedirect func(req *http.Request, via []*http.Request) error
 
 	// EnableCompression, when true, makes [Dialer.Dial] offer
 	// permessage-deflate (RFC 7692) in its handshake request, requesting

@@ -416,7 +416,18 @@ func (c *Conn) handleControl(h Header) error {
 
 	switch h.Opcode {
 	case OpcodePing:
-		return c.writeControl(OpcodePong, payload)
+		// Once this side's Close frame has been sent -- by a concurrent
+		// [Conn.WriteClose], or by Close/CloseContext before their drain
+		// loop -- writeControl short-circuits with errWriteClosed before
+		// any I/O. Swallow exactly that sentinel: RFC 6455 §5.5.3 permits
+		// not answering a Ping after a Close has been sent, and the read
+		// side must keep draining toward the peer's Close frame rather
+		// than failing mid-closing-handshake. A genuine transport failure
+		// is a different error and still propagates.
+		if err := c.writeControl(OpcodePong, payload); err != nil && !errors.Is(err, errWriteClosed) {
+			return err
+		}
+		return nil
 	case OpcodePong:
 		return nil
 	case OpcodeClose:

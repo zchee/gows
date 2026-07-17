@@ -1401,16 +1401,26 @@ func TestContextTakeoverRFC7692DecodeExample(t *testing.T) {
 // own compressor (not the RFC's literal bytes) to confirm the qualitative
 // claim the RFC's example illustrates: compressing the same short message
 // twice in a row produces a strictly shorter second encoding with context
-// takeover, and an identical-length second encoding without it. "Hello" is
-// too short for stdlib compress/flate's level 1 (this package's default)
-// to find any match at all even within a single call (verified directly:
-// level 1 emits a raw stored block for "Hello" regardless of history), so
-// this uses level 6 specifically -- still stdlib compress/flate, just a
-// level empirically confirmed to exhibit the effect for this input.
+// takeover, and an identical-length second encoding without it. The
+// payload and level are chosen for where stdlib compress/flate can
+// exhibit the effect at all, across every supported toolchain: level 1
+// finds no match for a short message even within a single call (verified
+// directly on Go 1.26: it emits a raw stored block for "Hello"
+// regardless of history), so this uses level 6 -- and Go 1.27's
+// rewritten flate gives levels 1-6 per-level fast encoders whose Flush
+// with fewer than 128 pending bytes takes a small-size path
+// (deflateFast in deflate.go) that emits the chunk as a stored or
+// Huffman-only block and resets the fast encoder's window history, so a
+// sub-128-byte message can never carry a cross-message back-reference
+// there. The payload therefore stays comfortably above 128 bytes,
+// which also matches production reality: [Conn.WriteMessage] never
+// compresses a payload under defaultCompressMinSize (512) in the first
+// place. Level 6 with this payload is empirically confirmed to shrink
+// on go1.26.5, go1.27rc2, and tip.
 func TestContextTakeoverCompressorShrinksRepeatedMessage(t *testing.T) {
 	withDeflateBackend(t, DefaultDeflateBackend(), 6, deflateWindowBits)
 
-	payload := []byte("Hello")
+	payload := []byte(strings.Repeat("The quick brown fox jumps over the lazy dog. ", 5))
 
 	t.Run("with context takeover", func(t *testing.T) {
 		srv := NewServerConn(&scriptConn{}, WithCompressionParams(CompressionParams{ServerContextTakeover: true}))
@@ -1429,11 +1439,11 @@ func TestContextTakeoverCompressorShrinksRepeatedMessage(t *testing.T) {
 
 		// Round-trip both through a matching context-takeover decompressor.
 		cli := NewClientConn(&scriptConn{}, WithCompressionParams(CompressionParams{ServerContextTakeover: true}))
-		if got, err := cli.decompressMessage(first); err != nil || string(got) != "Hello" {
-			t.Fatalf("decompress(first) = %q, %v, want %q, nil", got, err, "Hello")
+		if got, err := cli.decompressMessage(first); err != nil || !bytes.Equal(got, payload) {
+			t.Fatalf("decompress(first) = %d bytes, %v, want %d bytes, nil", len(got), err, len(payload))
 		}
-		if got, err := cli.decompressMessage(second); err != nil || string(got) != "Hello" {
-			t.Fatalf("decompress(second) = %q, %v, want %q, nil", got, err, "Hello")
+		if got, err := cli.decompressMessage(second); err != nil || !bytes.Equal(got, payload) {
+			t.Fatalf("decompress(second) = %d bytes, %v, want %d bytes, nil", len(got), err, len(payload))
 		}
 	})
 
@@ -1829,7 +1839,15 @@ func TestTrustedClientWindowBitsHintRejectsLargerConformingHistory(t *testing.T)
 	}
 	const probe = "TRUSTED-HINT-DISTANCE-PROBE-1234567890-"
 	first := probe + strings.Repeat("independent-filler-", 180)
-	second := probe
+	// Go 1.27's rewritten flate emits a Flush with fewer than 128 pending
+	// bytes as a stored/Huffman-only block with no match search at levels
+	// 1-6 (and resets the fast encoder's history), so the second message
+	// must reach that threshold for the peer encoder to emit the far
+	// cross-message back-reference this test is about. The padding shares
+	// nothing with first, so the probe's far reference stays the only
+	// cross-message match available; verified to be emitted on go1.26.5,
+	// go1.27rc2, and tip.
+	second := probe + strings.Repeat("=", 128)
 	if len(first) <= 1<<10 {
 		t.Fatalf("setup: first message %d must exceed hinted 1KB", len(first))
 	}
@@ -1843,7 +1861,10 @@ func TestTrustedClientWindowBitsHintRejectsLargerConformingHistory(t *testing.T)
 		if got, err := c.decompressMessage(c1); err != nil || string(got) != first {
 			t.Fatalf("first decode hint=%d: len=%d err=%v", hint, len(got), err)
 		}
-		_, err := c.decompressMessage(c2)
+		got, err := c.decompressMessage(c2)
+		if err == nil && string(got) != second {
+			t.Fatalf("second decode hint=%d: got %d bytes, want %d", hint, len(got), len(second))
+		}
 		return err
 	}
 	if err := decode(0); err != nil {
@@ -2076,7 +2097,9 @@ func TestSubCeilingOutgoingWithTakeover(t *testing.T) {
 		t.Fatalf("want takeover sub-ceiling writer, got deflate=%+v", cli.deflate)
 	}
 
-	payload := []byte("Hello")
+	// >=128 bytes: see TestContextTakeoverCompressorShrinksRepeatedMessage's
+	// doc for the Go 1.27 fast-encoder small-flush regime this must clear.
+	payload := []byte(strings.Repeat("The quick brown fox jumps over the lazy dog. ", 5))
 	first, _, err := cli.compressMessage(nil, payload)
 	if err != nil {
 		t.Fatalf("compressMessage(first): %v", err)
