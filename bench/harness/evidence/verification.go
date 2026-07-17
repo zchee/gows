@@ -468,7 +468,7 @@ func validateVerificationRecord(manifest VerificationManifest, repository Reposi
 			"stderr": {check.StderrPath, check.StderrSHA256},
 		} {
 			wantPath := fmt.Sprintf("logs/%02d-%s.%s.log", i+1, check.ID, label)
-			if record.path != wantPath || !filepath.IsLocal(filepath.FromSlash(record.path)) || !validHex(record.hash, 64) || wantFiles[record.path] {
+			if record.path != wantPath || !filepath.IsLocal(filepath.FromSlash(record.path)) || !support.ValidSHA256(record.hash) || wantFiles[record.path] {
 				return nil, fmt.Errorf("evidence: verification check %q has invalid %s artifact", check.ID, label)
 			}
 			wantFiles[record.path] = true
@@ -505,7 +505,7 @@ func (inputs VerificationCommandInputs) validate() error {
 	for i, want := range wantTools {
 		tool := inputs.Tools[i]
 		if tool.Name != want.name || tool.Path != want.path || !filepath.IsAbs(tool.Path) || filepath.Clean(tool.Path) != tool.Path ||
-			tool.SizeBytes <= 0 || !validHex(tool.SHA256, 64) || tool.Version == "" {
+			tool.SizeBytes <= 0 || !support.ValidSHA256(tool.SHA256) || tool.Version == "" {
 			return fmt.Errorf("evidence: invalid verification tool identity at %d: %+v", i, tool)
 		}
 	}

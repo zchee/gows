@@ -12,9 +12,20 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/zchee/gows/bench/harness/support"
 )
 
 const uriPrefix = "omx-cas://sha256/"
+
+// MediaTypeRunReceipt identifies a sealed benchrun run receipt in the
+// content-addressed store. Every producer and validator of run receipts
+// references this one definition so the recorded media type cannot drift.
+const MediaTypeRunReceipt = "application/vnd.gows.bench-run-receipt+json"
+
+// MediaTypeDirectoryReceipt identifies a sealed immutable-directory receipt
+// (verification and assembly bundles) in the content-addressed store.
+const MediaTypeDirectoryReceipt = "application/vnd.gows.directory-receipt+json"
 
 // Ref is an immutable content-addressed artifact reference.
 type Ref struct {
@@ -270,7 +281,7 @@ func requireRealDirectoryFrom(anchor, directory string, create bool) error {
 }
 
 func (ref Ref) Validate() error {
-	if !validSHA256(ref.SHA256) {
+	if !support.ValidSHA256(ref.SHA256) {
 		return fmt.Errorf("artifact: invalid SHA-256 %q", ref.SHA256)
 	}
 	if ref.URI != uriPrefix+ref.SHA256 {
@@ -283,14 +294,6 @@ func (ref Ref) Validate() error {
 		return fmt.Errorf("artifact: media_type is required")
 	}
 	return nil
-}
-
-func validSHA256(value string) bool {
-	if len(value) != sha256.Size*2 || strings.ToLower(value) != value {
-		return false
-	}
-	decoded, err := hex.DecodeString(value)
-	return err == nil && len(decoded) == sha256.Size
 }
 
 func verifyFile(path, wantDigest string, wantSize int64) (resultErr error) {

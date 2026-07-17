@@ -1,6 +1,7 @@
 package main
 
 import (
+	"runtime"
 	"slices"
 	"testing"
 	"time"
@@ -29,6 +30,21 @@ func TestControlledEnvironmentOverridesToolchainInputs(t *testing.T) {
 	} {
 		if slices.Contains(got, forbidden) {
 			t.Fatalf("controlled environment retained %q: %v", forbidden, got)
+		}
+	}
+	// The architecture baseline pair must always be pinned: the host arch gets
+	// the exact value validateControlledController requires of the delegated
+	// evaluator, and the other arch's variable is pinned empty.
+	wantArch := []string{"GOAMD64=", "GOARM64="}
+	switch runtime.GOARCH {
+	case "amd64":
+		wantArch = []string{"GOAMD64=v1", "GOARM64="}
+	case "arm64":
+		wantArch = []string{"GOAMD64=", "GOARM64=v8.0"}
+	}
+	for _, want := range wantArch {
+		if !slices.Contains(got, want) {
+			t.Fatalf("controlled environment lacks architecture baseline %q: %v", want, got)
 		}
 	}
 }

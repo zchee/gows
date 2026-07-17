@@ -41,7 +41,7 @@ func (result Result) Validate() error {
 	if err := evidence.ValidateRepositoryIdentity(result.Repository); err != nil {
 		return err
 	}
-	if result.Verification.MediaType != "application/vnd.gows.directory-receipt+json" {
+	if result.Verification.MediaType != artifact.MediaTypeDirectoryReceipt {
 		return fmt.Errorf("phase0: verification receipt has media_type %q", result.Verification.MediaType)
 	}
 	if err := result.Verification.Validate(); err != nil {
@@ -50,9 +50,11 @@ func (result Result) Validate() error {
 	if len(result.Assemblies) != 2 {
 		return fmt.Errorf("phase0: assembly receipts = %d, want 2", len(result.Assemblies))
 	}
-	seenArches := make(map[string]bool, len(result.Assemblies))
 	seenDigests := map[string]string{result.Verification.SHA256: "verification"}
 	for i, assembly := range result.Assemblies {
+		// The exact-length check above plus this canonical per-index arch pin
+		// already guarantee support, uniqueness, and completeness of the
+		// amd64/arm64 pair, so no separate seen-set bookkeeping is needed.
 		wantArch := []string{"amd64", "arm64"}[i]
 		if assembly.GOARCH != wantArch {
 			return fmt.Errorf("phase0: assemblies[%d] GOARCH = %q, want canonical %q", i, assembly.GOARCH, wantArch)
@@ -60,14 +62,7 @@ func (result Result) Validate() error {
 		if assembly.GOOS != result.Repository.GOOS {
 			return fmt.Errorf("phase0: assemblies[%d] GOOS = %q, want %q", i, assembly.GOOS, result.Repository.GOOS)
 		}
-		if assembly.GOARCH != "amd64" && assembly.GOARCH != "arm64" {
-			return fmt.Errorf("phase0: assemblies[%d] unsupported GOARCH %q", i, assembly.GOARCH)
-		}
-		if seenArches[assembly.GOARCH] {
-			return fmt.Errorf("phase0: duplicate assembly GOARCH %q", assembly.GOARCH)
-		}
-		seenArches[assembly.GOARCH] = true
-		if assembly.Bundle.MediaType != "application/vnd.gows.directory-receipt+json" {
+		if assembly.Bundle.MediaType != artifact.MediaTypeDirectoryReceipt {
 			return fmt.Errorf("phase0: assemblies[%d] has media_type %q", i, assembly.Bundle.MediaType)
 		}
 		if err := assembly.Bundle.Validate(); err != nil {
@@ -77,11 +72,6 @@ func (result Result) Validate() error {
 			return fmt.Errorf("phase0: assemblies[%d] reuses %s receipt", i, previous)
 		}
 		seenDigests[assembly.Bundle.SHA256] = "assembly " + assembly.GOARCH
-	}
-	for _, arch := range []string{"amd64", "arm64"} {
-		if !seenArches[arch] {
-			return fmt.Errorf("phase0: missing assembly GOARCH %q", arch)
-		}
 	}
 	return nil
 }

@@ -8,10 +8,10 @@ import (
 	"github.com/HdrHistogram/hdrhistogram-go"
 )
 
-// Percentiles holds latency percentiles computed from a sorted sample set.
+// Percentiles holds the machine-readable latency tail summary reconstructed
+// from an HDR histogram snapshot.
 type Percentiles struct {
 	P50, P90, P99, P999 time.Duration
-	Min, Max            time.Duration
 	N                   int
 }
 
@@ -231,8 +231,6 @@ func (s HistogramSnapshot) Percentiles() (Percentiles, error) {
 		P90:  time.Duration(h.ValueAtQuantile(90)),
 		P99:  time.Duration(h.ValueAtQuantile(99)),
 		P999: time.Duration(h.ValueAtQuantile(99.9)),
-		Min:  time.Duration(h.Min()),
-		Max:  time.Duration(h.Max()),
 		N:    int(h.TotalCount()),
 	}, nil
 }

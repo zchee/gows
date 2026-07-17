@@ -13,7 +13,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"slices"
 	"strings"
 
 	"github.com/zchee/gows/bench/harness/policy"
@@ -302,9 +301,4 @@ func replaceSection(raw []byte, name, content string) ([]byte, error) {
 		return nil, fmt.Errorf("doccheck: generated section %q is ambiguous", name)
 	}
 	return bytes.Replace(raw, []byte(got), []byte(want), 1), nil
-}
-
-// SectionNames returns the generated section identifiers in stable order.
-func SectionNames() []string {
-	return slices.Clone([]string{moduleSection, policySection})
 }

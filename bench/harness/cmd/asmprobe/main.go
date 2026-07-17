@@ -14,9 +14,9 @@ import (
 	"os/signal"
 	"path/filepath"
 	"runtime"
-	"strings"
 
 	"github.com/zchee/gows/bench/harness/assembly"
+	"github.com/zchee/gows/bench/harness/support"
 )
 
 func main() {
@@ -114,15 +114,8 @@ func findRepoRoot() (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("get working directory: %w", err)
 	}
-	for {
-		modBytes, readErr := os.ReadFile(filepath.Join(dir, "go.mod"))
-		if readErr == nil && strings.HasPrefix(string(modBytes), "module github.com/zchee/gows\n") {
-			return dir, nil
-		}
-		parent := filepath.Dir(dir)
-		if parent == dir {
-			return "", errors.New("could not find github.com/zchee/gows repository root")
-		}
-		dir = parent
+	if root, ok := support.FindModuleRoot(dir, "github.com/zchee/gows"); ok {
+		return root, nil
 	}
+	return "", errors.New("could not find github.com/zchee/gows repository root")
 }

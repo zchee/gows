@@ -465,7 +465,7 @@ func snapshotThermalClean(pmset string) bool {
 }
 
 func validateProvenanceRef(run resolvedRun, provenance provenanceArtifact) error {
-	if provenance.Path == "" || !filepath.IsLocal(filepath.FromSlash(provenance.Path)) || !validHex(provenance.SHA256, 64) || provenance.SizeBytes < 0 {
+	if provenance.Path == "" || !filepath.IsLocal(filepath.FromSlash(provenance.Path)) || !support.ValidSHA256(provenance.SHA256) || provenance.SizeBytes < 0 {
 		return fmt.Errorf("evidence: run %s invalid provenance artifact %+v", run.Receipt.SessionID, provenance)
 	}
 	ref, ok := run.Receipt.Files[provenance.Path]
@@ -519,7 +519,7 @@ func validateToolchainIdentity(manifest runManifest) error {
 	if err != nil {
 		return fmt.Errorf("stat go toolchain: %w", err)
 	}
-	if !info.Mode().IsRegular() || info.Size() != manifest.GoBinarySizeBytes || !validHex(manifest.GoBinarySHA256, 64) {
+	if !info.Mode().IsRegular() || info.Size() != manifest.GoBinarySizeBytes || !support.ValidSHA256(manifest.GoBinarySHA256) {
 		return fmt.Errorf("go toolchain file identity mismatch")
 	}
 	raw, err := os.ReadFile(wantGoTool)
@@ -629,7 +629,7 @@ func validateBinaries(run resolvedRun, modules map[string]moduleRecord) error {
 	}
 	for _, name := range wantBinaryKeys {
 		binary := m.BinaryProvenance[name]
-		if binary.Path == "" || !filepath.IsLocal(filepath.FromSlash(binary.Path)) || binary.SizeBytes <= 0 || !validHex(binary.SHA256, 64) {
+		if binary.Path == "" || !filepath.IsLocal(filepath.FromSlash(binary.Path)) || binary.SizeBytes <= 0 || !support.ValidSHA256(binary.SHA256) {
 			return fmt.Errorf("evidence: run %s binary provenance %q is invalid", run.Receipt.SessionID, name)
 		}
 		ref, ok := run.Receipt.Files[binary.Path]
@@ -900,10 +900,10 @@ func validateMeasurementConsistency(sample paired.Sample) error {
 	if !finitePositive(r.ThroughputMessagesPerSecond) || !finitePositive(r.LatencyObservationNanoseconds) {
 		return fmt.Errorf("throughput or observation overhead is not finite and positive")
 	}
-	if err := validateAllocation(r.ServerAllocations, r.Messages); err != nil {
+	if err := r.ServerAllocations.Validate(r.Messages); err != nil {
 		return fmt.Errorf("server allocations: %w", err)
 	}
-	if err := validateAllocation(r.ClientAllocations, r.Messages); err != nil {
+	if err := r.ClientAllocations.Validate(r.Messages); err != nil {
 		return fmt.Errorf("client allocations: %w", err)
 	}
 	for name, usage := range map[string]support.Usage{
@@ -921,10 +921,6 @@ func validateMeasurementConsistency(sample paired.Sample) error {
 		return fmt.Errorf("sample-derived CPU/RSS fields disagree with raw usage")
 	}
 	return nil
-}
-
-func validateAllocation(stats support.AllocationStats, messages int64) error {
-	return stats.Validate(messages)
 }
 
 func nearlyEqual(left, right float64) bool {

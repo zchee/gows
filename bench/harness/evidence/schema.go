@@ -18,6 +18,7 @@ import (
 	"github.com/go-json-experiment/json/jsontext"
 	"github.com/zchee/gows/bench/harness/artifact"
 	"github.com/zchee/gows/bench/harness/paired"
+	"github.com/zchee/gows/bench/harness/support"
 )
 
 const (
@@ -137,7 +138,7 @@ func (r Receipt) Validate() error {
 			return fmt.Errorf("evidence: baseline_runs[%d] has invalid or duplicate role %q", i, run.Role)
 		}
 		baselineRoles[run.Role] = true
-		if run.Run.MediaType != "application/vnd.gows.bench-run-receipt+json" {
+		if run.Run.MediaType != artifact.MediaTypeRunReceipt {
 			return fmt.Errorf("evidence: baseline_runs[%d] has wrong receipt media type %q", i, run.Run.MediaType)
 		}
 		if err := validateRef(fmt.Sprintf("baseline_runs[%d]", i), run.Run); err != nil {
@@ -153,7 +154,7 @@ func (r Receipt) Validate() error {
 			return fmt.Errorf("evidence: duplicate assembly target %q", assembly.GOARCH)
 		}
 		arches[assembly.GOARCH] = true
-		if assembly.Bundle.MediaType != "application/vnd.gows.directory-receipt+json" {
+		if assembly.Bundle.MediaType != artifact.MediaTypeDirectoryReceipt {
 			return fmt.Errorf("evidence: assemblies[%d] has wrong receipt media type %q", i, assembly.Bundle.MediaType)
 		}
 		if err := validateRef(fmt.Sprintf("assemblies[%d]", i), assembly.Bundle); err != nil {
@@ -165,7 +166,7 @@ func (r Receipt) Validate() error {
 			return fmt.Errorf("evidence: missing supported assembly target %q", arch)
 		}
 	}
-	if r.VerificationRef.MediaType != "application/vnd.gows.directory-receipt+json" {
+	if r.VerificationRef.MediaType != artifact.MediaTypeDirectoryReceipt {
 		return fmt.Errorf("evidence: verification has wrong receipt media type %q", r.VerificationRef.MediaType)
 	}
 	if err := validateRef("verification", r.VerificationRef); err != nil {
@@ -184,7 +185,7 @@ func validateAARunRecords(records []RunEvidence, seenRefs map[string]string) err
 		if run.Role != wantRole {
 			return fmt.Errorf("evidence: aa_runs[%d].role = %q, want %q", i, run.Role, wantRole)
 		}
-		if run.Run.MediaType != "application/vnd.gows.bench-run-receipt+json" {
+		if run.Run.MediaType != artifact.MediaTypeRunReceipt {
 			return fmt.Errorf("evidence: aa_runs[%d] has wrong receipt media type %q", i, run.Run.MediaType)
 		}
 		if err := run.Run.Validate(); err != nil {
@@ -207,19 +208,19 @@ func (identity RepositoryIdentity) validate() error {
 		return fmt.Errorf("evidence: repository remote = %q, want %q", identity.Remote, ExpectedRemote)
 	case identity.Branch != ExpectedBranch:
 		return fmt.Errorf("evidence: repository branch = %q, want %q", identity.Branch, ExpectedBranch)
-	case !validHex(identity.SourceHead, 40):
+	case !support.ValidGitObjectID(identity.SourceHead):
 		return errors.New("evidence: repository source_head is not a full Git object ID")
-	case !validHex(identity.SourceTree, 40):
+	case !support.ValidGitObjectID(identity.SourceTree):
 		return errors.New("evidence: repository source_tree is not a full Git object ID")
-	case !validHex(identity.SourceSHA256, 64):
+	case !support.ValidSHA256(identity.SourceSHA256):
 		return errors.New("evidence: repository source_sha256 is invalid")
 	case identity.ModulePath != "github.com/zchee/gows":
 		return fmt.Errorf("evidence: repository module_path = %q, want github.com/zchee/gows", identity.ModulePath)
-	case !validHex(identity.ModuleFilesSHA256, 64):
+	case !support.ValidSHA256(identity.ModuleFilesSHA256):
 		return errors.New("evidence: repository module_files_sha256 is invalid")
 	case identity.GoVersion == "" || strings.Contains(identity.GoVersion, "-X:"):
 		return fmt.Errorf("evidence: repository Go version %q is not a stock version", identity.GoVersion)
-	case !validHex(identity.GoBinarySHA256, 64) || identity.GoBinarySizeBytes <= 0:
+	case !support.ValidSHA256(identity.GoBinarySHA256) || identity.GoBinarySizeBytes <= 0:
 		return errors.New("evidence: repository Go binary identity is invalid")
 	case identity.GOOS == "" || identity.GOARCH == "":
 		return errors.New("evidence: repository GOOS/GOARCH are required")
@@ -253,18 +254,6 @@ func RequiredAARoles() []string {
 // canonical verdict order.
 func RequiredBaselineRoles() []string {
 	return slices.Clone(requiredBaselineRoles)
-}
-
-func validHex(value string, size int) bool {
-	if len(value) != size || strings.ToLower(value) != value {
-		return false
-	}
-	for _, c := range value {
-		if !strings.ContainsRune("0123456789abcdef", c) {
-			return false
-		}
-	}
-	return true
 }
 
 // LoadReceipt strictly decodes a receipt, rejecting unknown fields and
@@ -471,11 +460,9 @@ func sortedUnique(values []string) ([]string, error) {
 	return values, nil
 }
 
-func isPhase0Directory(path string) bool {
+// IsPhase0Directory reports whether benchcmp should use the strict Phase 0
+// evaluator rather than its legacy per-run comparison mode.
+func IsPhase0Directory(path string) bool {
 	clean := filepath.ToSlash(filepath.Clean(path))
 	return clean == "evidence/phase0/current" || strings.HasSuffix(clean, "/"+EvidencePath)
 }
-
-// IsPhase0Directory reports whether benchcmp should use the strict Phase 0
-// evaluator rather than its legacy per-run comparison mode.
-func IsPhase0Directory(path string) bool { return isPhase0Directory(path) }

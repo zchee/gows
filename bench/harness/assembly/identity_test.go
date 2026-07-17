@@ -6,6 +6,8 @@ import (
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/zchee/gows/bench/harness/support"
 )
 
 func TestSourceIdentityPathsExcludesOnlyCurrentReceiptSubtree(t *testing.T) {
@@ -57,7 +59,7 @@ func TestCanonicalRelativePathRejectsAliasesAndEscapes(t *testing.T) {
 }
 
 func TestSHA256IdentityRequiresLowercaseCanonicalHex(t *testing.T) {
-	if !validSHA256(strings.Repeat("ab", 32)) {
+	if !support.ValidSHA256(strings.Repeat("ab", 32)) {
 		t.Fatal("lowercase SHA-256 rejected")
 	}
 	for _, value := range []string{
@@ -65,7 +67,7 @@ func TestSHA256IdentityRequiresLowercaseCanonicalHex(t *testing.T) {
 		strings.Repeat("0", 63),
 		strings.Repeat("g", 64),
 	} {
-		if validSHA256(value) {
+		if support.ValidSHA256(value) {
 			t.Errorf("invalid SHA-256 %q accepted", value)
 		}
 	}

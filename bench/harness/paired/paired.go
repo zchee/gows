@@ -10,7 +10,6 @@ import (
 	"bufio"
 	"bytes"
 	"cmp"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"math"
@@ -75,11 +74,11 @@ func (s Sample) Validate() error {
 		return fmt.Errorf("paired: block_id is required")
 	case OrderPattern(s.Order) != OrderAB && OrderPattern(s.Order) != OrderBA:
 		return fmt.Errorf("paired: order must be AB or BA, got %q", s.Order)
-	case !validSHA256(s.BinarySHA256):
+	case !support.ValidSHA256(s.BinarySHA256):
 		return fmt.Errorf("paired: binary_sha256 must be 64 lowercase hexadecimal characters")
-	case !validSHA256(s.PolicySHA256):
+	case !support.ValidSHA256(s.PolicySHA256):
 		return fmt.Errorf("paired: policy_sha256 must be 64 lowercase hexadecimal characters")
-	case !validSHA256(s.AdapterSHA256):
+	case !support.ValidSHA256(s.AdapterSHA256):
 		return fmt.Errorf("paired: adapter_sha256 must be 64 lowercase hexadecimal characters")
 	case s.Scenario == "":
 		return fmt.Errorf("paired: scenario is required")
@@ -97,14 +96,6 @@ func (s Sample) Validate() error {
 		return fmt.Errorf("paired: derived server resource fields disagree with loadgen.server_usage")
 	}
 	return nil
-}
-
-func validSHA256(value string) bool {
-	if len(value) != 64 {
-		return false
-	}
-	decoded, err := hex.DecodeString(value)
-	return err == nil && len(decoded) == 32 && value == fmt.Sprintf("%x", decoded)
 }
 
 // Metric returns the named metric value for the sample, or an error if the

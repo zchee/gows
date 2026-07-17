@@ -2,7 +2,6 @@ package paired
 
 import (
 	"math"
-	"slices"
 	"testing"
 )
 
@@ -113,69 +112,6 @@ func TestOrderEffect(t *testing.T) {
 			pass := got.Lower >= 0.99 && got.Upper <= 1.01
 			if pass != tt.wantPass {
 				t.Fatalf("order interval = [%.6f, %.6f], pass=%v want %v", got.Lower, got.Upper, pass, tt.wantPass)
-			}
-		})
-	}
-}
-
-func TestEmpiricalFalsePositiveRate(t *testing.T) {
-	t.Parallel()
-
-	base := syntheticRatios(3, 20, 0)
-	metrics := map[string][]BlockRatio{
-		"throughput": base,
-		"p99":        base,
-		"p999":       base,
-	}
-	gates := []MetricGate{
-		{Name: "throughput", Direction: HigherIsBetter, Threshold: 1.05},
-		{Name: "p99", Direction: LowerIsBetter, Threshold: 0.95},
-		{Name: "p999", Direction: LowerIsBetter, Threshold: 1.00},
-	}
-	cfg := InferenceConfig{Replicates: 200, Confidence: 0.95, Seed: 0xBAD5EED}
-	got, err := EmpiricalFalsePositiveRate(metrics, cfg, 1_000, gates)
-	if err != nil {
-		t.Fatalf("EmpiricalFalsePositiveRate: %v", err)
-	}
-	if got < 0 || got > 0.05 {
-		t.Fatalf("false-positive rate = %.4f, want in [0,0.05]", got)
-	}
-}
-
-func TestEmpiricalFalsePositiveRateRejectsCrossMetricIdentityDrift(t *testing.T) {
-	t.Parallel()
-	base := syntheticRatios(3, 20, 0)
-	config := InferenceConfig{Replicates: 20, Confidence: 0.95, Seed: 1}
-	gates := []MetricGate{
-		{Name: "throughput", Direction: HigherIsBetter, Threshold: 1.05},
-		{Name: "p99", Direction: LowerIsBetter, Threshold: 0.95},
-	}
-
-	tests := map[string]func(map[string][]BlockRatio, []MetricGate){
-		"order mismatch": func(metrics map[string][]BlockRatio, _ []MetricGate) {
-			changed := slices.Clone(metrics["p99"])
-			changed[0].Order = OrderBA
-			metrics["p99"] = changed
-		},
-		"scenario mismatch": func(metrics map[string][]BlockRatio, _ []MetricGate) {
-			changed := slices.Clone(metrics["p99"])
-			changed[0].Scenario = "other"
-			metrics["p99"] = changed
-		},
-		"duplicate gate": func(_ map[string][]BlockRatio, gates []MetricGate) {
-			gates[1].Name = gates[0].Name
-		},
-		"extra metric": func(metrics map[string][]BlockRatio, _ []MetricGate) {
-			metrics["unregistered"] = base
-		},
-	}
-	for name, mutate := range tests {
-		t.Run(name, func(t *testing.T) {
-			metrics := map[string][]BlockRatio{"throughput": base, "p99": base}
-			caseGates := slices.Clone(gates)
-			mutate(metrics, caseGates)
-			if _, err := EmpiricalFalsePositiveRate(metrics, config, 1_000, caseGates); err == nil {
-				t.Fatalf("accepted %s", name)
 			}
 		})
 	}

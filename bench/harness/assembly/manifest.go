@@ -3,13 +3,13 @@
 package assembly
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"path/filepath"
 	"slices"
 	"strings"
+
+	"github.com/zchee/gows/bench/harness/support"
 )
 
 const (
@@ -298,7 +298,7 @@ func (m Manifest) Validate() error {
 	if err := validateRepositoryIdentity(m.Repository); err != nil {
 		return err
 	}
-	if !validSHA256(m.Modules.RootFilesSHA256) || !validSHA256(m.Modules.BenchFilesSHA256) {
+	if !support.ValidSHA256(m.Modules.RootFilesSHA256) || !support.ValidSHA256(m.Modules.BenchFilesSHA256) {
 		return fmt.Errorf("invalid module file hashes: root=%q bench=%q", m.Modules.RootFilesSHA256, m.Modules.BenchFilesSHA256)
 	}
 	if err := validateArtifact("module graph", m.Modules.Graph); err != nil {
@@ -317,7 +317,7 @@ func (m Manifest) Validate() error {
 		return fmt.Errorf("uncontrolled Go environment: goenv=%q gotoolchain=%q goflags=%q gofips140=%q", m.Target.GOENV, m.Target.GOTOOLCHAIN, m.Target.GOFLAGS, m.Target.GOFIPS140)
 	}
 	if m.Toolchain.GoBinaryPath == "" || !filepath.IsAbs(m.Toolchain.GoBinaryPath) || filepath.Clean(m.Toolchain.GoBinaryPath) != m.Toolchain.GoBinaryPath ||
-		m.Toolchain.GoBinarySize <= 0 || !validSHA256(m.Toolchain.GoBinarySHA256) {
+		m.Toolchain.GoBinarySize <= 0 || !support.ValidSHA256(m.Toolchain.GoBinarySHA256) {
 		return fmt.Errorf("invalid Go toolchain binary identity: %+v", m.Toolchain)
 	}
 	expectedSymbols, err := ExpectedSymbols(m.Target.GOARCH)
@@ -570,10 +570,10 @@ func validateRepositoryIdentity(repository RepositoryIdentity) error {
 	if repository.Remote == "" || repository.Branch == "" {
 		return fmt.Errorf("repository remote or branch is empty: remote=%q branch=%q", repository.Remote, repository.Branch)
 	}
-	if !validateGitObjectID(repository.SourceHEAD) || !validateGitObjectID(repository.GitTree) {
+	if !support.ValidGitObjectID(repository.SourceHEAD) || !support.ValidGitObjectID(repository.GitTree) {
 		return fmt.Errorf("invalid repository object identity: head=%q tree=%q", repository.SourceHEAD, repository.GitTree)
 	}
-	if repository.SourceTreeAlgorithm != SourceTreeHashAlgorithm || !validSHA256(repository.SourceTreeSHA256) || repository.SourceTreeFiles <= 0 {
+	if repository.SourceTreeAlgorithm != SourceTreeHashAlgorithm || !support.ValidSHA256(repository.SourceTreeSHA256) || repository.SourceTreeFiles <= 0 {
 		return fmt.Errorf("invalid repository source-tree identity: %+v", repository)
 	}
 	if err := validateArtifact("repository status", repository.Status); err != nil {
@@ -595,7 +595,7 @@ func validateCorpus(corpus []Corpus) error {
 	}
 	seenPaths := make(map[string]bool)
 	for index, entry := range corpus {
-		if entry.Class != wantClasses[index] || entry.Linked || entry.HashAlgorithm != CorpusHashAlgorithm || !validSHA256(entry.SHA256) || len(entry.Files) == 0 {
+		if entry.Class != wantClasses[index] || entry.Linked || entry.HashAlgorithm != CorpusHashAlgorithm || !support.ValidSHA256(entry.SHA256) || len(entry.Files) == 0 {
 			return fmt.Errorf("invalid %s corpus identity: %+v", wantClasses[index], entry)
 		}
 		previous := ""
@@ -637,7 +637,7 @@ func validateDispatch(dispatch DispatchEvidence, packages map[string]PackageProv
 			return fmt.Errorf("missing dispatcher record %q", want.Name)
 		}
 		pkg, ok := packages[want.Package]
-		if !ok || record.Package != want.Package || record.Source.Path != want.Source || record.ObjectSHA256 != pkg.Object.SHA256 || !validSHA256(record.ObjectSHA256) {
+		if !ok || record.Package != want.Package || record.Source.Path != want.Source || record.ObjectSHA256 != pkg.Object.SHA256 || !support.ValidSHA256(record.ObjectSHA256) {
 			return fmt.Errorf("dispatcher %q source/object/package identity mismatch", want.Name)
 		}
 		if err := validateSourceFile(record.Source); err != nil {
@@ -690,7 +690,7 @@ func validateSourceFile(file SourceFile) error {
 	if err := validateCanonicalRelativePath(file.Path); err != nil {
 		return err
 	}
-	if file.Kind == "" || file.Size < 0 || !validSHA256(file.SHA256) {
+	if file.Kind == "" || file.Size < 0 || !support.ValidSHA256(file.SHA256) {
 		return fmt.Errorf("invalid source identity %+v", file)
 	}
 	return nil
@@ -707,19 +707,8 @@ func amd64Profile(features map[string]bool, allowAVX512 bool) string {
 }
 
 func validateArtifact(label string, a Artifact) error {
-	if _, err := cleanArtifactPath(a.Path); err != nil || a.Size < 0 || !validSHA256(a.SHA256) {
+	if _, err := cleanArtifactPath(a.Path); err != nil || a.Size < 0 || !support.ValidSHA256(a.SHA256) {
 		return fmt.Errorf("%s artifact is invalid: %+v", label, a)
 	}
 	return nil
-}
-
-func validSHA256(value string) bool {
-	if len(value) != sha256.Size*2 {
-		return false
-	}
-	if value != strings.ToLower(value) {
-		return false
-	}
-	_, err := hex.DecodeString(value)
-	return err == nil
 }

@@ -11,13 +11,17 @@ import (
 	"github.com/zchee/gows/bench/harness/policy"
 )
 
+// The first six metric names are paired's canonical sample metrics; tying
+// them to those constants keeps the strings this evaluator emits into
+// verdict.json from ever drifting apart from the sample schema. The rest are
+// evidence-only resource metrics with no paired counterpart.
 const (
-	metricThroughput       = "throughput_messages_per_second"
-	metricP99              = "p99_nanoseconds"
-	metricP999             = "p999_nanoseconds"
-	metricServerCPU        = "server_cpu_seconds_per_message"
-	metricServerRSS        = "server_rss_bytes_per_connection"
-	metricClientCPU        = "client_cpu_seconds_per_message"
+	metricThroughput       = paired.MetricThroughput
+	metricP99              = paired.MetricP99
+	metricP999             = paired.MetricP999
+	metricServerCPU        = paired.MetricServerCPUPerMessage
+	metricServerRSS        = paired.MetricServerRSSPerConn
+	metricClientCPU        = paired.MetricClientCPUPerMessage
 	metricClientRSS        = "client_rss_bytes_per_connection"
 	metricServerAllocs     = "server_raw_allocations_per_message"
 	metricServerAllocBytes = "server_raw_allocated_bytes_per_message"
@@ -322,7 +326,7 @@ func metricRatios(pairs []measuredPair, metric string, flips map[string]bool) ([
 		if err != nil {
 			return nil, nil, nil, err
 		}
-		key := pair.SessionID + "\x00" + pair.Scenario + "\x00" + pair.BlockID
+		key := paired.BlockKey(pair.SessionID, pair.Scenario, pair.BlockID)
 		if flips != nil && flips[key] {
 			candidate, comparator = comparator, candidate
 		}
@@ -402,7 +406,7 @@ func hierarchicalIntervalWithZero(ratios []paired.BlockRatio, config paired.Infe
 		if ratio.SessionID == "" || ratio.Scenario == "" || ratio.BlockID == "" || ratio.Value < 0 || math.IsNaN(ratio.Value) || math.IsInf(ratio.Value, 0) {
 			return paired.Interval{}, fmt.Errorf("evidence: invalid nonnegative block ratio %+v", ratio)
 		}
-		key := ratio.SessionID + "\x00" + ratio.Scenario + "\x00" + ratio.BlockID
+		key := paired.BlockKey(ratio.SessionID, ratio.Scenario, ratio.BlockID)
 		if seen[key] {
 			return paired.Interval{}, fmt.Errorf("evidence: duplicate nonnegative block ratio %q", key)
 		}
@@ -484,7 +488,7 @@ func empiricalFullVerdictFalsePositive(runs []resolvedRun, pol *policy.Policy) (
 		}
 		allPairs[scenario.Name] = pairs
 		for _, pair := range pairs {
-			keys = append(keys, pair.SessionID+"\x00"+pair.Scenario+"\x00"+pair.BlockID)
+			keys = append(keys, paired.BlockKey(pair.SessionID, pair.Scenario, pair.BlockID))
 		}
 	}
 	keys, err := sortedUnique(keys)
@@ -548,37 +552,21 @@ func fullClaimPass(allPairs map[string][]measuredPair, pol *policy.Policy, flips
 		if scenario.CellClass == policy.CellSaturated {
 			throughputLower, p99Upper, cpuUpper = 0.98, 1.02, 1.00
 		}
-		gates := []struct {
-			metric    string
-			direction paired.MetricDirection
-			threshold float64
-		}{
-			{metricThroughput, paired.HigherIsBetter, throughputLower},
-			{metricP99, paired.LowerIsBetter, p99Upper},
-			{metricServerCPU, paired.LowerIsBetter, cpuUpper},
+		gates := []paired.MetricGate{
+			{Name: metricThroughput, Direction: paired.HigherIsBetter, Threshold: throughputLower},
+			{Name: metricP99, Direction: paired.LowerIsBetter, Threshold: p99Upper},
+			{Name: metricServerCPU, Direction: paired.LowerIsBetter, Threshold: cpuUpper},
 		}
 		if scenario.CellClass == policy.CellServerSensitive {
 			gates = append(
 				gates,
-				struct {
-					metric    string
-					direction paired.MetricDirection
-					threshold float64
-				}{metricP999, paired.LowerIsBetter, pol.Thresholds.P999CenterUpperBound},
-				struct {
-					metric    string
-					direction paired.MetricDirection
-					threshold float64
-				}{metricServerAllocs, paired.LowerIsBetter, 1.00},
-				struct {
-					metric    string
-					direction paired.MetricDirection
-					threshold float64
-				}{metricServerRSS, paired.LowerIsBetter, 1.00},
+				paired.MetricGate{Name: metricP999, Direction: paired.LowerIsBetter, Threshold: pol.Thresholds.P999CenterUpperBound},
+				paired.MetricGate{Name: metricServerAllocs, Direction: paired.LowerIsBetter, Threshold: 1.00},
+				paired.MetricGate{Name: metricServerRSS, Direction: paired.LowerIsBetter, Threshold: 1.00},
 			)
 		}
 		for gateIndex, gate := range gates {
-			ratios, candidate, _, err := metricRatios(pairs, gate.metric, flips)
+			ratios, candidate, _, err := metricRatios(pairs, gate.Name, flips)
 			if err != nil {
 				return false, err
 			}
@@ -588,12 +576,12 @@ func fullClaimPass(allPairs map[string][]measuredPair, pol *policy.Policy, flips
 			if err != nil {
 				return false, err
 			}
-			strictServerThroughput := scenario.CellClass == policy.CellServerSensitive && gate.metric == metricThroughput
-			if gate.direction == paired.HigherIsBetter && (interval.Lower < gate.threshold || strictServerThroughput && interval.Lower == gate.threshold) ||
-				gate.direction == paired.LowerIsBetter && interval.Upper > gate.threshold {
+			strictServerThroughput := scenario.CellClass == policy.CellServerSensitive && gate.Name == metricThroughput
+			if gate.Direction == paired.HigherIsBetter && (interval.Lower < gate.Threshold || strictServerThroughput && interval.Lower == gate.Threshold) ||
+				gate.Direction == paired.LowerIsBetter && interval.Upper > gate.Threshold {
 				return false, nil
 			}
-			if gate.metric == metricServerAllocs {
+			if gate.Name == metricServerAllocs {
 				absolute, err := hierarchicalAbsoluteInterval(pairs, candidate, gateConfig)
 				if err != nil {
 					return false, err

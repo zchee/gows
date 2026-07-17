@@ -18,7 +18,7 @@ import (
 	"strings"
 	"time"
 
-	phase0 "github.com/zchee/gows/bench/harness/evidence"
+	"github.com/zchee/gows/bench/harness/evidence"
 	"github.com/zchee/gows/bench/harness/paired"
 	"github.com/zchee/gows/bench/harness/policy"
 	"github.com/zchee/gows/bench/harness/support"
@@ -86,7 +86,7 @@ func run() int {
 		fmt.Fprintln(os.Stderr, "benchcmp: -run is required")
 		return exitUsage
 	}
-	if phase0.IsPhase0Directory(*runDir) {
+	if evidence.IsPhase0Directory(*runDir) {
 		return runPhase0(*runDir, *writeVerdict)
 	}
 	if *writeVerdict != "" {
@@ -139,7 +139,7 @@ func validateLegacyPolicy(pol *policy.Policy) error {
 }
 
 func runPhase0(runDir, writeVerdict string) int {
-	wantVerdict := filepath.Join(runDir, phase0.VerdictFile)
+	wantVerdict := filepath.Join(runDir, evidence.VerdictFile)
 	if writeVerdict != "" {
 		got, err := filepath.Abs(writeVerdict)
 		if err != nil {
@@ -152,7 +152,7 @@ func runPhase0(runDir, writeVerdict string) int {
 			return exitUsage
 		}
 	}
-	verdict, raw, err := phase0.EvaluateDirectory(runDir, writeVerdict == "")
+	verdict, raw, err := evidence.EvaluateDirectory(runDir, writeVerdict == "")
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "benchcmp: %v\n", err)
 		return exitUsage
@@ -240,13 +240,19 @@ func controlledEnvironment(base []string) []string {
 	overrides := []string{
 		"GOENV=off", "GOTOOLCHAIN=local", "GOEXPERIMENT=", "GOFLAGS=-mod=mod",
 		"GOFIPS140=latest", "GOWORK=off", "CGO_ENABLED=0",
-		"GOOS=" + runtime.GOOS, "GOARCH=" + runtime.GOARCH, "GOAMD64=", "GOARM64=",
+		"GOOS=" + runtime.GOOS, "GOARCH=" + runtime.GOARCH,
 	}
+	// Both baseline variables are always present so a stray inherited GOAMD64
+	// or GOARM64 can never leak through; the host architecture's entry pins the
+	// exact baseline validateControlledController requires of the delegated
+	// evaluator.
 	switch runtime.GOARCH {
 	case "amd64":
-		overrides[len(overrides)-2] = "GOAMD64=v1"
+		overrides = append(overrides, "GOAMD64=v1", "GOARM64=")
 	case "arm64":
-		overrides[len(overrides)-1] = "GOARM64=v8.0"
+		overrides = append(overrides, "GOAMD64=", "GOARM64=v8.0")
+	default:
+		overrides = append(overrides, "GOAMD64=", "GOARM64=")
 	}
 	keys := map[string]bool{
 		"GOENV": true, "GOTOOLCHAIN": true, "GOEXPERIMENT": true, "GOFLAGS": true,

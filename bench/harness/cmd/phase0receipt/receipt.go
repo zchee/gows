@@ -13,10 +13,10 @@ import (
 	"github.com/zchee/gows/bench/harness/artifact"
 	"github.com/zchee/gows/bench/harness/evidence"
 	"github.com/zchee/gows/bench/harness/phase0"
+	"github.com/zchee/gows/bench/harness/support"
 )
 
 const (
-	runReceiptMediaType    = "application/vnd.gows.bench-run-receipt+json"
 	aaPreflightSchema      = 1
 	aaPreflightVerdictKind = "gows.phase0.aa-preflight"
 )
@@ -247,7 +247,7 @@ func ingestRoleReceipts(root string, store artifact.Store, repository evidence.R
 		if err := validateRunRepositoryBinding(runReceipt, repository); err != nil {
 			return nil, fmt.Errorf("%s receipt: %w", input.role, err)
 		}
-		ref, err := store.PutFile(path, runReceiptMediaType)
+		ref, err := store.PutFile(path, artifact.MediaTypeRunReceipt)
 		if err != nil {
 			return nil, fmt.Errorf("ingest %s receipt: %w", input.role, err)
 		}
@@ -361,7 +361,7 @@ func validateRunEvidenceRoles(records []evidence.RunEvidence, required []string)
 		if records[i].Role != want {
 			return fmt.Errorf("run evidence role %d = %q, want %q", i, records[i].Role, want)
 		}
-		if records[i].Run.MediaType != runReceiptMediaType {
+		if records[i].Run.MediaType != artifact.MediaTypeRunReceipt {
 			return fmt.Errorf("run evidence %q has media type %q", want, records[i].Run.MediaType)
 		}
 	}
@@ -509,62 +509,18 @@ func openFixedStore(root string) (artifact.Store, error) {
 	return store, nil
 }
 
-func writeNewFileAtomic(root, path string, data []byte, mode os.FileMode) (resultErr error) {
+// writeNewFileAtomic publishes data without ever replacing an existing file,
+// after proving path stays below root through real (non-symlink) directories.
+// The atomic no-replace publication itself is [support.WriteNewFileAtomic]'s
+// same-directory hard-link step.
+func writeNewFileAtomic(root, path string, data []byte, mode os.FileMode) error {
 	if _, err := relativeBelowRoot(root, path); err != nil {
 		return err
 	}
 	if err := ensureRealDirectories(root, filepath.Dir(path)); err != nil {
 		return err
 	}
-	if _, err := os.Lstat(path); err == nil {
-		return fmt.Errorf("destination already exists: %s", path)
-	} else if !errors.Is(err, os.ErrNotExist) {
-		return err
-	}
-	file, err := os.CreateTemp(filepath.Dir(path), "."+filepath.Base(path)+".tmp-*")
-	if err != nil {
-		return err
-	}
-	temporary := file.Name()
-	closed := false
-	defer func() {
-		if !closed {
-			resultErr = errors.Join(resultErr, file.Close())
-		}
-		if temporary != "" {
-			if err := os.Remove(temporary); err != nil && !errors.Is(err, os.ErrNotExist) {
-				resultErr = errors.Join(resultErr, err)
-			}
-		}
-	}()
-	if err := file.Chmod(mode); err != nil {
-		return err
-	}
-	if _, err := file.Write(data); err != nil {
-		return err
-	}
-	if err := file.Sync(); err != nil {
-		return err
-	}
-	if err := file.Close(); err != nil {
-		return err
-	}
-	closed = true
-	if err := os.Link(temporary, path); err != nil {
-		if errors.Is(err, os.ErrExist) {
-			return fmt.Errorf("destination already exists: %s", path)
-		}
-		return err
-	}
-	if err := os.Remove(temporary); err != nil {
-		return err
-	}
-	temporary = ""
-	directory, err := os.Open(filepath.Dir(path))
-	if err != nil {
-		return err
-	}
-	return errors.Join(directory.Sync(), directory.Close())
+	return support.WriteNewFileAtomic(path, data, mode)
 }
 
 func ensureRealDirectories(root, directory string) error {

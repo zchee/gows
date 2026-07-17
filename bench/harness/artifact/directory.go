@@ -96,7 +96,7 @@ func SealDirectory(store Store, dir, kind string, required []string) (DirectoryR
 		return DirectoryReceipt{}, Ref{}, fmt.Errorf("artifact: marshal directory receipt: %w", err)
 	}
 	raw = append(raw, '\n')
-	ref, err := store.PutBytes(raw, "application/vnd.gows.directory-receipt+json")
+	ref, err := store.PutBytes(raw, MediaTypeDirectoryReceipt)
 	if err != nil {
 		return DirectoryReceipt{}, Ref{}, err
 	}
@@ -129,7 +129,7 @@ func (receipt DirectoryReceipt) Validate() error {
 
 // ResolveDirectory verifies both the receipt blob and every referenced file.
 func ResolveDirectory(store Store, receiptRef Ref, wantKind string) (DirectoryReceipt, map[string]string, error) {
-	if receiptRef.MediaType != "application/vnd.gows.directory-receipt+json" {
+	if receiptRef.MediaType != MediaTypeDirectoryReceipt {
 		return DirectoryReceipt{}, nil, fmt.Errorf("artifact: directory receipt media_type = %q", receiptRef.MediaType)
 	}
 	path, err := store.Resolve(receiptRef)

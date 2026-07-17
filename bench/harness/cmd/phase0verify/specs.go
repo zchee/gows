@@ -10,11 +10,8 @@ import (
 	"github.com/zchee/gows/bench/harness/evidence"
 )
 
-func buildCommandSpecs(root, output, work string, inputs evidence.VerificationCommandInputs) ([]commandSpec, error) {
-	baseEnv, err := controlledEnvironment(runtime.GOOS, runtime.GOARCH, inputs)
-	if err != nil {
-		return nil, err
-	}
+func buildCommandSpecs(root, output, work string, inputs evidence.VerificationCommandInputs) []commandSpec {
+	baseEnv := controlledEnvironment(runtime.GOOS, runtime.GOARCH, inputs)
 	archEnv := func(arch string) []string { return replaceEnvironment(baseEnv, "GOOS=darwin", "GOARCH="+arch) }
 	assemblyRoot := filepath.Join(output, "assembly")
 	specs := []commandSpec{
@@ -52,10 +49,10 @@ func buildCommandSpecs(root, output, work string, inputs evidence.VerificationCo
 		specs[i].argv = slices.Clone(specs[i].argv)
 		specs[i].environment = slices.Clone(specs[i].environment)
 	}
-	return specs, nil
+	return specs
 }
 
-func controlledEnvironment(goos, goarch string, inputs evidence.VerificationCommandInputs) ([]string, error) {
+func controlledEnvironment(goos, goarch string, inputs evidence.VerificationCommandInputs) []string {
 	path := strings.Join([]string{filepath.Dir(inputs.GoTool), "/usr/bin", "/bin", "/usr/sbin", "/sbin"}, string(os.PathListSeparator))
 	environment := []string{
 		"CGO_ENABLED=0",
@@ -75,7 +72,7 @@ func controlledEnvironment(goos, goarch string, inputs evidence.VerificationComm
 		"TMPDIR=" + inputs.TempDir,
 	}
 	slices.Sort(environment)
-	return environment, nil
+	return environment
 }
 
 func replaceEnvironment(base []string, replacements ...string) []string {

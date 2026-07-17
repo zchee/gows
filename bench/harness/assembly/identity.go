@@ -8,6 +8,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"os"
 	"path"
@@ -89,7 +90,6 @@ func collectRepositorySnapshot(ctx context.Context, repoRoot string) (repository
 			SourceHEAD:          strings.TrimSpace(string(headBytes)),
 			GitTree:             strings.TrimSpace(string(treeBytes)),
 			Dirty:               len(bytes.TrimSpace(statusBytes)) != 0,
-			Stable:              true,
 			SourceTreeSHA256:    sourceTreeSHA256,
 			SourceTreeFiles:     len(sourcePaths),
 			SourceTreeAlgorithm: SourceTreeHashAlgorithm,
@@ -262,11 +262,11 @@ func readRepositoryFile(repoRoot, name string) ([]byte, string, error) {
 	}
 }
 
-func writeHashField(hash interface{ Write([]byte) (int, error) }, value string) {
+func writeHashField(hash io.Writer, value string) {
 	writeHashBytes(hash, []byte(value))
 }
 
-func writeHashBytes(hash interface{ Write([]byte) (int, error) }, value []byte) {
+func writeHashBytes(hash io.Writer, value []byte) {
 	var size [8]byte
 	binary.BigEndian.PutUint64(size[:], uint64(len(value)))
 	_, _ = hash.Write(size[:])
@@ -307,17 +307,6 @@ func corporaEqual(first, second []Corpus) bool {
 		}
 	}
 	return true
-}
-
-func validateGitObjectID(value string) bool {
-	if len(value) != 40 && len(value) != 64 {
-		return false
-	}
-	if value != strings.ToLower(value) {
-		return false
-	}
-	_, err := hex.DecodeString(value)
-	return err == nil
 }
 
 func canonicalRepositoryRoot(root string) (string, error) {

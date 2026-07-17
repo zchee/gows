@@ -72,13 +72,19 @@ type runMeta struct {
 	ToolchainSeries     string            `json:"toolchain_series"`
 }
 
+// requiredRunFiles is the artifact set every completed run directory must
+// contain. SealRun refuses to seal a run missing any of them, and
+// [RunReceipt.Validate] refuses a receipt that lacks any of them, so the two
+// ends of the seal/resolve contract can never drift apart.
+var requiredRunFiles = []string{"policy.json", "manifest.json", "env-start.json", "env-end.json", "samples.jsonl", "done.json", "echoserver", "loadgen"}
+
 func SealRun(store Store, runDir string) (RunReceipt, Ref, error) {
 	if _, err := os.Stat(filepath.Join(runDir, "INVALIDATED.json")); err == nil {
 		return RunReceipt{}, Ref{}, fmt.Errorf("artifact: refusing invalidated run %s", runDir)
 	} else if !os.IsNotExist(err) {
 		return RunReceipt{}, Ref{}, fmt.Errorf("artifact: inspect invalidation marker: %w", err)
 	}
-	for _, required := range []string{"policy.json", "manifest.json", "env-start.json", "env-end.json", "samples.jsonl", "done.json", "echoserver", "loadgen"} {
+	for _, required := range requiredRunFiles {
 		if info, err := os.Lstat(filepath.Join(runDir, required)); err != nil || !info.Mode().IsRegular() {
 			return RunReceipt{}, Ref{}, fmt.Errorf("artifact: completed run is missing regular file %s", required)
 		}
@@ -158,7 +164,7 @@ func SealRun(store Store, runDir string) (RunReceipt, Ref, error) {
 	if err := support.WriteJSONFile(receiptPath, receipt); err != nil {
 		return RunReceipt{}, Ref{}, err
 	}
-	receiptRef, err := store.PutFile(receiptPath, "application/vnd.gows.bench-run-receipt+json")
+	receiptRef, err := store.PutFile(receiptPath, MediaTypeRunReceipt)
 	if err != nil {
 		return RunReceipt{}, Ref{}, err
 	}
@@ -172,7 +178,7 @@ func (receipt RunReceipt) Validate() error {
 	if err := receipt.identityMeta().validate(); err != nil {
 		return fmt.Errorf("artifact: run receipt identity is incomplete")
 	}
-	for _, required := range []string{"policy.json", "manifest.json", "env-start.json", "env-end.json", "samples.jsonl", "done.json", "echoserver", "loadgen"} {
+	for _, required := range requiredRunFiles {
 		if _, ok := receipt.Files[required]; !ok {
 			return fmt.Errorf("artifact: run receipt lacks %s", required)
 		}
@@ -216,7 +222,7 @@ func LoadRunReceipt(path string) (RunReceipt, error) {
 }
 
 func ResolveRun(store Store, receiptRef Ref) (RunReceipt, map[string]string, error) {
-	if receiptRef.MediaType != "application/vnd.gows.bench-run-receipt+json" {
+	if receiptRef.MediaType != MediaTypeRunReceipt {
 		return RunReceipt{}, nil, fmt.Errorf("artifact: run receipt media_type = %q", receiptRef.MediaType)
 	}
 	path, err := store.Resolve(receiptRef)
@@ -251,20 +257,20 @@ func ResolveRun(store Store, receiptRef Ref) (RunReceipt, map[string]string, err
 
 func (meta runMeta) validate() error {
 	if meta.SessionID == "" || meta.GitCommit == "" || meta.GitRemote == "" || meta.GitBranch == "" ||
-		meta.GitTree == "" || !validSHA256(meta.SourceSHA256) || meta.ModulePath == "" || !validSHA256(meta.ModuleFilesSHA256) ||
-		meta.GoVersion == "" || !validSHA256(meta.GoBinarySHA256) || meta.GOOS == "" || meta.GOARCH == "" || meta.Client == "" ||
-		!validSHA256(meta.EchoserverSHA256) || !validSHA256(meta.LoadgenSHA256) || !validSHA256(meta.PolicySHA256) ||
+		meta.GitTree == "" || !support.ValidSHA256(meta.SourceSHA256) || meta.ModulePath == "" || !support.ValidSHA256(meta.ModuleFilesSHA256) ||
+		meta.GoVersion == "" || !support.ValidSHA256(meta.GoBinarySHA256) || meta.GOOS == "" || meta.GOARCH == "" || meta.Client == "" ||
+		!support.ValidSHA256(meta.EchoserverSHA256) || !support.ValidSHA256(meta.LoadgenSHA256) || !support.ValidSHA256(meta.PolicySHA256) ||
 		meta.RunKind == "" || meta.EvidenceClass == "" || meta.ToolchainSeries == "" ||
 		len(meta.AdapterSHA256) == 0 || len(meta.LibraryBinarySHA256) == 0 {
 		return fmt.Errorf("incomplete run identity")
 	}
 	for name, digest := range meta.AdapterSHA256 {
-		if name == "" || !validSHA256(digest) {
+		if name == "" || !support.ValidSHA256(digest) {
 			return fmt.Errorf("invalid adapter identity")
 		}
 	}
 	for name, digest := range meta.LibraryBinarySHA256 {
-		if name == "" || !validSHA256(digest) {
+		if name == "" || !support.ValidSHA256(digest) {
 			return fmt.Errorf("invalid library binary identity")
 		}
 	}

@@ -416,7 +416,7 @@ func run() (resultErr error) {
 // RunManifest is the provenance record written before execution starts.
 // OverrideBinariesSHA256 is present only when a policy's library_overrides
 // force a dedicated echoserver build (a build_env override); it is omitted
-// otherwise, so meta.json stays byte-identical for override-free policies.
+// otherwise, so manifest.json stays byte-identical for override-free policies.
 type RunManifest struct {
 	SchemaVersion          int                         `json:"schema_version"`
 	SessionID              string                      `json:"session_id"`
@@ -841,25 +841,10 @@ func waitTCP(ctx context.Context, addr string, timeout time.Duration) error {
 // findModuleRoot walks up from start until it finds the go.mod declaring the
 // bench module.
 func findModuleRoot(start string) (string, error) {
-	dir := start
-	for {
-		if data, err := os.ReadFile(filepath.Join(dir, "go.mod")); err == nil {
-			for line := range strings.Lines(string(data)) {
-				line = strings.TrimSpace(line)
-				if rest, ok := strings.CutPrefix(line, "module "); ok {
-					if strings.TrimSpace(rest) == moduleImport {
-						return dir, nil
-					}
-					break
-				}
-			}
-		}
-		parent := filepath.Dir(dir)
-		if parent == dir {
-			return "", fmt.Errorf("could not locate the bench module (%s) from %s; run benchrun inside the bench module tree", moduleImport, start)
-		}
-		dir = parent
+	if dir, ok := support.FindModuleRoot(start, moduleImport); ok {
+		return dir, nil
 	}
+	return "", fmt.Errorf("could not locate the bench module (%s) from %s; run benchrun inside the bench module tree", moduleImport, start)
 }
 
 // defaultOutDir keeps diagnostic, self-validation, and baseline artifacts in
@@ -1009,12 +994,15 @@ func hashFileSet(root string, paths []string) (string, error) {
 	return hex.EncodeToString(hash.Sum(nil)), nil
 }
 
-// buildBinary compiles a bench command into outPath, using -mod=mod so the
+// buildBinaryEnv compiles a bench command into outPath, using -mod=mod so the
 // working-tree gows (via the module's replace directive) is linked rather than
-// the vendored snapshot. extraEnv (KEY=VALUE entries, for example a
-// GOEXPERIMENT setting, or nil) is appended to the build environment, letting
-// a policy's library_overrides produce a distinct echoserver build
-// (hypothesis H2) without a separate source tree.
+// the vendored snapshot. The toolchain experiment set flows through the
+// dedicated goExperiment parameter; extraEnv (non-reserved KEY=VALUE entries
+// from a policy's library_overrides build_env, or nil) is appended on top,
+// letting an override produce a distinct echoserver build without a separate
+// source tree. Policy validation rejects every reserved toolchain variable
+// (GOENV, GOFLAGS, GOEXPERIMENT, ...) in build_env, so extraEnv can never
+// fight the canonical toolchain environment.
 func buildBinaryEnv(ctx context.Context, moduleRoot, pkgSuffix, outPath, goExperiment string, extraEnv []string) error {
 	cmd := exec.CommandContext(ctx, goToolPath(), "build", "-mod=mod", "-o", outPath, moduleImport+pkgSuffix)
 	cmd.Dir = moduleRoot
@@ -1365,9 +1353,12 @@ func appendError(path, scenario, lib string, rep int, cause error) {
 	_, _ = fmt.Fprintf(f, "%s scenario=%q lib=%q rep=%d: %v\n", nowRFC(), scenario, lib, rep, cause)
 }
 
-// writeJSONLine marshals v as one compact JSON line to w.
+// writeJSONLine marshals v as one compact JSON line to w, with deterministic
+// map ordering like every other artifact writer: samples.jsonl is sealed into
+// content-addressed storage and hashed into the run receipt, so its bytes must
+// stay reproducible even if a map-valued field is ever added to a sample.
 func writeJSONLine(w io.Writer, v any) error {
-	b, err := json.Marshal(v)
+	b, err := json.Marshal(v, json.Deterministic(true))
 	if err != nil {
 		return fmt.Errorf("marshal sample: %w", err)
 	}

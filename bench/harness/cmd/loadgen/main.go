@@ -270,9 +270,10 @@ func run() error {
 	payloads := make([][]byte, *conns)
 	for index := range payloads {
 		seed := connectionPayloadSeed(*payloadSeed, index)
-		payloads[index] = support.DeterministicPayloadSeed(*payloadSize, seed)
 		if message == messageText {
 			payloads[index] = support.DeterministicTextPayloadSeed(*payloadSize, seed)
+		} else {
+			payloads[index] = support.DeterministicPayloadSeed(*payloadSize, seed)
 		}
 	}
 	clients := make([]wsClient, *conns)
@@ -509,7 +510,7 @@ func warmConnections(clients []wsClient, payloads [][]byte, duration time.Durati
 				if !started.Before(end) {
 					return
 				}
-				if _, _, err := exchange(client, payload, started); err != nil {
+				if _, err := exchange(client, payload, started); err != nil {
 					errorsCh <- err
 					return
 				}
@@ -662,7 +663,7 @@ func measureClosedLoop(clients []wsClient, recorders []*support.LatencyRecorder,
 					return
 				}
 				counters.offered.Add(1)
-				latency, _, err := exchange(client, payload, started)
+				latency, err := exchange(client, payload, started)
 				if err != nil {
 					recordExchangeError(err, counters)
 					return
@@ -731,7 +732,7 @@ func measureOpenLoop(clients []wsClient, recorders []*support.LatencyRecorder, p
 					counters.postWindow.Add(1)
 					continue
 				}
-				latency, _, err := exchange(client, payload, started)
+				latency, err := exchange(client, payload, started)
 				if err != nil {
 					recordExchangeError(err, counters)
 					continue
@@ -954,19 +955,19 @@ func measurePipelineConnection(client wsClient, recorder *support.LatencyRecorde
 	<-writerDone
 }
 
-func exchange(client wsClient, payload []byte, started time.Time) (time.Duration, int, error) {
+func exchange(client wsClient, payload []byte, started time.Time) (time.Duration, error) {
 	if err := client.WriteMessage(payload); err != nil {
-		return 0, 0, fmt.Errorf("write: %w", err)
+		return 0, fmt.Errorf("write: %w", err)
 	}
 	echo, err := client.ReadMessage()
 	received := time.Now()
 	if err != nil {
-		return 0, 0, fmt.Errorf("read: %w", err)
+		return 0, fmt.Errorf("read: %w", err)
 	}
 	if err := support.VerifyEcho(payload, echo); err != nil {
-		return 0, len(echo), fmt.Errorf("%w: %v", errVerificationMismatch, err)
+		return 0, fmt.Errorf("%w: %v", errVerificationMismatch, err)
 	}
-	return received.Sub(started), len(echo), nil
+	return received.Sub(started), nil
 }
 
 func recordExchangeError(err error, counters *measurementCounters) {

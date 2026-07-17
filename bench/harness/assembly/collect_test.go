@@ -12,6 +12,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/zchee/gows/bench/harness/support"
 )
 
 func TestNormalizeVersionMRemovesTemporaryPath(t *testing.T) {
@@ -36,7 +38,7 @@ func TestCollectSupportedTargetsAndVerifyImmutableBundles(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	ctx, cancel := context.WithTimeout(t.Context(), 2*time.Minute)
 	defer cancel()
 
 	for _, goarch := range []string{"amd64", "arm64"} {
@@ -62,7 +64,7 @@ func TestCollectSupportedTargetsAndVerifyImmutableBundles(t *testing.T) {
 				t.Fatal("no linked assembly symbols recorded")
 			}
 			if bundle.Manifest.Repository.Remote == "" || bundle.Manifest.Repository.Branch == "" ||
-				!validateGitObjectID(bundle.Manifest.Repository.SourceHEAD) || !validSHA256(bundle.Manifest.Repository.SourceTreeSHA256) {
+				!support.ValidGitObjectID(bundle.Manifest.Repository.SourceHEAD) || !support.ValidSHA256(bundle.Manifest.Repository.SourceTreeSHA256) {
 				t.Fatalf("incomplete repository identity: %+v", bundle.Manifest.Repository)
 			}
 			if len(bundle.Manifest.BuildGraph.Corpus) != 2 || len(bundle.Manifest.Dispatch.Records) != 3 {

@@ -68,7 +68,7 @@ func TestValidateRolePathsRejectsCountRoleAndMissingPath(t *testing.T) {
 
 func TestEnsureUniqueRunRefsRejectsDuplicateArtifact(t *testing.T) {
 	t.Parallel()
-	ref := testRef("a", runReceiptMediaType)
+	ref := testRef("a", artifact.MediaTypeRunReceipt)
 	err := ensureUniqueRunRefs([]evidence.RunEvidence{
 		{Role: "session-1", Run: ref},
 		{Role: "session-2", Run: ref},
@@ -127,9 +127,9 @@ func TestMarshalAAPreflightIsCanonicalAndByteStable(t *testing.T) {
 	t.Parallel()
 	identity := testRepositoryIdentity()
 	aaRuns := []evidence.RunEvidence{
-		{Role: "session-1", Run: testRef("a", runReceiptMediaType)},
-		{Role: "session-2", Run: testRef("b", runReceiptMediaType)},
-		{Role: "session-3", Run: testRef("c", runReceiptMediaType)},
+		{Role: "session-1", Run: testRef("a", artifact.MediaTypeRunReceipt)},
+		{Role: "session-2", Run: testRef("b", artifact.MediaTypeRunReceipt)},
+		{Role: "session-3", Run: testRef("c", artifact.MediaTypeRunReceipt)},
 	}
 	verification := testRef("d", "application/vnd.gows.directory-receipt+json")
 	assemblies := []evidence.AssemblyEvidence{

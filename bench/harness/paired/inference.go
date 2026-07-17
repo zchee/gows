@@ -127,73 +127,6 @@ func OrderEffect(ratios []BlockRatio, cfg InferenceConfig) (Interval, error) {
 	}, nil
 }
 
-// EmpiricalFalsePositiveRate performs deterministic session/block-preserving
-// null relabeling. A single sign flip is shared across every metric for a
-// block, preserving cross-metric correlation; the full verdict counts as a
-// false positive only when every preregistered gate passes.
-func EmpiricalFalsePositiveRate(metrics map[string][]BlockRatio, cfg InferenceConfig, iterations int, gates []MetricGate) (float64, error) {
-	if iterations < 1_000 {
-		return 0, fmt.Errorf("paired: null relabel iterations must be >= 1000, got %d", iterations)
-	}
-	if len(gates) == 0 {
-		return 0, fmt.Errorf("paired: at least one superiority gate is required")
-	}
-	keys, indexed, err := indexMetrics(metrics, gates, cfg)
-	if err != nil {
-		return 0, err
-	}
-	const nullRelabelGamma uint64 = 0xD1B54A32D192ED03
-	rng := SeededRand(cfg.Seed ^ nullRelabelGamma)
-	falsePositives := 0
-	for iteration := range iterations {
-		flips := make(map[string]bool, len(keys))
-		for _, key := range keys {
-			flips[key] = rng.IntN(2) == 1
-		}
-		fullPass := true
-		for gateIndex, gate := range gates {
-			relabeled := make([]BlockRatio, 0, len(keys))
-			for _, key := range keys {
-				ratio := indexed[gate.Name][key]
-				if flips[key] {
-					ratio.Value = 1 / ratio.Value
-				}
-				relabeled = append(relabeled, ratio)
-			}
-
-			// A center that cannot cross the threshold cannot possibly pass its
-			// one-sided confidence bound, avoiding unnecessary nested bootstrap.
-			center := math.Exp(meanLogRatios(relabeled))
-			if gate.Direction == HigherIsBetter && center <= gate.Threshold ||
-				gate.Direction == LowerIsBetter && center >= gate.Threshold {
-				fullPass = false
-				break
-			}
-			inferenceCfg := cfg
-			inferenceCfg.Seed ^= uint64(iteration+1)*goldenGamma ^ uint64(gateIndex+1)
-			interval, err := HierarchicalBootstrap(relabeled, inferenceCfg)
-			if err != nil {
-				return 0, err
-			}
-			switch gate.Direction {
-			case HigherIsBetter:
-				fullPass = interval.Lower > gate.Threshold
-			case LowerIsBetter:
-				fullPass = interval.Upper < gate.Threshold
-			default:
-				return 0, fmt.Errorf("paired: gate %q has unknown direction %q", gate.Name, gate.Direction)
-			}
-			if !fullPass {
-				break
-			}
-		}
-		if fullPass {
-			falsePositives++
-		}
-	}
-	return float64(falsePositives) / float64(iterations), nil
-}
-
 func groupRatios(ratios []BlockRatio, cfg InferenceConfig) ([]sessionRatios, error) {
 	if cfg.Replicates <= 0 {
 		return nil, fmt.Errorf("paired: inference replicates must be > 0, got %d", cfg.Replicates)
@@ -216,7 +149,7 @@ func groupRatios(ratios []BlockRatio, cfg InferenceConfig) ([]sessionRatios, err
 		if ratio.Value <= 0 || math.IsNaN(ratio.Value) || math.IsInf(ratio.Value, 0) {
 			return nil, fmt.Errorf("paired: ratio %s/%s/%s has invalid value %v", ratio.SessionID, ratio.Scenario, ratio.BlockID, ratio.Value)
 		}
-		key := blockRatioKey(ratio)
+		key := BlockKey(ratio.SessionID, ratio.Scenario, ratio.BlockID)
 		if _, duplicate := seen[key]; duplicate {
 			return nil, fmt.Errorf("paired: duplicate ratio for session %q scenario %q block %q", ratio.SessionID, ratio.Scenario, ratio.BlockID)
 		}
@@ -278,63 +211,10 @@ func splitOrders(ratios []BlockRatio) (ab, ba []BlockRatio) {
 	return ab, ba
 }
 
-func indexMetrics(metrics map[string][]BlockRatio, gates []MetricGate, cfg InferenceConfig) ([]string, map[string]map[string]BlockRatio, error) {
-	if len(metrics) != len(gates) {
-		return nil, nil, fmt.Errorf("paired: metric set has %d entries, want exactly %d preregistered gates", len(metrics), len(gates))
-	}
-	indexed := make(map[string]map[string]BlockRatio, len(gates))
-	gateNames := make(map[string]struct{}, len(gates))
-	var keys []string
-	for gateIndex, gate := range gates {
-		if gate.Name == "" {
-			return nil, nil, fmt.Errorf("paired: superiority gate name is required")
-		}
-		if _, duplicate := gateNames[gate.Name]; duplicate {
-			return nil, nil, fmt.Errorf("paired: duplicate superiority gate %q", gate.Name)
-		}
-		gateNames[gate.Name] = struct{}{}
-		ratios, ok := metrics[gate.Name]
-		if !ok {
-			return nil, nil, fmt.Errorf("paired: missing ratios for gate %q", gate.Name)
-		}
-		if gate.Direction != HigherIsBetter && gate.Direction != LowerIsBetter {
-			return nil, nil, fmt.Errorf("paired: gate %q has unknown direction %q", gate.Name, gate.Direction)
-		}
-		if gate.Threshold <= 0 || math.IsNaN(gate.Threshold) || math.IsInf(gate.Threshold, 0) {
-			return nil, nil, fmt.Errorf("paired: gate %q has invalid threshold %v", gate.Name, gate.Threshold)
-		}
-		if _, err := groupRatios(ratios, cfg); err != nil {
-			return nil, nil, fmt.Errorf("paired: metric %q: %w", gate.Name, err)
-		}
-		byKey := make(map[string]BlockRatio, len(ratios))
-		for _, ratio := range ratios {
-			key := blockRatioKey(ratio)
-			byKey[key] = ratio
-			if gateIndex == 0 {
-				keys = append(keys, key)
-			}
-		}
-		indexed[gate.Name] = byKey
-	}
-	slices.Sort(keys)
-	for _, gate := range gates[1:] {
-		if len(indexed[gate.Name]) != len(keys) {
-			return nil, nil, fmt.Errorf("paired: metric %q has %d blocks, want %d", gate.Name, len(indexed[gate.Name]), len(keys))
-		}
-		for _, key := range keys {
-			ratio, ok := indexed[gate.Name][key]
-			if !ok {
-				return nil, nil, fmt.Errorf("paired: metric %q is missing block %q", gate.Name, key)
-			}
-			first := indexed[gates[0].Name][key]
-			if ratio.SessionID != first.SessionID || ratio.Scenario != first.Scenario || ratio.BlockID != first.BlockID || ratio.Order != first.Order {
-				return nil, nil, fmt.Errorf("paired: metric %q block %q identity/order differs from %q", gate.Name, key, gates[0].Name)
-			}
-		}
-	}
-	return keys, indexed, nil
-}
-
-func blockRatioKey(ratio BlockRatio) string {
-	return ratio.SessionID + "\x00" + ratio.Scenario + "\x00" + ratio.BlockID
+// BlockKey is the canonical composite identity of one measured block. The
+// evidence evaluator's pair/flip bookkeeping and this package's duplicate
+// detection key blocks identically through it, so the two sides can never
+// disagree on which measurements form one block.
+func BlockKey(sessionID, scenario, blockID string) string {
+	return sessionID + "\x00" + scenario + "\x00" + blockID
 }

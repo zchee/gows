@@ -380,9 +380,8 @@ func validateArtifactRelationships(manifest Manifest, artifacts map[string][]byt
 			return fmt.Errorf("runtime evidence does not match manifest: got %+v want %+v", runtimeEvidence, wantRuntime)
 		}
 	}
-	dispatchNM := nmLines
 	for _, record := range manifest.Dispatch.Records {
-		if !dispatchNM[record.NMLine] {
+		if !nmLines[record.NMLine] {
 			return fmt.Errorf("nm artifact does not contain dispatcher line for %q", record.Name)
 		}
 		objdump := string(artifacts[record.Objdump.Path])
@@ -545,13 +544,15 @@ func verifyArtifactBytes(artifact Artifact, data []byte) error {
 }
 
 func writeImmutableFile(root, artifactPath string, data []byte) (resultErr error) {
-	clean, err := cleanArtifactPath(artifactPath)
-	if artifactPath == manifestName {
-		clean = manifestName
-		err = nil
-	}
-	if err != nil {
-		return err
+	// The manifest is the one artifact allowed at the bundle root by that exact
+	// name; every other artifact path must pass the containment rules that
+	// cleanArtifactPath (which deliberately rejects manifestName) enforces.
+	clean := manifestName
+	if artifactPath != manifestName {
+		var err error
+		if clean, err = cleanArtifactPath(artifactPath); err != nil {
+			return err
+		}
 	}
 	filename := filepath.Join(root, filepath.FromSlash(clean))
 	if err := os.MkdirAll(filepath.Dir(filename), 0o755); err != nil {

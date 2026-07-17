@@ -12,6 +12,7 @@ import (
 
 	"github.com/zchee/gows/bench/harness/artifact"
 	"github.com/zchee/gows/bench/harness/assembly"
+	"github.com/zchee/gows/bench/harness/support"
 )
 
 func resolveAssemblies(store artifact.Store, records []AssemblyEvidence, repository RepositoryIdentity, root string) ([]AssemblyVerdict, error) {
@@ -67,7 +68,7 @@ func validateAssemblySources(root, revision string, manifest assembly.Manifest) 
 	seen := make(map[string]bool)
 	for _, pkg := range manifest.Packages {
 		for _, source := range pkg.SelectedFiles {
-			if !filepath.IsLocal(filepath.FromSlash(source.Path)) || !validHex(source.SHA256, 64) || source.Size < 0 {
+			if !filepath.IsLocal(filepath.FromSlash(source.Path)) || !support.ValidSHA256(source.SHA256) || source.Size < 0 {
 				return fmt.Errorf("evidence: %s assembly selected source is invalid: %+v", manifest.Target.GOARCH, source)
 			}
 			if seen[source.Path] {

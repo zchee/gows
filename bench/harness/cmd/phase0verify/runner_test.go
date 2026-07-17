@@ -1,7 +1,6 @@
 package main
 
 import (
-	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	stdjson "encoding/json"
@@ -18,6 +17,7 @@ import (
 	"time"
 
 	"github.com/zchee/gows/bench/harness/evidence"
+	"github.com/zchee/gows/bench/harness/support"
 )
 
 func TestCommandSpecsMatchEvaluatorContract(t *testing.T) {
@@ -45,10 +45,7 @@ func TestCommandSpecsMatchEvaluatorContract(t *testing.T) {
 		{Name: "gopls", Path: inputs.Gopls, SizeBytes: 3, SHA256: strings.Repeat("b", 64), Version: "gopls build info"},
 		{Name: "git", Path: inputs.Git, SizeBytes: 4, SHA256: strings.Repeat("c", 64), Version: "git version test"},
 	}
-	specs, err := buildCommandSpecs(root, output, work, inputs)
-	if err != nil {
-		t.Fatal(err)
-	}
+	specs := buildCommandSpecs(root, output, work, inputs)
 	if err := validateCommandOrder(specs); err != nil {
 		t.Fatal(err)
 	}
@@ -139,10 +136,7 @@ func TestExecutePlanIsSequentialAndStopsOnFailure(t *testing.T) {
 		HomeDir: filepath.Join(root, "home"), TempDir: filepath.Join(root, "tmp"),
 		TrackedGoFiles: []string{"a.go"},
 	}
-	specs, err := buildCommandSpecs(root, filepath.Join(root, "out"), filepath.Join(root, "work"), inputs)
-	if err != nil {
-		t.Fatal(err)
-	}
+	specs := buildCommandSpecs(root, filepath.Join(root, "out"), filepath.Join(root, "work"), inputs)
 	var events []string
 	checks, assemblies, err := executePlan(specs,
 		func(index int, spec commandSpec) (evidence.VerificationCheck, error) {
@@ -219,7 +213,7 @@ func TestExecuteCommandCapturesLogsExitAndEmptyOutputGate(t *testing.T) {
 
 	t.Run("success", func(t *testing.T) {
 		spec := helperSpec(executable, "success", "hello", "warning", 0)
-		check, err := executeCommand(context.Background(), root, logs, 0, spec, advancingClock())
+		check, err := executeCommand(t.Context(), root, logs, 0, spec, advancingClock())
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -232,7 +226,7 @@ func TestExecuteCommandCapturesLogsExitAndEmptyOutputGate(t *testing.T) {
 
 	t.Run("nonzero logs are preserved", func(t *testing.T) {
 		spec := helperSpec(executable, "failure", "partial", "fatal", 7)
-		check, err := executeCommand(context.Background(), root, logs, 1, spec, advancingClock())
+		check, err := executeCommand(t.Context(), root, logs, 1, spec, advancingClock())
 		if err == nil || check.ExitCode != 7 {
 			t.Fatalf("check=%#v err=%v", check, err)
 		}
@@ -243,7 +237,7 @@ func TestExecuteCommandCapturesLogsExitAndEmptyOutputGate(t *testing.T) {
 	t.Run("format output fails closed", func(t *testing.T) {
 		spec := helperSpec(executable, "format", "diff", "", 0)
 		spec.requireEmptyStdout = true
-		check, err := executeCommand(context.Background(), root, logs, 2, spec, advancingClock())
+		check, err := executeCommand(t.Context(), root, logs, 2, spec, advancingClock())
 		if err == nil || check.ExitCode != 0 || !strings.Contains(err.Error(), "forbidden stdout") {
 			t.Fatalf("check=%#v err=%v", check, err)
 		}
@@ -290,11 +284,11 @@ func TestOutputInvalidationAndAtomicNoOverwrite(t *testing.T) {
 	assertFile(t, sentinel, "keep")
 
 	atomicPath := filepath.Join(parent, "atomic.json")
-	if err := writeNewFileAtomic(atomicPath, []byte("first"), 0o644); err != nil {
+	if err := support.WriteNewFileAtomic(atomicPath, []byte("first"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := writeNewFileAtomic(atomicPath, []byte("second"), 0o644); err == nil {
-		t.Fatal("writeNewFileAtomic replaced an existing file")
+	if err := support.WriteNewFileAtomic(atomicPath, []byte("second"), 0o644); err == nil {
+		t.Fatal("support.WriteNewFileAtomic replaced an existing file")
 	}
 	assertFile(t, atomicPath, "first")
 	if matches, err := filepath.Glob(filepath.Join(parent, ".atomic.json.tmp-*")); err != nil || len(matches) != 0 {

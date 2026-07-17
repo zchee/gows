@@ -127,10 +127,7 @@ func run(ctx context.Context, cfg config) (_ phase0.Result, resultErr error) {
 		}
 	}()
 
-	specs, err := buildCommandSpecs(root, output, workDir, commandInputs)
-	if err != nil {
-		return phase0.Result{}, err
-	}
+	specs := buildCommandSpecs(root, output, workDir, commandInputs)
 	checks, assemblies, err := executePlan(
 		specs,
 		func(index int, spec commandSpec) (evidence.VerificationCheck, error) {
@@ -201,7 +198,7 @@ func run(ctx context.Context, cfg config) (_ phase0.Result, resultErr error) {
 	if err != nil {
 		return phase0.Result{}, err
 	}
-	if err := writeNewFileAtomic(filepath.Join(verificationDir, "manifest.json"), manifestRaw, 0o644); err != nil {
+	if err := support.WriteNewFileAtomic(filepath.Join(verificationDir, "manifest.json"), manifestRaw, 0o644); err != nil {
 		return phase0.Result{}, err
 	}
 	if err := evidence.ValidateVerificationBundle(verificationDir, identity, commandInputs); err != nil {
@@ -247,7 +244,7 @@ func run(ctx context.Context, cfg config) (_ phase0.Result, resultErr error) {
 	}
 	tx.stage = "result-publication"
 	resultPath := filepath.Join(output, phase0.ResultFile)
-	if err := writeNewFileAtomic(resultPath, resultRaw, 0o644); err != nil {
+	if err := support.WriteNewFileAtomic(resultPath, resultRaw, 0o644); err != nil {
 		return phase0.Result{}, err
 	}
 	loaded, err := phase0.Load(resultPath)
@@ -286,7 +283,7 @@ func (tx *outputTransaction) invalidate(cause error) error {
 	if err != nil {
 		return err
 	}
-	if err := writeNewFileAtomic(filepath.Join(tx.root, "INVALIDATED.json"), raw, 0o644); err != nil {
+	if err := support.WriteNewFileAtomic(filepath.Join(tx.root, "INVALIDATED.json"), raw, 0o644); err != nil {
 		return fmt.Errorf("write verification invalidation: %w", err)
 	}
 	return nil
@@ -458,65 +455,6 @@ func marshalJSON(value any) ([]byte, error) {
 		return nil, err
 	}
 	return append(raw, '\n'), nil
-}
-
-// writeNewFileAtomic publishes data without ever replacing an existing file.
-// A same-directory hard link provides the atomic no-replace step after the
-// temporary file and its contents have been synced.
-func writeNewFileAtomic(path string, data []byte, mode os.FileMode) (resultErr error) {
-	if _, err := os.Lstat(path); err == nil {
-		return fmt.Errorf("destination already exists: %s", path)
-	} else if !errors.Is(err, os.ErrNotExist) {
-		return err
-	}
-	directory := filepath.Dir(path)
-	temporary, err := os.CreateTemp(directory, "."+filepath.Base(path)+".tmp-*")
-	if err != nil {
-		return err
-	}
-	temporaryPath := temporary.Name()
-	closed := false
-	defer func() {
-		if !closed {
-			resultErr = errors.Join(resultErr, temporary.Close())
-		}
-		resultErr = errors.Join(resultErr, removeIfExists(temporaryPath))
-	}()
-	if err := temporary.Chmod(mode); err != nil {
-		return err
-	}
-	if _, err := temporary.Write(data); err != nil {
-		return err
-	}
-	if err := temporary.Sync(); err != nil {
-		return err
-	}
-	if err := temporary.Close(); err != nil {
-		return err
-	}
-	closed = true
-	if err := os.Link(temporaryPath, path); err != nil {
-		if errors.Is(err, os.ErrExist) {
-			return fmt.Errorf("destination already exists: %s", path)
-		}
-		return err
-	}
-	if err := os.Remove(temporaryPath); err != nil {
-		return err
-	}
-	temporaryPath = ""
-	return syncDirectory(directory)
-}
-
-func removeIfExists(path string) error {
-	if path == "" {
-		return nil
-	}
-	err := os.Remove(path)
-	if errors.Is(err, os.ErrNotExist) {
-		return nil
-	}
-	return err
 }
 
 func syncDirectory(path string) error {

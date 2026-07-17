@@ -21,7 +21,7 @@ func TestWriteREADMEUpdatesOnlyGeneratedSections(t *testing.T) {
 	}
 	path := filepath.Join(t.TempDir(), "README.md")
 	raw := "before\n"
-	for _, name := range SectionNames() {
+	for _, name := range []string{moduleSection, policySection} {
 		begin, end := markers(name)
 		raw += begin + "\nstale\n" + end + "\n"
 	}
