@@ -749,16 +749,14 @@ func TestReadMessageFragmentedCompressed(t *testing.T) {
 // raw octets are RFC 7692 §7.2.3.1's worked example for compressing the
 // 5-byte ASCII string "Hello" (verified directly against stdlib
 // compress/flate: compressing "Hello" at any level and stripping the
-// trailing 4-byte sync-flush marker yields exactly these 7 octets), fed to
-// [Conn.ReadMessage] as hand-built wire frames rather than produced by this
-// package's own compressPayload.
+// trailing 4-byte sync-flush marker yields exactly rfc7692HelloFirst's 7
+// octets), fed to [Conn.ReadMessage] as hand-built wire frames rather than
+// produced by this package's own compressPayload.
 func TestDecompressRFC7692HelloExample(t *testing.T) {
 	t.Parallel()
 
-	stripped := []byte{0xf2, 0x48, 0xcd, 0xc9, 0xc9, 0x07, 0x00}
-
 	t.Run("single frame", func(t *testing.T) {
-		frame := frameBytes(true, OpcodeText, RSV1, true, testKey, stripped)
+		frame := frameBytes(true, OpcodeText, RSV1, true, testKey, rfc7692HelloFirst)
 		c := NewServerConn(&scriptConn{in: frame}, WithCompression(true))
 		op, p, err := c.ReadMessage()
 		if err != nil {
@@ -771,9 +769,9 @@ func TestDecompressRFC7692HelloExample(t *testing.T) {
 
 	t.Run("split across two frames per RFC worked example", func(t *testing.T) {
 		// First frame: RSV1 set, FIN=0, opcode=binary, 3 octets.
-		first := frameBytes(false, OpcodeBinary, RSV1, true, testKey, stripped[:3])
+		first := frameBytes(false, OpcodeBinary, RSV1, true, testKey, rfc7692HelloFirst[:3])
 		// Second frame: RSV1 unset, FIN=1, opcode=continuation, 4 octets.
-		second := frameBytes(true, OpcodeContinuation, 0, true, testKey, stripped[3:])
+		second := frameBytes(true, OpcodeContinuation, 0, true, testKey, rfc7692HelloFirst[3:])
 		in := append(append([]byte{}, first...), second...)
 
 		c := NewServerConn(&scriptConn{in: in}, WithCompression(true))

@@ -33,6 +33,8 @@ func serveBufferedEcho(c *Conn) error {
 
 // --- functional correctness -------------------------------------------------
 
+// TestServeEchoRoundTrip drives Serve end-to-end over scripted inbound frames
+// and verifies every handler invocation and coalesced reply byte-for-byte.
 func TestServeEchoRoundTrip(t *testing.T) {
 	t.Parallel()
 

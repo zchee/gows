@@ -46,9 +46,6 @@ func TestConnFieldLayout(t *testing.T) {
 	if off := unsafe.Offsetof(c.wmu); off != cacheLine {
 		t.Errorf("wmu (write block start) at offset %d, want %d (fresh 128B boundary)", off, cacheLine)
 	}
-	if off := unsafe.Offsetof(c.wmu); off%cacheLine != 0 {
-		t.Errorf("wmu at offset %d, not on a 128B boundary", off)
-	}
 
 	// Every read-hot field must lie wholly within the first 128B line.
 	readHot := []struct {

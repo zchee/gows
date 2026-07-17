@@ -160,7 +160,7 @@ func paddedUpgradeRequest(size int) []byte {
 }
 
 func FuzzDialProtocolState(f *testing.F) {
-	for mode := byte(0); mode < 12; mode++ {
+	for mode := range byte(12) {
 		f.Add(mode, []byte{0x81, 0x00}, uint16(7))
 	}
 
@@ -224,7 +224,7 @@ func FuzzDialProtocolState(f *testing.F) {
 				return fake, nil
 			},
 		}
-		conn, hs, err := d.Dial(context.Background(), "ws://example.invalid/fuzz")
+		conn, hs, err := d.Dial(t.Context(), "ws://example.invalid/fuzz")
 		if dialCalls != 1 {
 			t.Fatalf("NetDial calls = %d, want 1", dialCalls)
 		}
@@ -280,7 +280,7 @@ func FuzzDialProtocolState(f *testing.F) {
 				preNetworkCalls++
 				return nil, errors.New("unexpected network call")
 			},
-		}).Dial(context.Background(), "ws://example.invalid/")
+		}).Dial(t.Context(), "ws://example.invalid/")
 		if !errors.Is(preErr, ErrInvalidWindowBits) || preNetworkCalls != 0 {
 			t.Fatalf("pre-network validation = err:%v calls:%d", preErr, preNetworkCalls)
 		}
@@ -289,7 +289,7 @@ func FuzzDialProtocolState(f *testing.F) {
 
 func requestHeaderValue(request []byte, name string) string {
 	prefix := strings.ToLower(name) + ":"
-	for _, line := range strings.Split(string(request), "\r\n") {
+	for line := range strings.SplitSeq(string(request), "\r\n") {
 		if strings.HasPrefix(strings.ToLower(line), prefix) {
 			return strings.TrimSpace(line[len(prefix):])
 		}
@@ -399,7 +399,7 @@ func readMessageFuzz(t *testing.T, wire []byte, chunk int, compression, clientRo
 func readFuzzStream(r io.Reader) ([]byte, error) {
 	var out bytes.Buffer
 	buf := make([]byte, fuzzChunkLimit)
-	for reads := 0; reads < fuzzReadLimit; reads++ {
+	for range fuzzReadLimit {
 		n, err := r.Read(buf)
 		_, _ = out.Write(buf[:n])
 		if err != nil {
@@ -429,8 +429,7 @@ func normalizeFuzzRead(op Opcode, payload []byte, err error) fuzzReadResult {
 		r.errID = "io.ErrUnexpectedEOF"
 		return r
 	}
-	var ce *CloseError
-	if errors.As(err, &ce) {
+	if ce, ok := errors.AsType[*CloseError](err); ok {
 		r.closeCode = ce.Code
 	}
 	r.closed = errors.Is(err, net.ErrClosed)
@@ -780,13 +779,14 @@ func FuzzHeaderTableDifferential(f *testing.F) {
 	})
 }
 
-// TestHeaderTableDifferentialSeeds runs the differential check over the fuzz
-// seed corpus deterministically, so the parity guarantee is exercised by the
-// normal (non-fuzz) test run as well.
+// TestHeaderTableDifferentialSeeds runs the differential check over two
+// header shapes per b0 value that the fuzz seed corpus lacks: a masked
+// minimal header and a masked 16-bit-length header. (The unmasked two-byte
+// shape needs no duplication here -- the seed corpus covers it for every b0,
+// and a plain `go test` already executes FuzzHeaderTableDifferential's seeds.)
 func TestHeaderTableDifferentialSeeds(t *testing.T) {
 	t.Parallel()
 	for b0 := range 256 {
-		diffHeaderDecode(t, []byte{byte(b0), 0x00})
 		diffHeaderDecode(t, []byte{byte(b0), 0x80, 1, 2, 3, 4})
 		diffHeaderDecode(t, []byte{byte(b0), 0xfe, 0x04, 0x00, 1, 2, 3, 4})
 	}

@@ -675,7 +675,7 @@ func TestVectoredDetection(t *testing.T) {
 		if _, ok := accepted.(*net.UnixConn); !ok {
 			t.Fatalf("accepted conn is %T, want *net.UnixConn", accepted)
 		}
-		if c := NewClientConn(dialed); !c.vectored {
+		if c := NewServerConn(accepted); !c.vectored {
 			t.Errorf("*net.UnixConn: vectored=false, want true")
 		}
 	})
