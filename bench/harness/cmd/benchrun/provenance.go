@@ -3,8 +3,6 @@ package main
 import (
 	"bytes"
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"fmt"
 	"os"
 	"os/exec"
@@ -40,7 +38,7 @@ type CapturedProvenance struct {
 }
 
 func captureProvenance(ctx context.Context, moduleRoot, out, goExperiment string, binaries map[string]string) (CapturedProvenance, error) {
-	toolchainEnv := overrideEnvironment(os.Environ(), canonicalToolchainEnvironment(goExperiment).assignments()...)
+	toolchainEnv := support.MergeEnv(os.Environ(), canonicalToolchainEnvironment(goExperiment).assignments()...)
 	goTool := goToolPath()
 	sourceTree, err := captureCommandArtifact(ctx, out, "provenance/source-tree.txt", moduleRoot, nil, "git", "ls-tree", "-r", "--full-tree", "HEAD")
 	if err != nil {
@@ -82,7 +80,7 @@ func captureProvenance(ctx context.Context, moduleRoot, out, goExperiment string
 		if !info.Mode().IsRegular() {
 			return CapturedProvenance{}, fmt.Errorf("provenance: binary %s is not regular", name)
 		}
-		sum, err := sha256File(path)
+		sum, sumSize, err := support.FileSHA256(path)
 		if err != nil {
 			return CapturedProvenance{}, err
 		}
@@ -94,7 +92,7 @@ func captureProvenance(ctx context.Context, moduleRoot, out, goExperiment string
 		if err != nil || !filepath.IsLocal(relative) {
 			return CapturedProvenance{}, fmt.Errorf("provenance: binary %s path %s is outside output root %s", name, path, out)
 		}
-		binaryProvenance[name] = BinaryProvenance{Path: filepath.ToSlash(relative), SHA256: sum, SizeBytes: info.Size(), GoVersionM: version}
+		binaryProvenance[name] = BinaryProvenance{Path: filepath.ToSlash(relative), SHA256: sum, SizeBytes: sumSize, GoVersionM: version}
 	}
 	moduleSum, err := hashFileSet(filepath.Dir(moduleRoot), []string{"go.mod", "go.sum", "bench/go.mod", "bench/go.sum", "flatekp/go.mod", "flatekp/go.sum"})
 	if err != nil {
@@ -129,8 +127,7 @@ func captureCommandArtifact(ctx context.Context, out, relative, dir string, env 
 	if err := support.WriteFileAtomic(path, raw, 0o644); err != nil {
 		return ProvenanceArtifact{}, err
 	}
-	hash := sha256.Sum256(raw)
-	return ProvenanceArtifact{Path: relative, SHA256: hex.EncodeToString(hash[:]), SizeBytes: int64(len(raw))}, nil
+	return ProvenanceArtifact{Path: relative, SHA256: sha256Bytes(raw), SizeBytes: int64(len(raw))}, nil
 }
 
 func safeName(value string) string {

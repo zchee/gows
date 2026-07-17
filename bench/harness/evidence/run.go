@@ -223,7 +223,7 @@ func resolveRun(store artifact.Store, ref artifact.Ref, repository RepositoryIde
 
 	run := resolvedRun{
 		Reference: ref, Receipt: receipt, Files: files, Manifest: manifest,
-		Policy: policyValue, PolicyRaw: append([]byte(nil), policyRaw...), Samples: samples, Started: started, Ended: ended,
+		Policy: policyValue, PolicyRaw: bytes.Clone(policyRaw), Samples: samples, Started: started, Ended: ended,
 	}
 	if err := validateRunIdentity(run, repository, policySum, done, envStart, envEnd, root); err != nil {
 		return resolvedRun{}, err
@@ -548,8 +548,7 @@ func validateModuleGraph(run resolvedRun, root string) (map[string]moduleRecord,
 	if artifactSum != currentSum {
 		return nil, fmt.Errorf("evidence: run %s module graph differs from the clean current source graph", run.Receipt.SessionID)
 	}
-	file := bytes.NewReader(raw)
-	decoder := json.NewDecoder(bufio.NewReader(file))
+	decoder := json.NewDecoder(bytes.NewReader(raw))
 	foundRoot := false
 	foundQuickWS := false
 	modules := make(map[string]moduleRecord)
@@ -928,7 +927,7 @@ func nearlyEqual(left, right float64) bool {
 		return true
 	}
 	delta := math.Abs(left - right)
-	scale := math.Max(1, math.Max(math.Abs(left), math.Abs(right)))
+	scale := max(1, math.Abs(left), math.Abs(right))
 	return delta <= 1e-12*scale
 }
 

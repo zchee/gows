@@ -17,7 +17,6 @@ import (
 	"path/filepath"
 	"reflect"
 	"slices"
-	"sort"
 	"strings"
 
 	"github.com/zchee/gows/bench/harness/support"
@@ -67,7 +66,7 @@ func WriteBundle(outputDir string, bundle Bundle, requireRuntime bool) (resultEr
 	for artifactPath := range bundle.Artifacts {
 		paths = append(paths, artifactPath)
 	}
-	sort.Strings(paths)
+	slices.Sort(paths)
 	for _, artifactPath := range paths {
 		if err := writeImmutableFile(tempDir, artifactPath, bundle.Artifacts[artifactPath]); err != nil {
 			return err

@@ -141,7 +141,7 @@ func run() (resultErr error) {
 	goExperiment := pol.Series.GoExperiment
 	toolchainEnvironment := canonicalToolchainEnvironment(goExperiment)
 	runtimeEnvironment := canonicalRuntimeEnvironment()
-	childEnvironment := overrideEnvironment(os.Environ(), append(toolchainEnvironment.assignments(), runtimeEnvironment.assignments()...)...)
+	childEnvironment := support.MergeEnv(os.Environ(), append(toolchainEnvironment.assignments(), runtimeEnvironment.assignments()...)...)
 
 	out := *outFlag
 	if out == "" {
@@ -194,22 +194,18 @@ func run() (resultErr error) {
 		return fmt.Errorf("copy policy: %w", err)
 	}
 
-	echoSum, err := sha256File(echoserverBin)
+	echoSum, _, err := support.FileSHA256(echoserverBin)
 	if err != nil {
 		return err
 	}
-	loadSum, err := sha256File(loadgenBin)
+	loadSum, _, err := support.FileSHA256(loadgenBin)
 	if err != nil {
 		return err
 	}
 	goTool := goToolPath()
-	goToolSum, err := sha256File(goTool)
+	goToolSum, goToolSize, err := support.FileSHA256(goTool)
 	if err != nil {
 		return err
-	}
-	goToolInfo, err := os.Stat(goTool)
-	if err != nil {
-		return fmt.Errorf("stat Go tool: %w", err)
 	}
 
 	// Resolve candidate and comparator through any library overrides, then
@@ -241,7 +237,7 @@ func run() (resultErr error) {
 		if err := buildBinaryEnv(ctx, moduleRoot, "/harness/cmd/echoserver", bin, goExperiment, r.BuildEnv); err != nil {
 			return err
 		}
-		sum, err := sha256File(bin)
+		sum, _, err := support.FileSHA256(bin)
 		if err != nil {
 			return err
 		}
@@ -253,7 +249,7 @@ func run() (resultErr error) {
 	}
 	binarySums := make(map[string]string, 2)
 	for _, name := range []string{pol.Candidate, pol.Comparator} {
-		sum, err := sha256File(binPaths[name])
+		sum, _, err := support.FileSHA256(binPaths[name])
 		if err != nil {
 			return err
 		}
@@ -325,7 +321,7 @@ func run() (resultErr error) {
 		GoVersion:              toolchainGoVersion(goExperiment),
 		GoBinaryPath:           goTool,
 		GoBinarySHA256:         goToolSum,
-		GoBinarySizeBytes:      goToolInfo.Size(),
+		GoBinarySizeBytes:      goToolSize,
 		HarnessRuntimeVersion:  runtime.Version(),
 		GOOS:                   runtime.GOOS,
 		GOARCH:                 runtime.GOARCH,
@@ -923,7 +919,7 @@ func validateRunIdentity(moduleRoot, out, commit, remote, branch, status, tree, 
 	if gotModuleSum != moduleSum {
 		return fmt.Errorf("end identity module files SHA-256 = %s, want %s", gotModuleSum, moduleSum)
 	}
-	gotPolicySum, err := sha256File(filepath.Join(out, "policy.json"))
+	gotPolicySum, _, err := support.FileSHA256(filepath.Join(out, "policy.json"))
 	if err != nil {
 		return fmt.Errorf("end identity policy: %w", err)
 	}
@@ -944,7 +940,7 @@ func validateRunIdentity(moduleRoot, out, commit, remote, branch, status, tree, 
 		if !ok {
 			return fmt.Errorf("end identity binary %q lacks start provenance", name)
 		}
-		got, err := sha256File(path)
+		got, _, err := support.FileSHA256(path)
 		if err != nil {
 			return fmt.Errorf("end identity binary %q: %w", name, err)
 		}
@@ -995,7 +991,7 @@ func hashFileSet(root string, paths []string) (string, error) {
 		if !filepath.IsLocal(relative) {
 			return "", fmt.Errorf("source path %q is not local", relative)
 		}
-		sum, err := sha256File(filepath.Join(root, relative))
+		sum, _, err := support.FileSHA256(filepath.Join(root, relative))
 		if err != nil {
 			return "", err
 		}
@@ -1018,32 +1014,13 @@ func hashFileSet(root string, paths []string) (string, error) {
 func buildBinaryEnv(ctx context.Context, moduleRoot, pkgSuffix, outPath, goExperiment string, extraEnv []string) error {
 	cmd := exec.CommandContext(ctx, goToolPath(), "build", "-mod=mod", "-o", outPath, moduleImport+pkgSuffix)
 	cmd.Dir = moduleRoot
-	cmd.Env = overrideEnvironment(os.Environ(), append(canonicalToolchainEnvironment(goExperiment).assignments(), extraEnv...)...)
+	cmd.Env = support.MergeEnv(os.Environ(), append(canonicalToolchainEnvironment(goExperiment).assignments(), extraEnv...)...)
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 	if err := cmd.Run(); err != nil {
 		return fmt.Errorf("build %s (env %v): %w: %s", pkgSuffix, extraEnv, err, strings.TrimSpace(stderr.String()))
 	}
 	return nil
-}
-
-func overrideEnvironment(base []string, overrides ...string) []string {
-	keys := make(map[string]struct{}, len(overrides))
-	for _, override := range overrides {
-		key, _, ok := strings.Cut(override, "=")
-		if ok {
-			keys[key] = struct{}{}
-		}
-	}
-	result := make([]string, 0, len(base)+len(overrides))
-	for _, entry := range base {
-		key, _, ok := strings.Cut(entry, "=")
-		if _, replaced := keys[key]; ok && replaced {
-			continue
-		}
-		result = append(result, entry)
-	}
-	return append(result, overrides...)
 }
 
 func validateBinaryToolchain(path string, series policy.ToolchainSeries, expectedExperiment string) error {
@@ -1089,7 +1066,7 @@ func canonicalExperiment(value string) string {
 
 func toolchainGoVersion(goExperiment string) string {
 	cmd := exec.Command(goToolPath(), "version")
-	cmd.Env = overrideEnvironment(os.Environ(), canonicalToolchainEnvironment(goExperiment).assignments()...)
+	cmd.Env = support.MergeEnv(os.Environ(), canonicalToolchainEnvironment(goExperiment).assignments()...)
 	out, err := cmd.Output()
 	if err != nil {
 		return "unavailable: " + err.Error()
@@ -1115,22 +1092,6 @@ func uniqueStrings(values []string) []string {
 		result = append(result, value)
 	}
 	return result
-}
-
-// sha256File returns the hex SHA-256 of a file's contents.
-func sha256File(path string) (_ string, resultErr error) {
-	f, err := os.Open(path)
-	if err != nil {
-		return "", fmt.Errorf("hash %s: %w", path, err)
-	}
-	defer func() {
-		resultErr = errors.Join(resultErr, f.Close())
-	}()
-	h := sha256.New()
-	if _, err := io.Copy(h, f); err != nil {
-		return "", fmt.Errorf("hash %s: %w", path, err)
-	}
-	return hex.EncodeToString(h.Sum(nil)), nil
 }
 
 // captureEnv snapshots the host environment. Best-effort: a missing tool

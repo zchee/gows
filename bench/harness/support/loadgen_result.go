@@ -21,7 +21,7 @@ const MaxOpenLoopRate = 1_000_000_000
 // summary, so the two outputs never disagree; the client resource fields come
 // from the loadgen process's own getrusage(RUSAGE_SELF), never from a net.Conn
 // counting wrapper. Client names the WebSocket client transport that drove the
-// run ("gows" or "gobwas"), so a sample records which client stack produced its
+// run ("gows", "gobwas", or "raw"), so a sample records which client stack produced its
 // figures. The schema is fixed (no omitzero): every line carries every field,
 // so samples.jsonl stays uniformly greppable and jq-able without per-field
 // presence checks.

@@ -13,7 +13,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
-	"sort"
+	"slices"
 	"strings"
 )
 
@@ -116,7 +116,7 @@ func parseNULPaths(data []byte) ([]string, error) {
 		}
 		paths = append(paths, name)
 	}
-	sort.Strings(paths)
+	slices.Sort(paths)
 	for index := 1; index < len(paths); index++ {
 		if paths[index] == paths[index-1] {
 			return nil, fmt.Errorf("repository source list contains duplicate path %q", paths[index])
@@ -210,7 +210,7 @@ func collectCorpus(repoRoot string, paths []string) ([]Corpus, error) {
 	corpus := make([]Corpus, 0, len(classes))
 	for _, class := range classes {
 		files := byClass[class]
-		sort.Slice(files, func(i, j int) bool { return files[i].Path < files[j].Path })
+		slices.SortFunc(files, func(a, b SourceFile) int { return strings.Compare(a.Path, b.Path) })
 		if len(files) == 0 {
 			return nil, fmt.Errorf("repository has no %s corpus", class)
 		}

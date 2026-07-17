@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 
 	"github.com/zchee/gows/bench/harness/artifact"
 	"github.com/zchee/gows/bench/harness/policy"
@@ -75,18 +76,28 @@ func EvaluateAARunReceipts(root string, store artifact.Store, repository Reposit
 	if err := validateAARunRecords(records, make(map[string]string, len(records))); err != nil {
 		return AAVerdict{}, err
 	}
+	runs, err := resolveAARuns(store, records, repository, root)
+	if err != nil {
+		return AAVerdict{}, err
+	}
+	return evaluateAA(runs)
+}
+
+// resolveAARuns resolves every A/A run record and validates it against the
+// tracked A/A policy requirement, preserving record order.
+func resolveAARuns(store artifact.Store, records []RunEvidence, repository RepositoryIdentity, root string) ([]resolvedRun, error) {
 	runs := make([]resolvedRun, len(records))
 	for i, record := range records {
 		run, err := resolveRun(store, record.Run, repository, root)
 		if err != nil {
-			return AAVerdict{}, fmt.Errorf("evidence: A/A %s: %w", record.Role, err)
+			return nil, fmt.Errorf("evidence: A/A %s: %w", record.Role, err)
 		}
 		if err := validateTrackedRunPolicy(root, repository.SourceHead, aaPolicyRequirement, run); err != nil {
-			return AAVerdict{}, fmt.Errorf("evidence: A/A %s: %w", record.Role, err)
+			return nil, fmt.Errorf("evidence: A/A %s: %w", record.Role, err)
 		}
 		runs[i] = run
 	}
-	return evaluateAA(runs)
+	return runs, nil
 }
 
 // EvaluateDirectory resolves and validates every artifact reachable from the
@@ -115,16 +126,9 @@ func EvaluateDirectory(evidenceDir string, requireTrackedVerdict bool) (Verdict,
 		return Verdict{}, nil, err
 	}
 
-	aaRuns := make([]resolvedRun, len(receipt.AARuns))
-	for i, record := range receipt.AARuns {
-		run, err := resolveRun(store, record.Run, receipt.Repository, state.Root)
-		if err != nil {
-			return Verdict{}, nil, fmt.Errorf("evidence: A/A %s: %w", record.Role, err)
-		}
-		if err := validateTrackedRunPolicy(state.Root, receipt.Repository.SourceHead, aaPolicyRequirement, run); err != nil {
-			return Verdict{}, nil, fmt.Errorf("evidence: A/A %s: %w", record.Role, err)
-		}
-		aaRuns[i] = run
+	aaRuns, err := resolveAARuns(store, receipt.AARuns, receipt.Repository, state.Root)
+	if err != nil {
+		return Verdict{}, nil, err
 	}
 	baselineRuns := make(map[string]resolvedRun, len(receipt.BaselineRuns))
 	for _, record := range receipt.BaselineRuns {
@@ -166,7 +170,7 @@ func EvaluateDirectory(evidenceDir string, requireTrackedVerdict bool) (Verdict,
 		SourceHead:    receipt.Repository.SourceHead,
 		SourceSHA256:  receipt.Repository.SourceSHA256,
 		ReceiptSHA256: hex.EncodeToString(receiptSum[:]),
-		AARunRefs:     append([]RunEvidence(nil), receipt.AARuns...),
+		AARunRefs:     slices.Clone(receipt.AARuns),
 		BaselineRefs:  canonicalBaselineRefs(receipt.BaselineRuns),
 		AA:            aa,
 		Baselines:     baselines,

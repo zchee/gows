@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"strings"
@@ -24,7 +25,7 @@ func FileSHA256(path string) (sum string, size int64, resultErr error) {
 	hash := sha256.New()
 	size, err = io.Copy(hash, file)
 	if err != nil {
-		return "", 0, err
+		return "", 0, fmt.Errorf("hash %s: %w", path, err)
 	}
 	return hex.EncodeToString(hash.Sum(nil)), size, nil
 }

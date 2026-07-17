@@ -12,6 +12,7 @@ import (
 	"flag"
 	"fmt"
 	"log"
+	"math"
 	"net"
 	"os"
 	"os/signal"
@@ -677,6 +678,9 @@ func measureClosedLoop(clients []wsClient, recorders []*support.LatencyRecorder,
 }
 
 type arrival struct {
+	// Sequence is the scheduler-assigned arrival index. Production workers
+	// read only Scheduled; Sequence exists so ordering tests can assert the
+	// no-catch-up-burst dispatch property.
 	Sequence  int64
 	Scheduled time.Time
 }
@@ -690,7 +694,7 @@ func scheduledArrival(start time.Time, sequence int64, rate int) (time.Time, err
 	}
 	seconds := sequence / int64(rate)
 	remainder := sequence % int64(rate)
-	if seconds > int64(^uint64(0)>>1)/int64(time.Second) {
+	if seconds > math.MaxInt64/int64(time.Second) {
 		return time.Time{}, fmt.Errorf("loadgen: arrival sequence %d overflows duration", sequence)
 	}
 	offset := time.Duration(seconds)*time.Second + time.Duration(remainder)*time.Second/time.Duration(rate)
@@ -843,7 +847,7 @@ func scheduledArrivalsThrough(start, now time.Time, rate int) (int64, error) {
 		return 0, nil
 	}
 	elapsed := now.Sub(start)
-	if elapsed == time.Duration(1<<63-1) {
+	if elapsed == time.Duration(math.MaxInt64) {
 		return 0, fmt.Errorf("loadgen: scheduler elapsed time overflows arrival count")
 	}
 	return support.OpenLoopOfferedMessages(elapsed+time.Nanosecond, rate)
@@ -1010,9 +1014,9 @@ func startCPUProfile(path string) (func() error, error) {
 }
 
 func printHuman(result support.LoadgenResult) {
-	megabytesPerSecond := result.ThroughputMessagesPerSecond * float64(result.PayloadBytes*2) / (1024 * 1024)
+	mebibytesPerSecond := result.ThroughputMessagesPerSecond * float64(result.PayloadBytes*2) / (1024 * 1024)
 	fmt.Printf("client=%s message=%s arrival=%s conns=%d payload=%dB duration=%s\n", result.Client, result.MessageType, result.Arrival, result.Connections, result.PayloadBytes, time.Duration(result.DurationNanoseconds))
-	fmt.Printf("offered=%.0f achieved=%.0f rejected=%.0f msg/s throughput=%.2f MiB/s\n", result.OfferedMessagesPerSecond, result.ThroughputMessagesPerSecond, result.RejectedMessagesPerSecond, megabytesPerSecond)
+	fmt.Printf("offered=%.0f achieved=%.0f rejected=%.0f msg/s throughput=%.2f MiB/s\n", result.OfferedMessagesPerSecond, result.ThroughputMessagesPerSecond, result.RejectedMessagesPerSecond, mebibytesPerSecond)
 	fmt.Printf("latency corrected p50=%s p90=%s p99=%s p999=%s seen=%d recorded=%d dropped=%d overflow=%d\n", time.Duration(result.P50Nanoseconds), time.Duration(result.P90Nanoseconds), time.Duration(result.P99Nanoseconds), time.Duration(result.P999Nanoseconds), result.Latency.Corrected.Seen, result.Latency.Corrected.Recorded, result.Latency.Corrected.Dropped, result.Latency.Corrected.Overflow)
 	fmt.Printf("errors=%d mismatches=%d dropped=%d queue_overflows=%d client_cpu=%.3fs client_maxrss=%dB\n", result.Errors, result.VerificationMismatches, result.DroppedMessages, result.QueueOverflows, result.ClientCPUSeconds, result.ClientMaxRSSBytes)
 }

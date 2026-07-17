@@ -21,8 +21,9 @@ import (
 )
 
 // bufferSize is the shared read/write buffer size (bytes) applied to every
-// library that exposes such a knob, per plan §8 fairness rules. It is also the
-// read-buffer size of the stock "gows" and "gows-noutf8" variants.
+// library that exposes such a knob, per plan §8 fairness rules. It is also
+// the read-buffer size of the stock "gows", "gows-noutf8", and "gows-serve"
+// variants.
 const bufferSize = 4096
 
 // runner starts a blocking echo server on addr and returns when ctx is
@@ -40,8 +41,9 @@ var runners = map[string]runner{
 	"quickws":  runQuickWS,
 	"fasthttp": runFastHTTP,
 	"nbio":     runNBIO,
-	// The four gows variants share runGoWS; their read-buffer size and UTF-8
-	// setting come from gowsVariants, applied to cfg before dispatch.
+	// The five gows variants share runGoWS; their read-buffer size, UTF-8
+	// setting, and Serve-loop selection come from gowsVariants, applied to
+	// cfg before dispatch.
 	"gows":         runGoWS,
 	"gows-noutf8":  runGoWS,
 	"gows-rbuf1k":  runGoWS,

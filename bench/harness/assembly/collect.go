@@ -15,7 +15,6 @@ import (
 	"regexp"
 	"runtime"
 	"slices"
-	"sort"
 	"strings"
 
 	"github.com/zchee/gows/bench/harness/support"
@@ -121,7 +120,7 @@ func Collect(ctx context.Context, cfg Config) (_ Bundle, resultErr error) {
 	if err != nil {
 		return Bundle{}, fmt.Errorf("assembly collect: read resolved Go tool %q: %w", goTool, err)
 	}
-	env := targetEnvironment(os.Environ(), cfg.GOOS, cfg.GOARCH, goRoot, "latest")
+	env := targetEnvironment(os.Environ(), cfg.GOOS, cfg.GOARCH, goRoot)
 	artifacts := make(map[string][]byte)
 	targetID := cfg.GOOS + "-" + cfg.GOARCH
 	repository.Identity.Status = addArtifact(artifacts, "repository/status.txt", repository.Status)
@@ -377,13 +376,13 @@ func compilerGoRoot() string {
 	return runtime.GOROOT() //nolint:staticcheck // Exact build-toolchain identity is required by assembly provenance.
 }
 
-func targetEnvironment(base []string, goos, goarch, goroot, gofips140 string) []string {
+func targetEnvironment(base []string, goos, goarch, goroot string) []string {
 	overrides := map[string]string{
 		"CGO_ENABLED":  "0",
 		"GOARCH":       goarch,
 		"GOENV":        "off",
 		"GOEXPERIMENT": "",
-		"GOFIPS140":    gofips140,
+		"GOFIPS140":    "latest",
 		"GOFLAGS":      "-mod=mod",
 		"GOOS":         goos,
 		"GOROOT":       goroot,
@@ -411,7 +410,7 @@ func targetEnvironment(base []string, goos, goarch, goroot, gofips140 string) []
 	for name := range overrides {
 		keys = append(keys, name)
 	}
-	sort.Strings(keys)
+	slices.Sort(keys)
 	for _, name := range keys {
 		env = append(env, name+"="+overrides[name])
 	}
@@ -460,7 +459,7 @@ func decodeGraph(data []byte) ([]GraphNode, error) {
 			nodes = append(nodes, GraphNode{ImportPath: listed.ImportPath, Class: class})
 		}
 	}
-	sort.Slice(nodes, func(i, j int) bool { return nodes[i].ImportPath < nodes[j].ImportPath })
+	slices.SortFunc(nodes, func(a, b GraphNode) int { return strings.Compare(a.ImportPath, b.ImportPath) })
 	return nodes, nil
 }
 
@@ -510,7 +509,7 @@ func hashSelectedFiles(repoRoot string, listed listedPackage) ([]SourceFile, err
 			})
 		}
 	}
-	sort.Slice(files, func(i, j int) bool { return files[i].Path < files[j].Path })
+	slices.SortFunc(files, func(a, b SourceFile) int { return strings.Compare(a.Path, b.Path) })
 	return files, nil
 }
 

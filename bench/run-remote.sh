@@ -3,9 +3,9 @@
 # the harness in Phase 5) to a remote host, run the same baseline commands
 # there with the remote's own Go toolchain, and copy results/ back.
 #
-# Intended target per plan: ssh debian-trixie-xslq.asia-northeast1-c.gaudiy-platform
+# Intended target per plan: ssh debian-13-trixie.gaudiy-platform
 # (linux/amd64, Sapphire Rapids 8481C). Confirmed provisioned: Go 1.26.5 at
-# ~/sdk/go1.26.5/bin/go, docker working non-root. Bare `go` does NOT resolve
+# ~/sdk/go1.26.5/bin/go. Bare `go` does NOT resolve
 # over non-interactive ssh (no login shell, no PATH sourcing) — every go
 # invocation below uses the absolute ${REMOTE_GO} path for that reason.
 set -euo pipefail

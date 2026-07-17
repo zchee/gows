@@ -1,6 +1,9 @@
-// Package support provides shared, non-hot-path utilities for the bench
-// harness: deterministic payload generation, latency sample recording, and
-// server-side MemStats collection over HTTP.
+// Package support provides the shared utilities of the bench harness:
+// deterministic payload generation and echo verification, mergeable HDR
+// latency recording, allocation/MemStats/rusage accounting, atomic file and
+// JSON I/O, SHA-256 helpers, environment merging, host boot identity,
+// module-root resolution, and the loadgen result schema. Payload verification and latency recording sit
+// on the per-message hot path; the rest is control-plane code.
 package support
 
 import "unicode/utf8"

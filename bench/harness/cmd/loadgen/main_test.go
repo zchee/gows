@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"errors"
 	"strings"
 	"testing"
@@ -330,14 +331,14 @@ type drainingEchoClient struct {
 }
 
 func (c *drainingEchoClient) WriteMessage(payload []byte) error {
-	c.payload = append([]byte(nil), payload...)
+	c.payload = bytes.Clone(payload)
 	close(c.written)
 	return nil
 }
 
 func (c *drainingEchoClient) ReadMessage() ([]byte, error) {
 	<-c.release
-	return append([]byte(nil), c.payload...), nil
+	return bytes.Clone(c.payload), nil
 }
 
 func (*drainingEchoClient) SetDeadline(time.Time) error { return nil }

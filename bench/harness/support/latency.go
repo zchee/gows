@@ -9,7 +9,9 @@ import (
 )
 
 // Percentiles holds the machine-readable latency tail summary reconstructed
-// from an HDR histogram snapshot.
+// from an HDR histogram snapshot. N carries the reconstructed observation
+// count for test assertions and diagnostics; production accounting reads the
+// HistogramCounts counters instead.
 type Percentiles struct {
 	P50, P90, P99, P999 time.Duration
 	N                   int

@@ -1,6 +1,8 @@
 // Package paired computes paired ratio statistics (candidate divided by
-// comparator, repetition by repetition) with deterministic median-bootstrap
-// confidence intervals for the benchmark harness. Every function here is
+// comparator, repetition by repetition) for the benchmark harness:
+// deterministic median-bootstrap confidence intervals plus the
+// session/block-preserving hierarchical bootstrap and AB/BA order-effect
+// inference used by the Phase 0 evaluator. Every function here is
 // pure and side-effect free apart from [LoadSamples], which reads a
 // samples.jsonl file; determinism is guaranteed for a fixed seed so a verdict
 // can be reproduced exactly.

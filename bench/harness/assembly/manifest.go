@@ -5,6 +5,7 @@ package assembly
 import (
 	"errors"
 	"fmt"
+	"path"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -542,7 +543,7 @@ func validateSelectedFiles(packages map[string]PackageProvenance, goarch string)
 		}
 		selected := make(map[string]bool, len(pkg.SelectedFiles))
 		for _, file := range pkg.SelectedFiles {
-			base := file.Path[strings.LastIndex(file.Path, "/")+1:]
+			base := path.Base(file.Path)
 			if selected[file.Path] {
 				return fmt.Errorf("package %q contains duplicate selected source %q", importPath, file.Path)
 			}

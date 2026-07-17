@@ -1,9 +1,14 @@
-// Command benchcmp evaluates a benchrun output directory: it pairs candidate
-// and comparator samples per primary scenario, computes deterministic
-// median-bootstrap confidence intervals for throughput and tail latency,
-// applies the policy's gate thresholds, and writes verdict.json. It exits 0
-// when every gate passes, 1 on a gate failure, and 2 on a usage or data
-// error. See bench/README.md for the gate definitions.
+// Command benchcmp evaluates a benchrun output directory in one of two
+// modes. A Phase 0 run directory goes through the frozen receipt evaluator
+// (evidence.EvaluateDirectory): the default invocation is read-only and
+// requires the tracked verdict.json, while -write-verdict — which must name
+// <run>/verdict.json — writes the freshly generated verdict instead. A
+// legacy diagnostic run is paired per primary scenario: benchcmp computes
+// deterministic median-bootstrap confidence intervals for throughput and
+// tail latency, applies the policy's gate thresholds, and writes
+// verdict.json. Both modes exit 0 when every gate passes, 1 on a gate
+// failure, and 2 on a usage or data error. See bench/README.md for the gate
+// definitions.
 package main
 
 import (

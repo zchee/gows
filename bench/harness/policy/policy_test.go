@@ -1,8 +1,10 @@
 package policy
 
 import (
+	"io/fs"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -758,5 +760,43 @@ func TestPhase0AAPolicyCoversFullClaimCellClasses(t *testing.T) {
 		if !present {
 			t.Errorf("A/A policy has no primary %s scenario", class)
 		}
+	}
+}
+
+// TestPolicyFilesLoad proves every tracked policy JSON — including the
+// manual-only quick and screen diagnostics no other test pins — parses under
+// the current schema and passes Validate for its own series.
+func TestPolicyFilesLoad(t *testing.T) {
+	t.Parallel()
+
+	var paths []string
+	if err := filepath.WalkDir(".", func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() && strings.HasPrefix(d.Name(), ".") && path != "." {
+			return fs.SkipDir
+		}
+		if !d.IsDir() && filepath.Ext(path) == ".json" {
+			paths = append(paths, path)
+		}
+		return nil
+	}); err != nil {
+		t.Fatalf("walk policy files: %v", err)
+	}
+	if len(paths) < 12 {
+		t.Fatalf("found %d tracked policy files, want at least 12", len(paths))
+	}
+	for _, path := range paths {
+		t.Run(filepath.ToSlash(path), func(t *testing.T) {
+			t.Parallel()
+			p, _, err := Load(path)
+			if err != nil {
+				t.Fatalf("load: %v", err)
+			}
+			if err := p.Validate(); err != nil {
+				t.Fatalf("validate: %v", err)
+			}
+		})
 	}
 }

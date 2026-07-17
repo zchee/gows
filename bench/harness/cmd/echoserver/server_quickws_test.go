@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -19,7 +20,7 @@ type strictQuickWSProbe struct {
 func (p *strictQuickWSProbe) OnOpen(*quickws.Conn) {}
 
 func (p *strictQuickWSProbe) OnMessage(_ *quickws.Conn, _ quickws.Opcode, payload []byte) {
-	p.messages <- append([]byte(nil), payload...)
+	p.messages <- bytes.Clone(payload)
 }
 
 func (p *strictQuickWSProbe) OnClose(_ *quickws.Conn, err error) { p.closed <- err }

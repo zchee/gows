@@ -11,6 +11,7 @@ import (
 	"compress/flate"
 	"fmt"
 	"io"
+	"slices"
 	"strconv"
 	"testing"
 
@@ -164,7 +165,7 @@ func TestDeflateRoundTrip(t *testing.T) {
 				t.Fatalf("newWriter: %v", err)
 			}
 			compressed := encodeMessage(w, &dst, tc.payload)
-			wire := append(append([]byte(nil), compressed...), syncFlushTail[:]...)
+			wire := slices.Concat(compressed, syncFlushTail[:])
 
 			rc := tc.backend.newReader(bytes.NewReader(wire))
 			defer rc.Close()
@@ -224,7 +225,7 @@ func BenchmarkDeflateDecode(b *testing.B) {
 							b.Fatalf("newWriter: %v", err)
 						}
 						compressed := encodeMessage(ew, &encDst, payload)
-						wire := append(append([]byte(nil), compressed...), syncFlushTail[:]...)
+						wire := slices.Concat(compressed, syncFlushTail[:])
 
 						br := bytes.NewReader(wire)
 						rc := be.newReader(br)

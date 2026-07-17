@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/zchee/gows/bench/harness/evidence"
+	"github.com/zchee/gows/bench/harness/support"
 )
 
 func buildCommandSpecs(root, output, work string, inputs evidence.VerificationCommandInputs) []commandSpec {
@@ -75,20 +76,10 @@ func controlledEnvironment(goos, goarch string, inputs evidence.VerificationComm
 	return environment
 }
 
+// replaceEnvironment merges replacements over base and sorts the result so
+// recorded spec environments stay deterministic.
 func replaceEnvironment(base []string, replacements ...string) []string {
-	keys := make(map[string]bool, len(replacements))
-	for _, replacement := range replacements {
-		key, _, _ := strings.Cut(replacement, "=")
-		keys[key] = true
-	}
-	result := make([]string, 0, len(base)+len(replacements))
-	for _, value := range base {
-		key, _, _ := strings.Cut(value, "=")
-		if !keys[key] {
-			result = append(result, value)
-		}
-	}
-	result = append(result, replacements...)
+	result := support.MergeEnv(base, replacements...)
 	slices.Sort(result)
 	return result
 }

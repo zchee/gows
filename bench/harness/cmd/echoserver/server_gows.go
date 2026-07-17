@@ -43,12 +43,14 @@ type gowsVariant struct {
 	useServe bool
 }
 
-// gowsVariants enumerates every -lib name served by runGoWS. "gows" and
-// "gows-noutf8" keep the harness's shared 4096-byte read buffer (bufferSize);
-// "gows-rbuf1k" and "gows-rbuf16k" are the read-buffer geometry variants for
-// hypothesis H1. UTF-8 validation stays on for every variant except
-// "gows-noutf8" (the paired validation-OFF reference config), matching gows's
-// RFC 6455 §8.1-by-default posture that the AC5/AC6 gate is judged on.
+// gowsVariants enumerates every -lib name served by runGoWS. "gows",
+// "gows-noutf8", and "gows-serve" keep the harness's shared 4096-byte read
+// buffer (bufferSize), with "gows-serve" selecting the drain-and-coalesce
+// Serve loop; "gows-rbuf1k" and "gows-rbuf16k" are the read-buffer geometry
+// variants for hypothesis H1. UTF-8 validation stays on for every variant
+// except "gows-noutf8" (the paired validation-OFF reference config),
+// matching gows's RFC 6455 §8.1-by-default posture that the AC5/AC6 gate is
+// judged on.
 var gowsVariants = map[string]gowsVariant{
 	"gows":         {readBufSize: bufferSize},
 	"gows-noutf8":  {readBufSize: bufferSize, skipUTF8: true},

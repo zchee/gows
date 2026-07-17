@@ -18,8 +18,9 @@ const debugRequestTimeout = 5 * time.Second
 
 const maxDebugResponseBytes = 64 << 10
 
-// MemSnapshot is the subset of runtime.MemStats the harness cares about for
-// per-library allocation comparisons.
+// MemSnapshot is the subset of runtime.MemStats the harness records: Mallocs
+// and TotalAlloc feed the per-library allocation deltas, and the remaining
+// fields are diagnostics exposed on /debug/memstats.
 type MemSnapshot struct {
 	Mallocs    uint64 `json:"mallocs"`
 	Frees      uint64 `json:"frees"`
