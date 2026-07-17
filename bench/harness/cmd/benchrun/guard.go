@@ -49,7 +49,7 @@ func monitorHost(ctx context.Context, baseline EnvSnapshot, guard policy.Guard, 
 			result.Err = err
 			return result
 		}
-		if err := checkProcessHygiene(patterns, excludedPIDs, guard.MaxForeignCPUPercent); err != nil {
+		if err := checkProcessHygiene(ctx, patterns, excludedPIDs, guard.MaxForeignCPUPercent); err != nil {
 			result.Err = err
 			return result
 		}
@@ -94,8 +94,10 @@ func validateFileStamps(want map[string]fileStamp) error {
 	return nil
 }
 
-func checkProcessHygiene(patterns []string, excluded map[int]struct{}, cpuLimit float64) error {
-	output, err := exec.Command("ps", "-Ao", "pid=,ppid=,%cpu=,command=").Output()
+func checkProcessHygiene(ctx context.Context, patterns []string, excluded map[int]struct{}, cpuLimit float64) error {
+	ctx, cancel := context.WithTimeout(ctx, commandTimeout)
+	defer cancel()
+	output, err := exec.CommandContext(ctx, "ps", "-Ao", "pid=,ppid=,%cpu=,command=").Output()
 	if err != nil {
 		return fmt.Errorf("host guard: ps process usage: %w", err)
 	}

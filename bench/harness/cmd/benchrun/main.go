@@ -118,7 +118,7 @@ func run() (resultErr error) {
 	if err := checkLoad(pol.Guard.MaxLoad1); err != nil {
 		return err
 	}
-	if err := checkProcessHygiene(pol.Guard.ForbiddenProcessPatterns, ownedPIDs(), pol.Guard.MaxForeignCPUPercent); err != nil {
+	if err := checkProcessHygiene(ctx, pol.Guard.ForbiddenProcessPatterns, ownedPIDs(), pol.Guard.MaxForeignCPUPercent); err != nil {
 		return err
 	}
 
@@ -607,7 +607,7 @@ func execute(ctx context.Context, pol *policy.Policy, smoke bool, client, sessio
 			return count, err
 		}
 		for rep, block := range blocks {
-			if err := checkProcessHygiene(pol.Guard.ForbiddenProcessPatterns, ownedPIDs(), pol.Guard.MaxForeignCPUPercent); err != nil {
+			if err := checkProcessHygiene(ctx, pol.Guard.ForbiddenProcessPatterns, ownedPIDs(), pol.Guard.MaxForeignCPUPercent); err != nil {
 				return count, fmt.Errorf("scenario %q block %q host guard: %w", sc.Name, block.ID, err)
 			}
 			for orderIdx, lib := range block.Libraries {
@@ -1254,7 +1254,7 @@ func acquireLock(path string) (release func(), err error) {
 		if perr == nil && processAlive(holder) {
 			return nil, fmt.Errorf("lockfile %s held by running pid %d; another benchrun is active", path, holder)
 		}
-		if rmErr := os.Remove(path); rmErr != nil {
+		if rmErr := os.Remove(path); rmErr != nil && !errors.Is(rmErr, os.ErrNotExist) {
 			return nil, fmt.Errorf("remove stale lockfile %s: %w", path, rmErr)
 		}
 		f, err = create()
@@ -1344,9 +1344,16 @@ func gitDirty(dir string) (bool, error) {
 	return out != "", nil
 }
 
+// commandTimeout bounds every host-inspection utility invocation so a stuck
+// pmset/sysctl/ps cannot hang a benchmark session; a host where these do not
+// answer within the bound is not fit for measurement anyway.
+const commandTimeout = 10 * time.Second
+
 // commandOutput runs an external command and returns its trimmed stdout.
 func commandOutput(name string, args ...string) (string, error) {
-	out, err := exec.Command(name, args...).Output()
+	ctx, cancel := context.WithTimeout(context.Background(), commandTimeout)
+	defer cancel()
+	out, err := exec.CommandContext(ctx, name, args...).Output()
 	if err != nil {
 		return "", fmt.Errorf("%s %s: %w", name, strings.Join(args, " "), err)
 	}
