@@ -149,7 +149,10 @@ func Collect(ctx context.Context, cfg Config) (_ Bundle, resultErr error) {
 	if effectiveGoEnv.GOROOT != goRoot {
 		return Bundle{}, fmt.Errorf("assembly collect: stock Go tool reported GOROOT %q, want %q", effectiveGoEnv.GOROOT, goRoot)
 	}
-	moduleGraphBytes, err := run(ctx, env, goTool, "-C", benchRoot, "list", "-m", "-json", "all")
+	// The manifest target mandates GOFLAGS=-mod=mod, under which an
+	// incompletely locked bench/go.sum would let this listing rewrite the
+	// repository mid-collection; readonly turns that into a hard error.
+	moduleGraphBytes, err := run(ctx, env, goTool, "-C", benchRoot, "list", "-mod=readonly", "-m", "-json", "all")
 	if err != nil {
 		return Bundle{}, fmt.Errorf("assembly collect: module graph: %w", err)
 	}

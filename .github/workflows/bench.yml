@@ -157,7 +157,9 @@ jobs:
           esac
 
       - name: Download locked benchmark module graph
-        run: go -C bench mod download
+        run: |
+          go -C bench mod download
+          go -C bench list -mod=readonly -m all > /dev/null
 
       - name: Compile, link, and validate supported assembly provenance
         run: go -C bench test ./harness/assembly -count=1 -v
