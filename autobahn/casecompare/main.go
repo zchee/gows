@@ -20,8 +20,9 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"maps"
 	"os"
-	"sort"
+	"slices"
 )
 
 type result struct{ Behavior, BehaviorClose string }
@@ -50,11 +51,7 @@ func compare(baselinePath, currentPath, agent string) error {
 	if len(baseline) != 517 || len(current) != 517 {
 		return fmt.Errorf("case count baseline=%d current=%d, want 517", len(baseline), len(current))
 	}
-	ids := make([]string, 0, len(baseline))
-	for id := range baseline {
-		ids = append(ids, id)
-	}
-	sort.Strings(ids)
+	ids := slices.Sorted(maps.Keys(baseline))
 	for _, id := range ids {
 		got, ok := current[id]
 		if !ok {

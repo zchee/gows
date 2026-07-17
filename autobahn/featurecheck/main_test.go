@@ -21,6 +21,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -258,7 +259,7 @@ func TestFeatureCheckAllowsExplicitNetworkModeDifference(t *testing.T) {
 func makeCases(m manifestMode, feature bool) map[string]caseResult {
 	cases := make(map[string]caseResult, 517)
 	for i := 1; i <= 517-len(m.Inventory); i++ {
-		cases["1.1."+itoa(i)] = caseResult{Behavior: "OK", BehaviorClose: "OK"}
+		cases["1.1."+strconv.Itoa(i)] = caseResult{Behavior: "OK", BehaviorClose: "OK"}
 	}
 	for id, result := range m.Inventory {
 		if feature {
@@ -267,20 +268,6 @@ func makeCases(m manifestMode, feature bool) map[string]caseResult {
 		cases[id] = result
 	}
 	return cases
-}
-
-func itoa(n int) string {
-	if n == 0 {
-		return "0"
-	}
-	var b [20]byte
-	i := len(b)
-	for n > 0 {
-		i--
-		b[i] = byte('0' + n%10)
-		n /= 10
-	}
-	return string(b[i:])
 }
 
 func writeEvidence(t *testing.T, dir, stem, mode, direction, agent string, cases map[string]caseResult, fc map[string]any) (string, string) {

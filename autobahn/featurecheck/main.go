@@ -24,12 +24,15 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"maps"
 	"os"
 	"path/filepath"
 	"regexp"
-	"sort"
+	"slices"
 	"strings"
 	"time"
+
+	"github.com/zchee/gows/autobahn/internal/sidecar"
 )
 
 type caseResult struct {
@@ -49,50 +52,9 @@ type manifestMode struct {
 	Targets    []string              `json:"targets"`
 }
 
-type provenance struct {
-	Version                   int            `json:"version"`
-	RunID                     string         `json:"run_id"`
-	Mode                      string         `json:"mode"`
-	Direction                 string         `json:"direction"`
-	Agent                     string         `json:"agent"`
-	Branch                    string         `json:"branch"`
-	Head                      string         `json:"head"`
-	DirtyEntries              int            `json:"dirty_entries"`
-	GoVersion                 string         `json:"go_version"`
-	GOOS                      string         `json:"goos"`
-	GOARCH                    string         `json:"goarch"`
-	Command                   string         `json:"command"`
-	ExitStatus                int            `json:"exit_status"`
-	Image                     string         `json:"image"`
-	ImageID                   string         `json:"image_id"`
-	CaseCount                 int            `json:"case_count"`
-	IndexPath                 string         `json:"index_path"`
-	IndexSHA256               string         `json:"index_sha256"`
-	StartedUTC                string         `json:"started_utc"`
-	EndedUTC                  string         `json:"ended_utc"`
-	Generator                 string         `json:"generator_evidence"`
-	WorkspaceSHA              string         `json:"workspace_sha256"`
-	ApplicationCommand        string         `json:"application_command,omitempty"`
-	ApplicationReceipt        string         `json:"application_receipt,omitempty"`
-	ApplicationReceiptSHA     string         `json:"application_receipt_sha256,omitempty"`
-	ApplicationPID            int            `json:"application_pid,omitempty"`
-	ApplicationExitStatus     int            `json:"application_exit_status,omitempty"`
-	ApplicationTermination    string         `json:"application_termination,omitempty"`
-	ApplicationExpectedSHA256 string         `json:"application_expected_sha256,omitempty"`
-	ApplicationObservedSHA256 string         `json:"application_observed_sha256,omitempty"`
-	CWD                       string         `json:"cwd"`
-	ReportRoot                string         `json:"report_root"`
-	ContainerID               string         `json:"container_id"`
-	RunnerTimeout             int            `json:"runner_timeout_seconds"`
-	ApplicationTimeout        int            `json:"application_timeout_seconds"`
-	NetworkMode               string         `json:"network_mode"`
-	CaseDelay                 string         `json:"case_delay"`
-	CompletionFile            string         `json:"completion_file,omitempty"`
-	CompletionMechanism       string         `json:"completion_mechanism"`
-	CompletionStopReason      string         `json:"completion_stop_reason"`
-	CompletionStopStatus      int            `json:"completion_stop_status"`
-	FeatureConfig             map[string]any `json:"feature_config"`
-}
+// provenance is the shared hash-bound run sidecar contract written by
+// autobahn/provenance.
+type provenance = sidecar.Sidecar
 
 type applicationReceipt struct {
 	RunID                    string `json:"run_id"`
@@ -144,7 +106,7 @@ func run(w io.Writer, o options) error {
 	if o.Direction != "server" && o.Direction != "client" {
 		return errors.New("direction must be server or client")
 	}
-	if o.BeforeRunID == "" || o.AfterRunID == "" || o.ExpectedHead == "" || o.ExpectedWorkspace == "" || !rawSHA.MatchString(o.ExpectedApplicationSHA) || !normalizedDuration(o.ExpectedCaseDelay) {
+	if o.BeforeRunID == "" || o.AfterRunID == "" || o.ExpectedHead == "" || o.ExpectedWorkspace == "" || !rawSHA.MatchString(o.ExpectedApplicationSHA) || !sidecar.NormalizedDuration(o.ExpectedCaseDelay) {
 		return errors.New("explicit run IDs, HEAD, and workspace SHA are required")
 	}
 	wantAgent := "gows-v04-feature-" + o.Direction
@@ -200,7 +162,7 @@ func run(w io.Writer, o options) error {
 		return err
 	}
 
-	ids := sortedKeys(mm.Inventory)
+	ids := slices.Sorted(maps.Keys(mm.Inventory))
 	for id := range before {
 		if (strings.HasPrefix(id, "13.3.") || strings.HasPrefix(id, "13.5.")) && mm.Inventory[id].Behavior == "" {
 			return fmt.Errorf("canonical report has extra inventory case %s", id)
@@ -288,9 +250,9 @@ func loadBoundReport(indexPath, provenancePath, mode, direction, agent string, f
 	ended, endErr := time.Parse(time.RFC3339, p.EndedUTC)
 	if p.Version != 1 || p.RunID == "" || p.Mode != mode || p.Direction != direction || p.Agent != agent ||
 		p.Branch == "" || p.Head == "" || p.GoVersion == "" || p.GOOS == "" || p.GOARCH == "" || p.Command == "" ||
-		p.ExitStatus != 0 || !pinnedImage.MatchString(p.Image) || !imageID.MatchString(p.ImageID) || p.CaseCount != 517 || p.IndexPath == "" ||
+		p.ExitStatus != 0 || !sidecar.PinnedImage.MatchString(p.Image) || !sidecar.ImageID.MatchString(p.ImageID) || p.CaseCount != 517 || p.IndexPath == "" ||
 		startErr != nil || endErr != nil || ended.Before(started) ||
-		p.WorkspaceSHA == "" || p.CWD == "" || p.ReportRoot == "" || !filepath.IsAbs(p.ReportRoot) || !containerID.MatchString(p.ContainerID) || p.RunnerTimeout <= 0 || (p.NetworkMode != "host" && p.NetworkMode != "bridge") || !normalizedDuration(p.CaseDelay) || (p.CompletionMechanism != "default-timeout" && p.CompletionMechanism != "sentinel") ||
+		p.WorkspaceSHA == "" || p.CWD == "" || p.ReportRoot == "" || !filepath.IsAbs(p.ReportRoot) || !sidecar.ContainerID.MatchString(p.ContainerID) || p.RunnerTimeout <= 0 || (p.NetworkMode != "host" && p.NetworkMode != "bridge") || !sidecar.NormalizedDuration(p.CaseDelay) || (p.CompletionMechanism != "default-timeout" && p.CompletionMechanism != "sentinel") ||
 		p.IndexSHA256 != hex.EncodeToString(sum[:]) {
 		return nil, provenance{}, errors.New("missing, stale, or hash-mismatched provenance")
 	}
@@ -376,9 +338,6 @@ func loadBoundReport(indexPath, provenancePath, mode, direction, agent string, f
 }
 
 var (
-	pinnedImage       = regexp.MustCompile(`^[^@]+@sha256:[0-9a-fA-F]{64}$`)
-	imageID           = regexp.MustCompile(`^sha256:[0-9a-fA-F]{64}$`)
-	containerID       = regexp.MustCompile(`^[0-9a-fA-F]{12,64}$`)
 	rawSHA            = regexp.MustCompile(`^[0-9a-fA-F]{64}$`)
 	generatorIdentity = regexp.MustCompile(`^(/.*)@sha256:([0-9a-f]{64})$`)
 )
@@ -407,11 +366,6 @@ func verifyGeneratorEvidence(identity string) error {
 	return nil
 }
 
-func normalizedDuration(value string) bool {
-	d, err := time.ParseDuration(value)
-	return err == nil && d >= 0 && d.String() == value
-}
-
 func rejectReportFailures(cases map[string]caseResult) error {
 	for id, c := range cases {
 		if c.Behavior == "NON-STRICT" || c.BehaviorClose == "NON-STRICT" ||
@@ -433,15 +387,6 @@ func readJSON(path string, dst any) error {
 		return err
 	}
 	return nil
-}
-
-func sortedKeys[V any](m map[string]V) []string {
-	keys := make([]string, 0, len(m))
-	for k := range m {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
-	return keys
 }
 
 func number(v any) int {

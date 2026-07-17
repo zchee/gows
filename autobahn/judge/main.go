@@ -24,12 +24,13 @@
 package main
 
 import (
+	"cmp"
 	"encoding/json"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
-	"sort"
+	"slices"
 	"strconv"
 	"strings"
 )
@@ -115,7 +116,7 @@ func printReport(w io.Writer, report map[string]map[string]caseResult) []string 
 	for agent := range report {
 		agents = append(agents, agent)
 	}
-	sort.Strings(agents)
+	slices.Sort(agents)
 
 	var failures []string
 	for _, agent := range agents {
@@ -125,7 +126,7 @@ func printReport(w io.Writer, report map[string]map[string]caseResult) []string 
 		for id := range cases {
 			caseIDs = append(caseIDs, id)
 		}
-		sort.Slice(caseIDs, func(i, j int) bool { return lessCaseID(caseIDs[i], caseIDs[j]) })
+		slices.SortFunc(caseIDs, compareCaseID)
 
 		fmt.Fprintf(w, "Agent: %s\n", agent)
 		fmt.Fprintf(w, "%-10s %-16s %-16s %10s\n", "CASE", "BEHAVIOR", "CLOSE", "DURATION")
@@ -140,22 +141,22 @@ func printReport(w io.Writer, report map[string]map[string]caseResult) []string 
 	return failures
 }
 
-// lessCaseID orders Autobahn case IDs ("1.2.3") numerically component by
+// compareCaseID orders Autobahn case IDs ("1.2.3") numerically component by
 // component instead of lexicographically, so "2.9" sorts before "2.10".
-func lessCaseID(a, b string) bool {
+func compareCaseID(a, b string) int {
 	as := strings.Split(a, ".")
 	bs := strings.Split(b, ".")
 
-	for i := 0; i < min(len(as), len(bs)); i++ {
+	for i := range min(len(as), len(bs)) {
 		if as[i] == bs[i] {
 			continue
 		}
 		an, aerr := strconv.Atoi(as[i])
 		bn, berr := strconv.Atoi(bs[i])
 		if aerr == nil && berr == nil {
-			return an < bn
+			return cmp.Compare(an, bn)
 		}
-		return as[i] < bs[i]
+		return strings.Compare(as[i], bs[i])
 	}
-	return len(as) < len(bs)
+	return cmp.Compare(len(as), len(bs))
 }

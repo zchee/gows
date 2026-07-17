@@ -61,7 +61,7 @@ func main() {
 	}
 	exe, err := os.ReadFile(r.Executable)
 	if err != nil {
-		panic(err)
+		fatal(err)
 	}
 	sum := sha256.Sum256(exe)
 	r.ExecutableSHA256 = hex.EncodeToString(sum[:])
@@ -71,10 +71,12 @@ func main() {
 	}
 	b, err := json.MarshalIndent(r, "", "  ")
 	if err != nil {
-		panic(err)
+		fatal(err)
 	}
 	b = append(b, '\n')
 	if err := os.WriteFile(output, b, 0o644); err != nil {
-		panic(err)
+		fatal(err)
 	}
 }
+
+func fatal(err error) { fmt.Fprintln(os.Stderr, "appreceipt:", err); os.Exit(1) }

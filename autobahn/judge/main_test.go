@@ -16,6 +16,7 @@ package main
 
 import (
 	"bytes"
+	"cmp"
 	"os"
 	"path/filepath"
 	"slices"
@@ -141,22 +142,22 @@ func TestPrintReport(t *testing.T) {
 	}
 }
 
-func TestLessCaseID(t *testing.T) {
+func TestCompareCaseID(t *testing.T) {
 	tests := map[string]struct {
 		a, b string
-		want bool
+		want int
 	}{
-		"success: numeric ordering across widths": {a: "2.9", b: "2.10", want: true},
-		"success: reverse numeric ordering":       {a: "2.10", b: "2.9", want: false},
-		"success: major version ordering":         {a: "6.1.1", b: "10.1.1", want: true},
-		"success: equal ids are not less":         {a: "1.1.1", b: "1.1.1", want: false},
-		"success: shorter prefix sorts first":     {a: "1.1", b: "1.1.1", want: true},
+		"success: numeric ordering across widths": {a: "2.9", b: "2.10", want: -1},
+		"success: reverse numeric ordering":       {a: "2.10", b: "2.9", want: 1},
+		"success: major version ordering":         {a: "6.1.1", b: "10.1.1", want: -1},
+		"success: equal ids compare as zero":      {a: "1.1.1", b: "1.1.1", want: 0},
+		"success: shorter prefix sorts first":     {a: "1.1", b: "1.1.1", want: -1},
 	}
 
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
-			if got := lessCaseID(tt.a, tt.b); got != tt.want {
-				t.Errorf("lessCaseID(%q, %q) = %v, want %v", tt.a, tt.b, got, tt.want)
+			if got := compareCaseID(tt.a, tt.b); cmp.Compare(got, 0) != tt.want {
+				t.Errorf("compareCaseID(%q, %q) = %d, want sign %d", tt.a, tt.b, got, tt.want)
 			}
 		})
 	}

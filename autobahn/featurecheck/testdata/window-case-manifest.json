@@ -1,14 +1,9 @@
 {
   "version": 1,
-  "source_run_id": "20260712T120330Z-baseline",
   "modes": {
     "server": {
       "agent": "gows",
       "total_cases": 517,
-      "prefixes": [
-        "13.3.",
-        "13.5."
-      ],
       "inventory": {
         "13.3.1": {
           "behavior": "UNIMPLEMENTED",
@@ -197,10 +192,6 @@
     "client": {
       "agent": "gows",
       "total_cases": 517,
-      "prefixes": [
-        "13.3.",
-        "13.5."
-      ],
       "inventory": {
         "13.3.1": {
           "behavior": "UNIMPLEMENTED",

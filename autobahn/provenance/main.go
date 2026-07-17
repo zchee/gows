@@ -24,57 +24,13 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"regexp"
 	"runtime"
-	"sort"
+	"slices"
 	"strings"
 	"time"
-)
 
-type sidecar struct {
-	Version                   int            `json:"version"`
-	RunID                     string         `json:"run_id"`
-	Mode                      string         `json:"mode"`
-	Direction                 string         `json:"direction"`
-	Agent                     string         `json:"agent"`
-	Branch                    string         `json:"branch"`
-	Head                      string         `json:"head"`
-	DirtyEntries              int            `json:"dirty_entries"`
-	GoVersion                 string         `json:"go_version"`
-	GOOS                      string         `json:"goos"`
-	GOARCH                    string         `json:"goarch"`
-	Command                   string         `json:"command"`
-	ExitStatus                int            `json:"exit_status"`
-	Image                     string         `json:"image"`
-	ImageID                   string         `json:"image_id"`
-	CaseCount                 int            `json:"case_count"`
-	IndexPath                 string         `json:"index_path"`
-	IndexSHA256               string         `json:"index_sha256"`
-	StartedUTC                string         `json:"started_utc"`
-	EndedUTC                  string         `json:"ended_utc"`
-	Generator                 string         `json:"generator_evidence"`
-	WorkspaceSHA              string         `json:"workspace_sha256"`
-	ApplicationCommand        string         `json:"application_command,omitempty"`
-	ApplicationReceipt        string         `json:"application_receipt,omitempty"`
-	ApplicationReceiptSHA     string         `json:"application_receipt_sha256,omitempty"`
-	ApplicationPID            int            `json:"application_pid,omitempty"`
-	ApplicationExitStatus     int            `json:"application_exit_status,omitempty"`
-	ApplicationTermination    string         `json:"application_termination,omitempty"`
-	ApplicationExpectedSHA256 string         `json:"application_expected_sha256,omitempty"`
-	ApplicationObservedSHA256 string         `json:"application_observed_sha256,omitempty"`
-	CWD                       string         `json:"cwd"`
-	ReportRoot                string         `json:"report_root"`
-	ContainerID               string         `json:"container_id"`
-	RunnerTimeout             int            `json:"runner_timeout_seconds"`
-	ApplicationTimeout        int            `json:"application_timeout_seconds"`
-	NetworkMode               string         `json:"network_mode"`
-	CaseDelay                 string         `json:"case_delay"`
-	CompletionFile            string         `json:"completion_file,omitempty"`
-	CompletionMechanism       string         `json:"completion_mechanism"`
-	CompletionStopReason      string         `json:"completion_stop_reason"`
-	CompletionStopStatus      int            `json:"completion_stop_status"`
-	FeatureConfig             map[string]any `json:"feature_config"`
-}
+	"github.com/zchee/gows/autobahn/internal/sidecar"
+)
 
 type appReceipt struct {
 	RunID                    string `json:"run_id"`
@@ -91,7 +47,7 @@ type appReceipt struct {
 }
 
 func main() {
-	var p sidecar
+	var p sidecar.Sidecar
 	var index, output, profile, receiptPath, normalizeDuration string
 	var printWorkspace bool
 	flag.BoolVar(&printWorkspace, "print-workspace", false, "print the current workspace SHA-256 and exit")
@@ -136,8 +92,8 @@ func main() {
 	}
 	if p.RunID == "" || (profile != "canonical" && profile != "feature") ||
 		(p.Direction != "server" && p.Direction != "client") || p.Agent == "" || index == "" || output == "" ||
-		p.Command == "" || p.ExitStatus != 0 || !pinnedImage.MatchString(p.Image) || !imageID.MatchString(p.ImageID) || p.StartedUTC == "" || p.Generator == "" || (p.NetworkMode != "host" && p.NetworkMode != "bridge") || !normalizedDuration(p.CaseDelay) || (p.CompletionMechanism != "default-timeout" && p.CompletionMechanism != "sentinel") ||
-		(profile == "feature" && (p.ApplicationCommand == "" || receiptPath == "" || p.ReportRoot == "" || !containerID.MatchString(p.ContainerID) || p.RunnerTimeout <= 0 || p.ApplicationTimeout <= 0)) {
+		p.Command == "" || p.ExitStatus != 0 || !sidecar.PinnedImage.MatchString(p.Image) || !sidecar.ImageID.MatchString(p.ImageID) || p.StartedUTC == "" || p.Generator == "" || (p.NetworkMode != "host" && p.NetworkMode != "bridge") || !sidecar.NormalizedDuration(p.CaseDelay) || (p.CompletionMechanism != "default-timeout" && p.CompletionMechanism != "sentinel") ||
+		(profile == "feature" && (p.ApplicationCommand == "" || receiptPath == "" || p.ReportRoot == "" || !sidecar.ContainerID.MatchString(p.ContainerID) || p.RunnerTimeout <= 0 || p.ApplicationTimeout <= 0)) {
 		fmt.Fprintln(os.Stderr, "provenance: incomplete or invalid arguments")
 		os.Exit(2)
 	}
@@ -216,17 +172,6 @@ func main() {
 	}
 }
 
-func normalizedDuration(value string) bool {
-	d, err := time.ParseDuration(value)
-	return err == nil && d >= 0 && d.String() == value
-}
-
-var (
-	pinnedImage = regexp.MustCompile(`^[^@]+@sha256:[0-9a-fA-F]{64}$`)
-	imageID     = regexp.MustCompile(`^sha256:[0-9a-fA-F]{64}$`)
-	containerID = regexp.MustCompile(`^[0-9a-fA-F]{12,64}$`)
-)
-
 func workspaceSHA256() string {
 	h := sha256.New()
 	diff, err := exec.Command("git", "diff", "--binary", "HEAD").Output()
@@ -239,7 +184,7 @@ func workspaceSHA256() string {
 		fatal(err)
 	}
 	paths := strings.Split(strings.TrimSuffix(string(out), "\x00"), "\x00")
-	sort.Strings(paths)
+	slices.Sort(paths)
 	for _, path := range paths {
 		if path == "" {
 			continue
