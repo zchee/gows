@@ -53,11 +53,11 @@ func (c *Conn) ReadMessage() (Opcode, []byte, error) {
 		return 0, nil, c.readErr
 	}
 	// The entry guards are inlined here rather than delegated to readMessage so
-	// the hot path still reaches readMessageBody in a single call, exactly as
-	// before that loop body was factored out for [Conn.Serve] to share; the
-	// sticky-error short circuit above already covers the readErr case, so the
-	// teardown guard only needs the net.ErrClosed arm. readMessage keeps the
-	// full guard set for the Close drain loop, which has no such pre-check.
+	// the hot path reaches readMessageBody (the loop body [Conn.Serve] shares)
+	// in a single call instead of through an extra frame; the sticky-error
+	// short circuit above already covers the readErr case, so the teardown
+	// guard only needs the net.ErrClosed arm. readMessage keeps the full guard
+	// set for the Close drain loop, which has no such pre-check.
 	if c.tornDown.Load() {
 		return 0, nil, net.ErrClosed
 	}

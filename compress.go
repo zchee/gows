@@ -452,9 +452,9 @@ func (w *sliceWriter) Write(p []byte) (int, error) {
 // heap allocation: the sink is a reusable [sliceWriter] hung off the Conn (or
 // the per-Conn [deflateState]), never a fresh &sliceWriter{}, and the release
 // step is this value's own pool pointer, never a per-message closure capturing
-// the config and writer -- the two allocations the pooled path used to pay on
-// every compressed message, which broke zero-alloc steady state under
-// permessage-deflate.
+// the config and writer. A fresh sink plus a release closure would cost two
+// heap allocations per compressed message and break zero-alloc steady state
+// under permessage-deflate.
 type compressorLease struct {
 	w  DeflateWriter
 	sw *sliceWriter
@@ -537,8 +537,8 @@ func compressPayloadWithConfig(dst, p []byte, cfg *deflateConfig) ([]byte, error
 // no-context-takeover writers; false for the persistent takeover writer, whose
 // window must survive). The pooled path allocates nothing: it draws the sink
 // from c.wslice (a reusable per-Conn [sliceWriter]) and carries the pool to
-// return the writer to in the lease itself, so acquiring a pooled compressor no
-// longer heap-allocates a &sliceWriter{} plus a release closure per message.
+// return the writer to in the lease itself, so acquiring a pooled compressor
+// allocates neither a fresh &sliceWriter{} nor a release closure per message.
 // Only one message compresses at a time per Conn (the msgWriter/WriteMessage
 // mutual exclusion), so a single per-Conn sink is safe.
 func (c *Conn) acquireCompressor() (lease compressorLease, reset, ok bool) {
@@ -667,9 +667,9 @@ func (c *Conn) decompressMessage(compressed []byte) ([]byte, error) {
 
 	// Inflate directly into out's spare capacity -- r.Read(out[len:cap]), then
 	// extend -- growing the reassembly buffer in bounded chunks only when it is
-	// full. The old path read every byte into a 4KB scratch and then appended it
-	// into out, copying each decompressed byte twice; reading straight into out
-	// halves that memory traffic. The buffer is never grown past c.readLimit+1
+	// full. Reading straight into out writes each decompressed byte once;
+	// routing through a fixed scratch buffer and appending would copy every
+	// byte twice. The buffer is never grown past c.readLimit+1
 	// bytes: that single byte over the limit is enough to detect a decompression
 	// bomb on the very next Read (len(out) then exceeds readLimit) while keeping
 	// the buffer bounded, so a bomb can never force an unbounded reassembly

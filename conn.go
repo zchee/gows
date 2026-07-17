@@ -153,17 +153,17 @@ func WithReadBufferSize(n int) ConnOption {
 }
 
 // adaptReadBuffer grows rbuf just enough to keep a bounded single-frame
-// payload contiguous. The old oversized-message path already allocates and
+// payload contiguous. The oversized-message path already allocates and
 // retains a msgBuf for this payload; replacing rbuf with one larger buffer
 // instead avoids retaining both buffers and lets subsequent frames arrive in
 // one Read without a reassembly copy.
 //
 // The replacement is drawn from the shared pool with pool.Get, whose power-of-2
-// size classing rounds the request up to a class capacity. An earlier revision
-// used an exact-size make([]byte, payloadSize+MaxHeaderSize); that non-class
-// capacity was silently dropped by pool.Put at teardown (pool.go only retains
-// class-sized buffers), so an adapted Conn leaked its read buffer past the pool
-// on every close. A class-sized buffer round-trips back to the pool instead.
+// size classing rounds the request up to a class capacity. The class-sized
+// capacity is load-bearing: pool.Put retains only class-sized buffers, so an
+// exact-size make([]byte, payloadSize+MaxHeaderSize) here would be silently
+// dropped at teardown and the adapted Conn would leak its read buffer past the
+// pool on every close.
 func (c *Conn) adaptReadBuffer(payloadSize int64) {
 	if payloadSize > c.readLimit ||
 		payloadSize <= int64(cap(c.rbuf)) ||

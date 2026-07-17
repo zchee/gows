@@ -30,9 +30,13 @@ const (
 	// up the batching win for realistic burst depths.
 	serveDrainBudget = 64
 	// maxBufferedWriteSize is the byte ceiling at which [Conn.WriteMessageBuffered]
-	// auto-flushes the pending batch mid-accumulation, bounding the transient
-	// memory a single drain round can hold and keeping the batch within the
-	// buffer pool's largest size class.
+	// auto-flushes the pending batch mid-accumulation, and the staging bound at
+	// which [Conn.stageWrite] splits an oversized frame on non-writev
+	// transports. The ceiling is checked after a frame is appended, so the
+	// batch can transiently exceed it by one frame before that flush. It equals
+	// internal/pool's largest size class (1<<18): scratch that stays at this
+	// cap round-trips through the pool at teardown, while pool.Put silently
+	// drops larger capacities.
 	maxBufferedWriteSize = 256 << 10
 )
 

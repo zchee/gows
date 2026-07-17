@@ -38,8 +38,9 @@ var errPreparedMessageClientRole = errors.New("gows: WritePreparedMessage is not
 // compressed against a fresh, empty LZ77 window, independent of any
 // individual connection's own negotiated context-takeover setting:
 // reusing one connection's context-takeover state across a broadcast to
-// many connections would be incorrect. On a Conn whose own outgoing direction has context takeover,
-// [Conn.WritePreparedMessage] therefore sends the plain (uncompressed)
+// many connections would be incorrect. On a Conn whose own outgoing
+// direction has context takeover, [Conn.WritePreparedMessage] therefore
+// sends the plain (uncompressed)
 // frame instead: the peer's decompressor would append the prepared
 // message's plaintext to its sliding dict, but this Conn's persistent
 // compressor never saw those bytes, and every later compressMessage

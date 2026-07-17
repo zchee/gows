@@ -37,9 +37,8 @@ import (
 //   - On a transport that gives [net.Buffers] a real scatter-gather writev
 //     (*net.TCPConn and *net.UnixConn), the server role coalesces a small
 //     payload (at most [maxCoalescedWriteSize]) with its header into reusable
-//     scratch and sends one Write, while a larger payload goes out zero-copy as
-//     a single writev of [header, p]. This is the original behavior and is
-//     unchanged.
+//     scratch and sends one Write, while a larger payload goes out zero-copy
+//     as a single writev of [header, p].
 //   - On any other transport (crypto/tls.Conn, counting or buffering wrappers,
 //     custom net.Conns), [net.Buffers] would silently degrade to one Write per
 //     buffer -- two write syscalls per message. To hold it to one, the header
@@ -60,10 +59,9 @@ import (
 func (c *Conn) WriteMessage(op Opcode, p []byte) error {
 	c.wmu.Lock()
 	// A pending WriteMessageBuffered batch must go out ahead of this frame to
-	// preserve order. wbatch is nil for a Conn that never buffers, so this is a
-	// single leading, never-taken branch that leaves every code path below
-	// byte-identical to the un-buffered original; a failed flush leaves the
-	// connection broken, so the frame is not attempted.
+	// preserve order. wbatch is nil for a Conn that never buffers, so that
+	// common case pays a single leading, never-taken branch; a failed flush
+	// leaves the connection broken, so the frame is not attempted.
 	if len(c.wbatch) != 0 {
 		if err := c.flushBufferedLocked(); err != nil {
 			c.wmu.Unlock()
@@ -352,8 +350,9 @@ type messageWriter struct {
 	comp       DeflateWriter
 	sink       *sliceWriter
 	// compPool is non-nil when comp is a pooled writer to return on release; nil
-	// for a per-Conn (context-takeover or sub-ceiling) writer. It replaces the
-	// per-message release closure the pooled path used to allocate.
+	// for a per-Conn (context-takeover or sub-ceiling) writer. Carrying the
+	// bare pool pointer keeps release allocation-free where a per-message
+	// closure would heap-allocate.
 	compPool *sync.Pool
 
 	// fedToCompressor is true once any plaintext has been written into the

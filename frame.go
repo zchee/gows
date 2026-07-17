@@ -293,9 +293,10 @@ func DecodeHeader(b []byte) (h Header, n int, err error) {
 // first header byte (b0) alone for a given negotiated extension set. It is
 // precomputed once per b0 value (see [headerTables]) so the hot path pays a
 // single indexed load instead of re-deriving the opcode's legality, the RSV
-// bits' legality, and the control/data split on every frame -- the redundant
-// per-frame work of the former [DecodeHeader]+checkFrameHeader two-step decode
-// it replaced (reader.go @2c13770).
+// bits' legality, and the control/data split on every frame -- work a split
+// decode-then-validate pair would re-derive per frame, and which
+// protocol_fuzz_test.go's oracleDecodeHeader still spells out as the
+// differential reference.
 //
 // b0 packs Fin (bit 7), the three RSV bits (bits 6-4), and the opcode (bits
 // 3-0); none of those depend on the connection's role, so the classification
@@ -316,10 +317,10 @@ type headerClass struct {
 // hdrReject identifies which RFC 6455 rule a frame header violated (or that
 // more bytes are needed), so [decodeFrameHeaderFast] stays free of side
 // effects while its caller maps the reason to the exact close code and message
-// the connection must fail with. Rejections surface in the same first-violation
-// precedence the former [DecodeHeader]-then-checkFrameHeader two-step decode
-// applied: reserved opcode, then the length-encoding checks, then the
-// control-frame checks, then the RSV check, then the mask-role check.
+// the connection must fail with. Rejections surface in a fixed first-violation
+// precedence, pinned by the differential fuzz oracle: reserved opcode, then
+// the length-encoding checks, then the control-frame checks, then the RSV
+// check, then the mask-role check.
 type hdrReject uint8
 
 const (
@@ -334,10 +335,10 @@ const (
 	rejectMask                               // frame masked/unmasked contrary to the peer's role.
 )
 
-// closeMessage returns the exact failure text a rejected header must close with,
-// byte-for-byte identical to the message formerly produced by
-// [Conn.readHeaderWithPartialEOF] (for the [DecodeHeader]-level rejections) and
-// checkFrameHeader (for the RSV and mask-role rejections). The mask-role text is
+// closeMessage returns the exact failure text a rejected header must close
+// with. These strings are a compatibility contract: the differential fuzz
+// oracle (oracleDecodeHeader) and the protocol tests pin every one of them
+// byte for byte, so they must not drift. The mask-role text is
 // role-specific, so client reports the receiving side. It returns the empty
 // string for rejectNone and rejectShort, which never fail a connection.
 func (r hdrReject) closeMessage(client bool) string {
@@ -381,16 +382,16 @@ func init() {
 }
 
 // classifyHeaderByte precomputes the [headerClass] for one first-header-byte
-// value under the given negotiated compression state. Its field extraction and
-// legality rules match [DecodeHeader]'s opcode/Fin/RSV handling and
-// checkFrameHeader's RSV rule exactly.
+// value under the given negotiated compression state. Its field extraction
+// matches [DecodeHeader]'s opcode/Fin/RSV handling exactly, and rsvBad encodes
+// the negotiated-extension RSV legality rule of RFC 7692 §6.1.
 func classifyHeaderByte(b0 byte, compression bool) headerClass {
 	op := Opcode(b0 & 0x0f)
 	rsv := (b0 >> 4) & 0x7
 	control := op.IsControl()
 	// RSV1 (RFC 7692 §6.1) is legal only with compression negotiated, on a data
 	// frame that starts a message (never a control or continuation frame); any
-	// other RSV bit set is illegal. This mirrors checkFrameHeader exactly.
+	// other RSV bit set is illegal.
 	rsv1OK := compression && rsv == RSV1 && !control && op != OpcodeContinuation
 	return headerClass{
 		opcode:   op,
@@ -420,10 +421,10 @@ func headerTableFor(client, compression bool) (*[256]headerClass, byte) {
 // decodeFrameHeaderFast decodes and fully validates the frame header at the
 // start of b for a Conn described by tbl (its b0-classification table) and
 // maskBit (its expected b1 mask bit). It fuses the wire-level checks
-// [DecodeHeader] performs with the role/RSV checks the former checkFrameHeader
-// step performed, so a caller needs neither afterward. It reads only b, has no
-// side effects, and never allocates, which is what lets the differential fuzz
-// diff it against the DecodeHeader+checkFrameHeader oracle.
+// [DecodeHeader] performs with the connection-level role and RSV checks, so a
+// caller needs no re-validation afterward. It reads only b, has no side
+// effects, and never allocates, which is what lets the differential fuzz diff
+// it against oracleDecodeHeader's independent two-step formulation.
 //
 // On success it returns the decoded Header, the number of bytes consumed
 // (rejectNone). When b does not yet hold a complete header it returns

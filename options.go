@@ -36,8 +36,8 @@ const defaultMaxHeaderBytes = 8192
 // [DeflateReader] values a [DeflateBackend] constructs, so swapping the
 // backend -- e.g. to github.com/klauspost/compress/flate via the
 // separate github.com/zchee/gows/flatekp submodule, once the bench/
-// deflate study picked a winner --
-// means calling [SetDeflateBackend] once, without core gows ever
+// deflate study picked a winner -- means calling [SetDeflateBackend]
+// once, without core gows ever
 // depending on klauspost/compress itself (AC9's zero-dependency
 // invariant survives because flatekp is its own module).
 
