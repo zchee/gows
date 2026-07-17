@@ -32,6 +32,15 @@ type loopConn struct {
 	pos   int
 }
 
+func closeOnCleanup(tb testing.TB, name string, closer io.Closer) {
+	tb.Helper()
+	tb.Cleanup(func() {
+		if err := closer.Close(); err != nil {
+			tb.Errorf("close %s: %v", name, err)
+		}
+	})
+}
+
 func (l *loopConn) Read(p []byte) (int, error) {
 	n := 0
 	for n < len(p) {
@@ -293,7 +302,7 @@ func TestEchoTCP(t *testing.T) {
 	if err != nil {
 		t.Fatalf("listen: %v", err)
 	}
-	defer ln.Close()
+	closeOnCleanup(t, "TCP listener", ln)
 
 	type accepted struct {
 		c   net.Conn

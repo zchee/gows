@@ -32,7 +32,7 @@ func BenchmarkConnWriteMessage16KBTCP(b *testing.B) {
 	if err != nil {
 		b.Fatalf("listen: %v", err)
 	}
-	defer ln.Close()
+	closeOnCleanup(b, "benchmark TCP listener", ln)
 
 	type accepted struct {
 		c   net.Conn
@@ -72,7 +72,11 @@ func BenchmarkConnWriteMessage16KBTCP(b *testing.B) {
 		}
 	}
 	b.StopTimer()
-	_ = a.c.Close()
-	_ = cli.Close()
+	if err := a.c.Close(); err != nil {
+		b.Errorf("close benchmark server connection: %v", err)
+	}
+	if err := cli.Close(); err != nil {
+		b.Errorf("close benchmark client connection: %v", err)
+	}
 	<-drained
 }

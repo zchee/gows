@@ -58,17 +58,17 @@ func TestVectoredDetection(t *testing.T) {
 		if err != nil {
 			t.Fatalf("listen: %v", err)
 		}
-		defer ln.Close()
+		closeOnCleanup(t, "TCP listener", ln)
 		dialed, err := net.Dial("tcp", ln.Addr().String())
 		if err != nil {
 			t.Fatalf("dial: %v", err)
 		}
-		defer dialed.Close()
+		closeOnCleanup(t, "dialed TCP connection", dialed)
 		accepted, err := ln.Accept()
 		if err != nil {
 			t.Fatalf("accept: %v", err)
 		}
-		defer accepted.Close()
+		closeOnCleanup(t, "accepted TCP connection", accepted)
 		if _, ok := accepted.(*net.TCPConn); !ok {
 			t.Fatalf("accepted conn is %T, want *net.TCPConn", accepted)
 		}
@@ -87,7 +87,11 @@ func TestVectoredDetection(t *testing.T) {
 				t.Fatalf("mkdir temp: %v", err)
 			}
 		}
-		defer os.RemoveAll(dir)
+		t.Cleanup(func() {
+			if err := os.RemoveAll(dir); err != nil {
+				t.Errorf("remove Unix socket directory: %v", err)
+			}
+		})
 		sock := filepath.Join(dir, "s")
 		ln, err := net.Listen("unix", sock)
 		if err != nil {
@@ -95,17 +99,17 @@ func TestVectoredDetection(t *testing.T) {
 			// this environment cannot bind a unix socket, skip rather than fail.
 			t.Skipf("unix socket unavailable in this environment: %v", err)
 		}
-		defer ln.Close()
+		closeOnCleanup(t, "Unix listener", ln)
 		dialed, err := net.Dial("unix", sock)
 		if err != nil {
 			t.Fatalf("dial unix: %v", err)
 		}
-		defer dialed.Close()
+		closeOnCleanup(t, "dialed Unix connection", dialed)
 		accepted, err := ln.Accept()
 		if err != nil {
 			t.Fatalf("accept unix: %v", err)
 		}
-		defer accepted.Close()
+		closeOnCleanup(t, "accepted Unix connection", accepted)
 		if _, ok := accepted.(*net.UnixConn); !ok {
 			t.Fatalf("accepted conn is %T, want *net.UnixConn", accepted)
 		}
@@ -255,7 +259,7 @@ func TestWriteMessageTLSSingleWrite(t *testing.T) {
 	if err != nil {
 		t.Fatalf("listen: %v", err)
 	}
-	defer ln.Close()
+	closeOnCleanup(t, "TLS listener", ln)
 
 	type accepted struct {
 		c   net.Conn

@@ -18,6 +18,7 @@ import (
 	"bytes"
 	"compress/flate"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -27,6 +28,15 @@ import (
 	"github.com/zchee/gows"
 	"github.com/zchee/gows/flatekp"
 )
+
+func closeConnOnCleanup(t *testing.T, conn net.Conn) {
+	t.Helper()
+	t.Cleanup(func() {
+		if err := conn.Close(); err != nil && !errors.Is(err, net.ErrClosed) {
+			t.Errorf("close test connection: %v", err)
+		}
+	})
+}
 
 // --- RFC 7692 §7.2.1/§7.2.2 framing helpers, reimplemented locally --------
 //
@@ -363,7 +373,7 @@ func TestIntegrationEchoFlatekpBothEnds(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Dial: %v", err)
 	}
-	defer conn.Close()
+	closeConnOnCleanup(t, conn)
 	if err := <-serverErr; err != nil {
 		t.Fatalf("Upgrade: %v", err)
 	}
@@ -410,7 +420,7 @@ func TestIntegrationBareClientMaxWindowBitsSub15(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Dial: %v", err)
 	}
-	defer conn.Close()
+	closeConnOnCleanup(t, conn)
 	server := <-serverResult
 	if server.err != nil {
 		t.Fatalf("Upgrade: %v", server.err)
@@ -492,7 +502,7 @@ func TestIntegrationEchoMixedNegotiation(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Dial: %v", err)
 	}
-	defer conn.Close()
+	closeConnOnCleanup(t, conn)
 	if err := <-serverErr; err != nil {
 		t.Fatalf("Upgrade: %v", err)
 	}
