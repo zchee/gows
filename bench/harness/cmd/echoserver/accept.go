@@ -134,7 +134,11 @@ func (t *traceController) capture() {
 		log.Printf("echoserver: trace: create %s: %v", t.path, err)
 		return
 	}
-	defer f.Close()
+	defer func() {
+		if err := f.Close(); err != nil {
+			log.Printf("echoserver: trace: close %s: %v", t.path, err)
+		}
+	}()
 	if err := trace.Start(f); err != nil {
 		log.Printf("echoserver: trace: start: %v", err)
 		return

@@ -72,7 +72,7 @@ type goEnvironment struct {
 
 // Collect builds a stock target probe and captures source, object, binary,
 // symbol, disassembly, graph, and optional runtime-dispatch evidence.
-func Collect(ctx context.Context, cfg Config) (Bundle, error) {
+func Collect(ctx context.Context, cfg Config) (_ Bundle, resultErr error) {
 	if cfg.RepoRoot == "" {
 		return Bundle{}, errors.New("assembly collect: repository root is empty")
 	}
@@ -102,9 +102,13 @@ func Collect(ctx context.Context, cfg Config) (Bundle, error) {
 	if err != nil {
 		return Bundle{}, fmt.Errorf("assembly collect: create temporary directory: %w", err)
 	}
-	defer os.RemoveAll(tempDir)
+	defer func() {
+		if err := os.RemoveAll(tempDir); err != nil {
+			resultErr = errors.Join(resultErr, fmt.Errorf("assembly collect: clean temporary directory: %w", err))
+		}
+	}()
 
-	goRoot, err := filepath.EvalSymlinks(runtime.GOROOT())
+	goRoot, err := filepath.EvalSymlinks(compilerGoRoot())
 	if err != nil {
 		return Bundle{}, fmt.Errorf("assembly collect: resolve stock GOROOT: %w", err)
 	}
@@ -330,6 +334,13 @@ func Collect(ctx context.Context, cfg Config) (Bundle, error) {
 	return Bundle{Manifest: manifest, Artifacts: artifacts}, nil
 }
 
+// compilerGoRoot returns the exact compiler toolchain that built asmprobe;
+// assembly provenance must not silently switch to a different PATH toolchain.
+func compilerGoRoot() string {
+	//lint:ignore SA1019 Exact build-toolchain identity is required by assembly provenance.
+	return runtime.GOROOT() //nolint:staticcheck // Exact build-toolchain identity is required by assembly provenance.
+}
+
 func targetEnvironment(base []string, goos, goarch, goroot, gofips140 string) []string {
 	overrides := map[string]string{
 		"CGO_ENABLED":  "0",
@@ -468,7 +479,7 @@ func hashSelectedFiles(repoRoot string, listed listedPackage) ([]SourceFile, err
 }
 
 func findSymbolLine(nm []byte, symbol string) (string, error) {
-	for _, line := range strings.Split(string(nm), "\n") {
+	for line := range strings.SplitSeq(string(nm), "\n") {
 		fields := strings.Fields(line)
 		if len(fields) == 0 {
 			continue
@@ -552,7 +563,7 @@ func collectDispatchEvidence(
 
 func findCallEdge(objdump []byte, callee string) (string, error) {
 	needle := "CALL " + callee
-	for _, line := range strings.Split(string(objdump), "\n") {
+	for line := range strings.SplitSeq(string(objdump), "\n") {
 		if strings.Contains(line, needle) {
 			return line, nil
 		}

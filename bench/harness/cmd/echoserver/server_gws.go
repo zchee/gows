@@ -14,7 +14,7 @@ type gwsEcho struct {
 }
 
 func (gwsEcho) OnMessage(socket *gws.Conn, message *gws.Message) {
-	defer message.Close()
+	defer func() { _ = message.Close() }()
 	_ = socket.WriteMessage(message.Opcode, message.Bytes())
 }
 

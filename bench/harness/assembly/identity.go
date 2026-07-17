@@ -269,8 +269,8 @@ func writeHashField(hash interface{ Write([]byte) (int, error) }, value string) 
 func writeHashBytes(hash interface{ Write([]byte) (int, error) }, value []byte) {
 	var size [8]byte
 	binary.BigEndian.PutUint64(size[:], uint64(len(value)))
-	hash.Write(size[:])
-	hash.Write(value)
+	_, _ = hash.Write(size[:])
+	_, _ = hash.Write(value)
 }
 
 func validateCanonicalRelativePath(name string) error {

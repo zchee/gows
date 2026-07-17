@@ -8,9 +8,9 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"reflect"
-	"runtime"
 	"slices"
 	"strconv"
 	"strings"
@@ -27,10 +27,12 @@ func TestCommandSpecsMatchEvaluatorContract(t *testing.T) {
 	output := filepath.Join(root, ".omx", "verification")
 	work := filepath.Join(root, ".omx", ".phase0verify-work-test")
 	tracked := []string{"a.go", "bench/b.go", "flatekp/c.go"}
+	goTool := testToolPath(t, "go")
+	gofmtTool := testToolPath(t, "gofmt")
 	inputs := evidence.VerificationCommandInputs{
 		RepositoryRoot: root,
-		GoTool:         filepath.Join(runtime.GOROOT(), "bin", "go"),
-		Gofmt:          filepath.Join(runtime.GOROOT(), "bin", "gofmt"),
+		GoTool:         goTool,
+		Gofmt:          gofmtTool,
 		Gopls:          filepath.Join(root, "tools", "gopls"),
 		Git:            filepath.Join(root, "tools", "git"),
 		HomeDir:        filepath.Join(root, "home"),
@@ -128,9 +130,11 @@ func TestExecutePlanIsSequentialAndStopsOnFailure(t *testing.T) {
 	t.Parallel()
 
 	root := t.TempDir()
+	goTool := testToolPath(t, "go")
+	gofmtTool := testToolPath(t, "gofmt")
 	inputs := evidence.VerificationCommandInputs{
 		RepositoryRoot: root,
-		GoTool:         filepath.Join(runtime.GOROOT(), "bin", "go"), Gofmt: filepath.Join(runtime.GOROOT(), "bin", "gofmt"),
+		GoTool:         goTool, Gofmt: gofmtTool,
 		Gopls: filepath.Join(root, "gopls"), Git: filepath.Join(root, "git"),
 		HomeDir: filepath.Join(root, "home"), TempDir: filepath.Join(root, "tmp"),
 		TrackedGoFiles: []string{"a.go"},
@@ -187,6 +191,19 @@ func TestExecutePlanIsSequentialAndStopsOnFailure(t *testing.T) {
 	if got, want := events[len(events)-1], "bench-test"; got != want {
 		t.Fatalf("last executed check = %q, want %q", got, want)
 	}
+}
+
+func testToolPath(t *testing.T, name string) string {
+	t.Helper()
+	path, err := exec.LookPath(name)
+	if err != nil {
+		t.Fatalf("resolve %s: %v", name, err)
+	}
+	path, err = filepath.Abs(path)
+	if err != nil {
+		t.Fatalf("resolve absolute %s path: %v", name, err)
+	}
+	return path
 }
 
 func TestExecuteCommandCapturesLogsExitAndEmptyOutputGate(t *testing.T) {

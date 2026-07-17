@@ -20,7 +20,7 @@ func runCoder(ctx context.Context, addr string, cfg serverConfig) error {
 		if err != nil {
 			return
 		}
-		defer conn.CloseNow()
+		defer func() { _ = conn.CloseNow() }()
 
 		for {
 			mt, p, err := conn.Read(r.Context())

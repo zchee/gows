@@ -98,7 +98,7 @@ func FetchMemSnapshot(ctx context.Context, debugAddr string) (MemSnapshot, error
 	if err != nil {
 		return MemSnapshot{}, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
 		return MemSnapshot{}, fmt.Errorf("support: unexpected status %s from %s", resp.Status, debugAddr)
 	}
@@ -122,7 +122,7 @@ func FetchUsage(ctx context.Context, debugAddr string) (Usage, error) {
 	if err != nil {
 		return Usage{}, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
 		return Usage{}, fmt.Errorf("support: unexpected status %s from %s", resp.Status, debugAddr)
 	}

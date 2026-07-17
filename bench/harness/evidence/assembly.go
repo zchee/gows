@@ -3,6 +3,7 @@ package evidence
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -30,13 +31,13 @@ func resolveAssemblies(store artifact.Store, records []AssemblyEvidence, reposit
 		destination := filepath.Join(temporaryRoot, "bundle")
 		materializeErr := artifact.MaterializeDirectory(paths, destination)
 		if materializeErr != nil {
-			os.RemoveAll(temporaryRoot)
-			return nil, fmt.Errorf("evidence: materialize %s assembly: %w", record.GOARCH, materializeErr)
+			cleanupErr := os.RemoveAll(temporaryRoot)
+			return nil, fmt.Errorf("evidence: materialize %s assembly: %w", record.GOARCH, errors.Join(materializeErr, cleanupErr))
 		}
 		bundle, readErr := assembly.ReadBundle(destination, true)
 		removeErr := os.RemoveAll(temporaryRoot)
 		if readErr != nil {
-			return nil, fmt.Errorf("evidence: validate %s assembly: %w", record.GOARCH, readErr)
+			return nil, fmt.Errorf("evidence: validate %s assembly: %w", record.GOARCH, errors.Join(readErr, removeErr))
 		}
 		if removeErr != nil {
 			return nil, fmt.Errorf("evidence: clean assembly materialization: %w", removeErr)

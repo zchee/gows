@@ -13,7 +13,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"runtime"
 	"slices"
 	"strings"
 
@@ -145,7 +144,10 @@ func WriteREADME(benchRoot, readmePath string) error {
 }
 
 func moduleVersions(benchRoot string) (map[string]string, error) {
-	goTool := filepath.Join(runtime.GOROOT(), "bin", "go")
+	goTool, err := exec.LookPath("go")
+	if err != nil {
+		return nil, fmt.Errorf("doccheck: resolve go executable: %w", err)
+	}
 	command := exec.Command(goTool, "list", "-m", "-json", "all")
 	command.Dir = benchRoot
 	command.Env = controlledEnvironment(os.Environ())
@@ -282,7 +284,7 @@ func section(raw []byte, name string) (string, error) {
 	if finish < 0 {
 		return "", fmt.Errorf("doccheck: missing end marker for %q", name)
 	}
-	if bytes.Index(raw[start+finish+len(end):], []byte(end)) >= 0 || bytes.Index(raw[start:], []byte(begin)) >= 0 {
+	if bytes.Contains(raw[start+finish+len(end):], []byte(end)) || bytes.Contains(raw[start:], []byte(begin)) {
 		return "", fmt.Errorf("doccheck: duplicate marker for %q", name)
 	}
 	return string(raw[start : start+finish]), nil

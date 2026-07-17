@@ -177,8 +177,8 @@ const stockControllerMarker = "GOWS_BENCHCMP_STOCK_CONTROLLER=1"
 
 // delegateToStockController preserves the frozen external command without
 // trusting the environment that compiled its bootstrap process. The bootstrap
-// always builds and executes the same source with the absolute Go tool from
-// runtime.GOROOT; the marked child then proves its build and process controls
+// always builds and executes the same source with the controller's compiler;
+// the marked child then proves its build and process controls
 // before evaluating evidence.
 func delegateToStockController() (delegated bool, code int, resultErr error) {
 	info, ok := debug.ReadBuildInfo()
@@ -195,7 +195,7 @@ func delegateToStockController() (delegated bool, code int, resultErr error) {
 		}
 		return false, 0, nil
 	}
-	goTool := filepath.Join(runtime.GOROOT(), "bin", "go")
+	goTool := controllerGoToolPath()
 	if file, err := os.Lstat(goTool); err != nil || !file.Mode().IsRegular() {
 		return true, exitUsage, fmt.Errorf("absolute Go tool %s is unavailable", goTool)
 	}
@@ -203,7 +203,9 @@ func delegateToStockController() (delegated bool, code int, resultErr error) {
 	if err != nil {
 		return true, exitUsage, err
 	}
-	defer os.RemoveAll(temporary)
+	defer func() {
+		resultErr = errors.Join(resultErr, os.RemoveAll(temporary))
+	}()
 	binary := filepath.Join(temporary, "benchcmp")
 	environment := controlledEnvironment(os.Environ())
 	build := exec.Command(goTool, "build", "-mod=mod", "-o", binary, "./harness/cmd/benchcmp")
@@ -219,13 +221,19 @@ func delegateToStockController() (delegated bool, code int, resultErr error) {
 	child.Stdout = os.Stdout
 	child.Stderr = os.Stderr
 	if err := child.Run(); err != nil {
-		var exitErr *exec.ExitError
-		if errors.As(err, &exitErr) {
+		if exitErr, ok := errors.AsType[*exec.ExitError](err); ok {
 			return true, exitErr.ExitCode(), nil
 		}
 		return true, exitUsage, err
 	}
 	return true, exitPass, nil
+}
+
+// controllerGoToolPath returns the exact compiler that built this controller,
+// which is the toolchain the delegated evaluator must prove and reuse.
+func controllerGoToolPath() string {
+	//lint:ignore SA1019 Exact build-toolchain identity is required by evaluator delegation.
+	return filepath.Join(runtime.GOROOT(), "bin", "go") //nolint:staticcheck // Exact build-toolchain identity is required by evaluator delegation.
 }
 
 func controlledEnvironment(base []string) []string {
@@ -234,9 +242,10 @@ func controlledEnvironment(base []string) []string {
 		"GOFIPS140=latest", "GOWORK=off", "CGO_ENABLED=0",
 		"GOOS=" + runtime.GOOS, "GOARCH=" + runtime.GOARCH, "GOAMD64=", "GOARM64=",
 	}
-	if runtime.GOARCH == "amd64" {
+	switch runtime.GOARCH {
+	case "amd64":
 		overrides[len(overrides)-2] = "GOAMD64=v1"
-	} else if runtime.GOARCH == "arm64" {
+	case "arm64":
 		overrides[len(overrides)-1] = "GOARM64=v8.0"
 	}
 	keys := map[string]bool{

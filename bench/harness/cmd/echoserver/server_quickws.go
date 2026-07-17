@@ -70,7 +70,10 @@ func runQuickWS(ctx context.Context, addr string, cfg serverConfig) error {
 		if err != nil {
 			return
 		}
-		conn.ReadLoop()
+		// ReadLoop returns the terminal peer-close/read error. Echo write
+		// failures are reported through quickwsFailures above, while normal
+		// client disconnects must not stop the shared benchmark server.
+		_ = conn.ReadLoop()
 	})
 
 	serveCtx, cancel := context.WithCancel(ctx)

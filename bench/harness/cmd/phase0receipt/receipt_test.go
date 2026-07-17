@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"errors"
+	"io"
 	"os"
 	"path/filepath"
 	"slices"
@@ -15,6 +16,31 @@ import (
 	"github.com/zchee/gows/bench/harness/evidence"
 	"github.com/zchee/gows/bench/harness/phase0"
 )
+
+type failingWriter struct{}
+
+func (failingWriter) Write([]byte) (int, error) {
+	return 0, errors.New("write failed")
+}
+
+func TestRunCLIFailsWhenCommandOutputCannotBeWritten(t *testing.T) {
+	t.Parallel()
+	tests := map[string]struct {
+		args           []string
+		stdout, stderr io.Writer
+	}{
+		"missing command usage": {stdout: io.Discard, stderr: failingWriter{}},
+		"help output":           {args: []string{"help"}, stdout: failingWriter{}, stderr: io.Discard},
+		"unknown mode error":    {args: []string{"unknown"}, stdout: io.Discard, stderr: failingWriter{}},
+	}
+	for name, test := range tests {
+		t.Run(name, func(t *testing.T) {
+			if got := runCLI(test.args, test.stdout, test.stderr); got != exitFailure {
+				t.Fatalf("runCLI() = %d, want %d", got, exitFailure)
+			}
+		})
+	}
+}
 
 func TestValidateRolePathsRejectsCountRoleAndMissingPath(t *testing.T) {
 	t.Parallel()
@@ -389,7 +415,7 @@ func makeRunInputs(t *testing.T, root string, store artifact.Store, identity evi
 
 func writeRunReceipt(t *testing.T, root string, store artifact.Store, identity evidence.RepositoryIdentity, sessionID string) string {
 	t.Helper()
-	put := func(data string, mediaType string) artifact.Ref {
+	put := func(data, mediaType string) artifact.Ref {
 		t.Helper()
 		ref, err := store.PutBytes([]byte(data), mediaType)
 		if err != nil {

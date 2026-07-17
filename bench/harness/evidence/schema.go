@@ -431,7 +431,7 @@ func CompareVerdict(path string, generated []byte) error {
 	return nil
 }
 
-func readRegularFile(path, description string) ([]byte, error) {
+func readRegularFile(path, description string) (_ []byte, resultErr error) {
 	before, err := os.Lstat(path)
 	if err != nil {
 		return nil, fmt.Errorf("evidence: read %s: %w", description, err)
@@ -443,7 +443,9 @@ func readRegularFile(path, description string) ([]byte, error) {
 	if err != nil {
 		return nil, fmt.Errorf("evidence: open %s: %w", description, err)
 	}
-	defer file.Close()
+	defer func() {
+		resultErr = errors.Join(resultErr, file.Close())
+	}()
 	after, err := file.Stat()
 	if err != nil {
 		return nil, fmt.Errorf("evidence: stat opened %s: %w", description, err)

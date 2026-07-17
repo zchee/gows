@@ -10,7 +10,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"runtime"
 	"slices"
 	"strings"
 	"time"
@@ -87,8 +86,8 @@ func CollectVerificationCommandInputs(root, sourceHead string) (VerificationComm
 		return VerificationCommandInputs{}, err
 	}
 	toolPaths := map[string]string{
-		"go":    filepath.Join(runtime.GOROOT(), "bin", "go"),
-		"gofmt": filepath.Join(runtime.GOROOT(), "bin", "gofmt"),
+		"go":    stockGoToolPath(),
+		"gofmt": filepath.Join(stockGoRoot(), "bin", "gofmt"),
 	}
 	for _, name := range []string{"gopls", "git"} {
 		path, err := exec.LookPath(name)
@@ -125,7 +124,7 @@ func CollectVerificationCommandInputs(root, sourceHead string) (VerificationComm
 		return VerificationCommandInputs{}, fmt.Errorf("evidence: list source Go files: %w", err)
 	}
 	var goFiles []string
-	for _, part := range bytes.Split(raw, []byte{0}) {
+	for part := range bytes.SplitSeq(raw, []byte{0}) {
 		if len(part) == 0 {
 			continue
 		}

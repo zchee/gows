@@ -36,13 +36,6 @@ func DeterministicPayloadSeed(n int, seed uint64) []byte {
 	return b
 }
 
-// DeterministicTextPayload returns exactly n bytes of valid, reproducible
-// mixed-width UTF-8. A short remainder is filled with ASCII so every length,
-// including lengths smaller than one multibyte code point, stays valid.
-func DeterministicTextPayload(n int) []byte {
-	return DeterministicTextPayloadSeed(n, defaultPayloadSeed)
-}
-
 // DeterministicTextPayloadSeed returns exactly n bytes of valid UTF-8 while
 // varying the token stream per explicit seed.
 func DeterministicTextPayloadSeed(n int, seed uint64) []byte {

@@ -264,7 +264,7 @@ func requireRealDirectoryPath(root, directory string) error {
 		return fmt.Errorf("evidence: evidence directory %s is not below repository root %s", directory, root)
 	}
 	current := root
-	for _, component := range strings.Split(relative, string(filepath.Separator)) {
+	for component := range strings.SplitSeq(relative, string(filepath.Separator)) {
 		current = filepath.Join(current, component)
 		info, err := os.Lstat(current)
 		if err != nil {
@@ -398,7 +398,7 @@ func hashGitFileSet(root, revision string, paths []string) (string, error) {
 }
 
 func stockGoVersion() (string, error) {
-	goTool := filepath.Join(runtime.GOROOT(), "bin", "go")
+	goTool := stockGoToolPath()
 	command := exec.Command(goTool, "version")
 	command.Env = overrideEnv(os.Environ(), "GOENV=off", "GOTOOLCHAIN=local", "GOEXPERIMENT=")
 	raw, err := command.Output()
@@ -413,7 +413,7 @@ func stockGoIdentity() (version, sum string, size int64, resultErr error) {
 	if err != nil {
 		return "", "", 0, err
 	}
-	goTool := filepath.Join(runtime.GOROOT(), "bin", "go")
+	goTool := stockGoToolPath()
 	info, err := os.Lstat(goTool)
 	if err != nil {
 		return "", "", 0, fmt.Errorf("evidence: stat stock Go binary: %w", err)
@@ -428,6 +428,16 @@ func stockGoIdentity() (version, sum string, size int64, resultErr error) {
 	digest := sha256.Sum256(raw)
 	return version, hex.EncodeToString(digest[:]), info.Size(), nil
 }
+
+// stockGoRoot returns the compiler toolchain embedded in the evaluator. The
+// evidence contract deliberately binds that immutable compiler instead of a
+// potentially different Go launcher found through PATH.
+func stockGoRoot() string {
+	//lint:ignore SA1019 Exact build-toolchain identity is required by the evidence contract.
+	return runtime.GOROOT() //nolint:staticcheck // Exact build-toolchain identity is required by the evidence contract.
+}
+
+func stockGoToolPath() string { return filepath.Join(stockGoRoot(), "bin", "go") }
 
 func overrideEnv(base []string, overrides ...string) []string {
 	keys := make(map[string]bool, len(overrides))
@@ -472,8 +482,7 @@ func gitRun(root string, args ...string) error {
 	var stderr bytes.Buffer
 	command.Stderr = &stderr
 	if err := command.Run(); err != nil {
-		var exitErr *exec.ExitError
-		if errors.As(err, &exitErr) {
+		if exitErr, ok := errors.AsType[*exec.ExitError](err); ok {
 			return fmt.Errorf("git %s exited %d: %s", strings.Join(args, " "), exitErr.ExitCode(), strings.TrimSpace(stderr.String()))
 		}
 		return err

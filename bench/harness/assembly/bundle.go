@@ -25,7 +25,7 @@ const manifestName = "manifest.json"
 
 // WriteBundle writes a new immutable bundle through a same-directory atomic
 // rename. Existing destinations are never replaced.
-func WriteBundle(outputDir string, bundle Bundle, requireRuntime bool) error {
+func WriteBundle(outputDir string, bundle Bundle, requireRuntime bool) (resultErr error) {
 	if outputDir == "" {
 		return errors.New("assembly bundle: output directory is empty")
 	}
@@ -55,7 +55,11 @@ func WriteBundle(outputDir string, bundle Bundle, requireRuntime bool) error {
 	if err != nil {
 		return fmt.Errorf("assembly bundle: create temporary output: %w", err)
 	}
-	defer os.RemoveAll(tempDir)
+	defer func() {
+		if err := os.RemoveAll(tempDir); err != nil {
+			resultErr = errors.Join(resultErr, fmt.Errorf("assembly bundle: clean temporary output: %w", err))
+		}
+	}()
 
 	paths := make([]string, 0, len(bundle.Artifacts))
 	for artifactPath := range bundle.Artifacts {
@@ -346,7 +350,7 @@ func validateArtifactRelationships(manifest Manifest, artifacts map[string][]byt
 	}
 
 	nmLines := make(map[string]bool)
-	for _, line := range strings.Split(string(artifacts[manifest.Symbols.NM.Path]), "\n") {
+	for line := range strings.SplitSeq(string(artifacts[manifest.Symbols.NM.Path]), "\n") {
 		nmLines[line] = true
 	}
 	for _, symbol := range manifest.Symbols.Records {
@@ -540,7 +544,7 @@ func verifyArtifactBytes(artifact Artifact, data []byte) error {
 	return nil
 }
 
-func writeImmutableFile(root, artifactPath string, data []byte) error {
+func writeImmutableFile(root, artifactPath string, data []byte) (resultErr error) {
 	clean, err := cleanArtifactPath(artifactPath)
 	if artifactPath == manifestName {
 		clean = manifestName
@@ -557,21 +561,26 @@ func writeImmutableFile(root, artifactPath string, data []byte) error {
 	if err != nil {
 		return fmt.Errorf("assembly bundle: create artifact %q: %w", clean, err)
 	}
+	closed := false
+	defer func() {
+		if !closed {
+			resultErr = errors.Join(resultErr, file.Close())
+		}
+	}()
 	writer := bufio.NewWriter(file)
 	if _, err := writer.Write(data); err != nil {
-		file.Close()
 		return fmt.Errorf("assembly bundle: write artifact %q: %w", clean, err)
 	}
 	if err := writer.Flush(); err != nil {
-		file.Close()
 		return fmt.Errorf("assembly bundle: flush artifact %q: %w", clean, err)
 	}
 	if err := file.Sync(); err != nil {
-		file.Close()
 		return fmt.Errorf("assembly bundle: sync artifact %q: %w", clean, err)
 	}
-	if err := file.Close(); err != nil {
-		return fmt.Errorf("assembly bundle: close artifact %q: %w", clean, err)
+	closeErr := file.Close()
+	closed = true
+	if closeErr != nil {
+		return fmt.Errorf("assembly bundle: close artifact %q: %w", clean, closeErr)
 	}
 	return nil
 }
@@ -591,6 +600,5 @@ func syncDir(name string) error {
 	if err != nil {
 		return err
 	}
-	defer dir.Close()
-	return dir.Sync()
+	return errors.Join(dir.Sync(), dir.Close())
 }

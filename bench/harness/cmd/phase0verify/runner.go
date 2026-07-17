@@ -74,7 +74,7 @@ func run(ctx context.Context, cfg config) (_ phase0.Result, resultErr error) {
 		return phase0.Result{}, err
 	}
 	if runtime.GOOS != "darwin" {
-		return phase0.Result{}, fmt.Errorf("Phase 0 verification requires a Darwin controller, got %s", runtime.GOOS)
+		return phase0.Result{}, fmt.Errorf("phase 0 verification requires a Darwin controller, got %s", runtime.GOOS)
 	}
 	output, err := resolveOutputRoot(root, cfg.outputRoot)
 	if err != nil {
@@ -326,8 +326,7 @@ func executeCommand(ctx context.Context, root, logsDir string, index int, spec c
 	exitCode := 0
 	if runErr != nil {
 		exitCode = -1
-		var exitErr *exec.ExitError
-		if errors.As(runErr, &exitErr) {
+		if exitErr, ok := errors.AsType[*exec.ExitError](runErr); ok {
 			exitCode = exitErr.ExitCode()
 		}
 	}
@@ -358,8 +357,10 @@ func executeCommand(ctx context.Context, root, logsDir string, index int, spec c
 	return check, nil
 }
 
-type commandExecutor func(index int, spec commandSpec) (evidence.VerificationCheck, error)
-type assemblySealer func(spec commandSpec) (evidence.AssemblyEvidence, error)
+type (
+	commandExecutor func(index int, spec commandSpec) (evidence.VerificationCheck, error)
+	assemblySealer  func(spec commandSpec) (evidence.AssemblyEvidence, error)
+)
 
 func executePlan(specs []commandSpec, execute commandExecutor, seal assemblySealer) ([]evidence.VerificationCheck, []evidence.AssemblyEvidence, error) {
 	if err := validateCommandOrder(specs); err != nil {

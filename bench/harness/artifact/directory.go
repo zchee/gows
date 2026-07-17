@@ -163,7 +163,7 @@ func ResolveDirectory(store Store, receiptRef Ref, wantKind string) (DirectoryRe
 
 // MaterializeDirectory copies verified CAS blobs into a new read-only bundle
 // directory. It never overwrites an existing destination.
-func MaterializeDirectory(paths map[string]string, destination string) error {
+func MaterializeDirectory(paths map[string]string, destination string) (resultErr error) {
 	if _, err := os.Lstat(destination); err == nil {
 		return fmt.Errorf("artifact: materialize destination already exists: %s", destination)
 	} else if !errors.Is(err, os.ErrNotExist) {
@@ -177,7 +177,11 @@ func MaterializeDirectory(paths map[string]string, destination string) error {
 	if err != nil {
 		return err
 	}
-	defer os.RemoveAll(temporary)
+	defer func() {
+		if err := os.RemoveAll(temporary); err != nil {
+			resultErr = errors.Join(resultErr, fmt.Errorf("artifact: clean materialization: %w", err))
+		}
+	}()
 	names := make([]string, 0, len(paths))
 	for name := range paths {
 		names = append(names, name)
@@ -197,8 +201,7 @@ func MaterializeDirectory(paths map[string]string, destination string) error {
 		}
 		output, err := os.OpenFile(target, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o444)
 		if err != nil {
-			source.Close()
-			return err
+			return errors.Join(err, source.Close())
 		}
 		_, copyErr := io.Copy(output, source)
 		closeErr := errors.Join(source.Close(), output.Sync(), output.Close())

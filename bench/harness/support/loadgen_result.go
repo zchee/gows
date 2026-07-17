@@ -112,14 +112,19 @@ func (r LoadgenResult) Validate() error {
 		name  string
 		value int64
 	}{
-		{"messages", r.Messages}, {"offered_messages", r.OfferedMessages},
-		{"achieved_messages", r.AchievedMessages}, {"rejected_messages", r.RejectedMessages},
-		{"dropped_messages", r.DroppedMessages}, {"queue_overflows", r.QueueOverflows},
-		{"scheduler_late_messages", r.SchedulerLateMessages}, {"post_window_messages", r.PostWindowMessages},
+		{"messages", r.Messages},
+		{"offered_messages", r.OfferedMessages},
+		{"achieved_messages", r.AchievedMessages},
+		{"rejected_messages", r.RejectedMessages},
+		{"dropped_messages", r.DroppedMessages},
+		{"queue_overflows", r.QueueOverflows},
+		{"scheduler_late_messages", r.SchedulerLateMessages},
+		{"post_window_messages", r.PostWindowMessages},
 		{"scheduler_lateness_limit_nanoseconds", r.SchedulerLatenessLimitNanoseconds},
 		{"scheduler_max_lateness_nanoseconds", r.SchedulerMaxLatenessNanoseconds},
 		{"measurement_drain_nanoseconds", r.MeasurementDrainNanoseconds},
-		{"verification_mismatches", r.VerificationMismatches}, {"errors", r.Errors},
+		{"verification_mismatches", r.VerificationMismatches},
+		{"errors", r.Errors},
 	}
 	for _, count := range counts {
 		if count.value < 0 {

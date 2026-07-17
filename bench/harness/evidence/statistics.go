@@ -558,7 +558,8 @@ func fullClaimPass(allPairs map[string][]measuredPair, pol *policy.Policy, flips
 			{metricServerCPU, paired.LowerIsBetter, cpuUpper},
 		}
 		if scenario.CellClass == policy.CellServerSensitive {
-			gates = append(gates,
+			gates = append(
+				gates,
 				struct {
 					metric    string
 					direction paired.MetricDirection

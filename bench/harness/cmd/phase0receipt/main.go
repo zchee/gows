@@ -22,7 +22,9 @@ func main() {
 
 func runCLI(args []string, stdout, stderr io.Writer) int {
 	if len(args) == 0 {
-		printUsage(stderr)
+		if err := printUsage(stderr); err != nil {
+			return exitFailure
+		}
 		return exitUsage
 	}
 
@@ -35,7 +37,7 @@ func runCLI(args []string, stdout, stderr io.Writer) int {
 			err = runAAPreflight(cfg, productionOperations())
 		}
 		if err == nil {
-			fmt.Fprintf(stdout, "phase0receipt: A/A preflight PASS -> %s\n", cfg.outputPath)
+			_, err = fmt.Fprintf(stdout, "phase0receipt: A/A preflight PASS -> %s\n", cfg.outputPath)
 		}
 	case "build":
 		var cfg commandConfig
@@ -44,18 +46,26 @@ func runCLI(args []string, stdout, stderr io.Writer) int {
 			err = runBuild(cfg, productionOperations())
 		}
 		if err == nil {
-			fmt.Fprintf(stdout, "phase0receipt: receipt created -> %s\n", cfg.outputPath)
+			_, err = fmt.Fprintf(stdout, "phase0receipt: receipt created -> %s\n", cfg.outputPath)
 		}
 	case "help", "-h", "--help":
-		printUsage(stdout)
+		if err := printUsage(stdout); err != nil {
+			return exitFailure
+		}
 		return exitSuccess
 	default:
-		fmt.Fprintf(stderr, "phase0receipt: unknown mode %q\n", args[0])
-		printUsage(stderr)
+		if _, err := fmt.Fprintf(stderr, "phase0receipt: unknown mode %q\n", args[0]); err != nil {
+			return exitFailure
+		}
+		if err := printUsage(stderr); err != nil {
+			return exitFailure
+		}
 		return exitUsage
 	}
 	if err != nil {
-		fmt.Fprintf(stderr, "phase0receipt: %v\n", err)
+		if _, writeErr := fmt.Fprintf(stderr, "phase0receipt: %v\n", err); writeErr != nil {
+			return exitFailure
+		}
 		if isUsageError(err) {
 			return exitUsage
 		}
@@ -98,10 +108,18 @@ func parseConfig(name string, args []string, output io.Writer, includeBaselines 
 	return cfg, nil
 }
 
-func printUsage(output io.Writer) {
-	fmt.Fprintln(output, "usage:")
-	fmt.Fprintln(output, "  phase0receipt aa-preflight -repo ROOT -verification-result RESULT -session-1 RECEIPT -session-2 RECEIPT -session-3 RECEIPT -out VERDICT")
-	fmt.Fprintln(output, "  phase0receipt build -repo ROOT -verification-result RESULT -session-1 RECEIPT -session-2 RECEIPT -session-3 RECEIPT -baseline-best-api-gows-client RECEIPT -baseline-semantic-parity-gows-client RECEIPT -baseline-independent-gobwas-client RECEIPT -baseline-independent-raw-client RECEIPT -out RECEIPT")
+func printUsage(output io.Writer) error {
+	lines := []string{
+		"usage:",
+		"  phase0receipt aa-preflight -repo ROOT -verification-result RESULT -session-1 RECEIPT -session-2 RECEIPT -session-3 RECEIPT -out VERDICT",
+		"  phase0receipt build -repo ROOT -verification-result RESULT -session-1 RECEIPT -session-2 RECEIPT -session-3 RECEIPT -baseline-best-api-gows-client RECEIPT -baseline-semantic-parity-gows-client RECEIPT -baseline-independent-gobwas-client RECEIPT -baseline-independent-raw-client RECEIPT -out RECEIPT",
+	}
+	for _, line := range lines {
+		if _, err := fmt.Fprintln(output, line); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 type usageError struct{ error }

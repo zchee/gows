@@ -23,7 +23,7 @@ func runFastHTTP(ctx context.Context, addr string, _ serverConfig) error {
 
 	handler := func(fctx *fasthttp.RequestCtx) {
 		_ = upgrader.Upgrade(fctx, func(conn *websocket.Conn) {
-			defer conn.Close()
+			defer func() { _ = conn.Close() }()
 			for {
 				mt, p, err := conn.ReadMessage()
 				if err != nil {

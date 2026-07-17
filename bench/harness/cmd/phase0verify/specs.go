@@ -37,7 +37,8 @@ func buildCommandSpecs(root, output, work string, inputs evidence.VerificationCo
 			assembly: &assemblyOutput{goos: "darwin", goarch: arch, directory: bundle},
 		})
 	}
-	specs = append(specs,
+	specs = append(
+		specs,
 		commandSpec{
 			id:               "micro-allocations",
 			argv:             []string{inputs.GoTool, "test", "-run", evidence.MicroAllocationTestPattern, "-count=1", ".", "./internal/extension", "./internal/httpx", "./internal/pool", "./internal/utf8x"},

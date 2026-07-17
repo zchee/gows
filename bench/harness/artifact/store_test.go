@@ -43,6 +43,41 @@ func TestStoreRejectsTamperedBlob(t *testing.T) {
 	}
 }
 
+func TestStorePutLeavesNoTemporaryFiles(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	store, err := NewStore(filepath.Join(dir, "cas"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	data := []byte("immutable\n")
+	if _, err := store.PutBytes(data, "text/plain"); err != nil {
+		t.Fatal(err)
+	}
+	source := filepath.Join(dir, "source")
+	if err := os.WriteFile(source, data, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.PutFile(source, "text/plain"); err != nil {
+		t.Fatal(err)
+	}
+
+	patterns := []string{
+		filepath.Join(store.Root(), ".bytes-*"),
+		filepath.Join(store.Root(), "sha256", ".ingest-*"),
+	}
+	for _, pattern := range patterns {
+		matches, err := filepath.Glob(pattern)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(matches) != 0 {
+			t.Fatalf("temporary artifacts remain for %s: %v", pattern, matches)
+		}
+	}
+}
+
 func TestRefRejectsIdentityMismatch(t *testing.T) {
 	t.Parallel()
 

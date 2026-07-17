@@ -3,6 +3,7 @@ package artifact
 import (
 	"crypto/sha256"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"strings"
@@ -161,16 +162,10 @@ func writeTestRun(t *testing.T) (string, Store) {
 func cloneRunReceipt(receipt RunReceipt) RunReceipt {
 	clone := receipt
 	clone.Files = make(map[string]Ref, len(receipt.Files))
-	for name, ref := range receipt.Files {
-		clone.Files[name] = ref
-	}
+	maps.Copy(clone.Files, receipt.Files)
 	clone.AdapterSHA256 = make(map[string]string, len(receipt.AdapterSHA256))
-	for name, digest := range receipt.AdapterSHA256 {
-		clone.AdapterSHA256[name] = digest
-	}
+	maps.Copy(clone.AdapterSHA256, receipt.AdapterSHA256)
 	clone.LibraryBinarySHA256 = make(map[string]string, len(receipt.LibraryBinarySHA256))
-	for name, digest := range receipt.LibraryBinarySHA256 {
-		clone.LibraryBinarySHA256[name] = digest
-	}
+	maps.Copy(clone.LibraryBinarySHA256, receipt.LibraryBinarySHA256)
 	return clone
 }

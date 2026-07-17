@@ -11,6 +11,7 @@ import (
 	"bytes"
 	"cmp"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"math"
 	"math/rand/v2"
@@ -262,12 +263,14 @@ func SeededRand(seed uint64) *rand.Rand {
 }
 
 // LoadSamples reads a samples.jsonl file, one [Sample] per non-empty line.
-func LoadSamples(path string) ([]Sample, error) {
+func LoadSamples(path string) (_ []Sample, resultErr error) {
 	f, err := os.Open(path)
 	if err != nil {
 		return nil, fmt.Errorf("paired: open %s: %w", path, err)
 	}
-	defer f.Close()
+	defer func() {
+		resultErr = errors.Join(resultErr, f.Close())
+	}()
 
 	var samples []Sample
 	sc := bufio.NewScanner(f)

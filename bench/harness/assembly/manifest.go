@@ -178,8 +178,8 @@ type RuntimeProfile struct {
 	SelectedUTF8      string            `json:"selected_utf8,omitempty"`
 	MaskSelfCheck     bool              `json:"mask_self_check,omitempty"`
 	UTF8SelfCheck     bool              `json:"utf8_self_check,omitempty"`
-	ExecutionEvidence Artifact          `json:"execution_evidence,omitempty"`
-	Execution         ExecutionIdentity `json:"execution,omitempty"`
+	ExecutionEvidence Artifact          `json:"execution_evidence"`
+	Execution         ExecutionIdentity `json:"execution"`
 }
 
 type ExecutionIdentity struct {
@@ -643,13 +643,7 @@ func validateDispatch(dispatch DispatchEvidence, packages map[string]PackageProv
 		if err := validateSourceFile(record.Source); err != nil {
 			return fmt.Errorf("dispatcher %q source: %w", want.Name, err)
 		}
-		sourceMatched := false
-		for _, selected := range pkg.SelectedFiles {
-			if selected == record.Source {
-				sourceMatched = true
-				break
-			}
-		}
+		sourceMatched := slices.Contains(pkg.SelectedFiles, record.Source)
 		if !sourceMatched {
 			return fmt.Errorf("dispatcher %q source is not selected in package object", want.Name)
 		}
@@ -678,7 +672,7 @@ func validateExecutionIdentity(execution ExecutionIdentity, target Target) error
 	}
 	if target.GOOS == "darwin" {
 		if execution.Method != "darwin-sysctl" || !execution.TranslationAvailable {
-			return fmt.Errorf("Darwin translation identity is not available: %+v", execution)
+			return fmt.Errorf("darwin translation identity is not available: %+v", execution)
 		}
 		if target.GOARCH == "arm64" && execution.Translated {
 			return errors.New("arm64 runtime cannot be a translated x86 process")

@@ -26,7 +26,7 @@ func runGorilla(ctx context.Context, addr string, cfg serverConfig) error {
 		if err != nil {
 			return
 		}
-		defer conn.Close()
+		defer func() { _ = conn.Close() }()
 		for {
 			mt, p, err := conn.ReadMessage()
 			if err != nil {

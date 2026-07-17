@@ -18,7 +18,7 @@ func runGobwas(ctx context.Context, addr string, cfg serverConfig) error {
 	}
 	go func() {
 		<-ctx.Done()
-		ln.Close()
+		_ = ln.Close()
 	}()
 
 	upgrader := ws.Upgrader{
@@ -35,7 +35,7 @@ func runGobwas(ctx context.Context, addr string, cfg serverConfig) error {
 			return err
 		}
 		go func(conn net.Conn) {
-			defer conn.Close()
+			defer func() { _ = conn.Close() }()
 			if _, err := upgrader.Upgrade(conn); err != nil {
 				return
 			}

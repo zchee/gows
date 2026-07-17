@@ -721,7 +721,6 @@ func TestPhase0Policies(t *testing.T) {
 		"darwin-arm64-independent-raw.json":    {runKind: RunKindBaseline, adapter: AdapterClassBestAPI, client: ClientRaw, wantScenarios: 1},
 	}
 	for name, want := range tests {
-		name, want := name, want
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 			p, _, err := Load(filepath.Join("phase0", name))

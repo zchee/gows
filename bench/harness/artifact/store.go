@@ -53,7 +53,7 @@ func (store Store) Root() string { return store.root }
 // PutBytes stores an in-memory deterministic artifact without requiring the
 // caller to manage a temporary file. The bytes are first synced below the
 // store root and then ingested through the same verified path as PutFile.
-func (store Store) PutBytes(data []byte, mediaType string) (Ref, error) {
+func (store Store) PutBytes(data []byte, mediaType string) (_ Ref, resultErr error) {
 	if err := requireRealDirectoryFrom(store.anchor, store.root, false); err != nil {
 		return Ref{}, fmt.Errorf("artifact: store root: %w", err)
 	}
@@ -62,23 +62,31 @@ func (store Store) PutBytes(data []byte, mediaType string) (Ref, error) {
 		return Ref{}, fmt.Errorf("artifact: create bytes source: %w", err)
 	}
 	path := temporary.Name()
-	defer os.Remove(path)
+	closed := false
+	defer func() {
+		if !closed {
+			resultErr = errors.Join(resultErr, temporary.Close())
+		}
+		if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
+			resultErr = errors.Join(resultErr, fmt.Errorf("artifact: remove bytes source: %w", err))
+		}
+	}()
 	if _, err := io.Copy(temporary, bytes.NewReader(data)); err != nil {
-		temporary.Close()
 		return Ref{}, fmt.Errorf("artifact: write bytes source: %w", err)
 	}
 	if err := temporary.Sync(); err != nil {
-		temporary.Close()
 		return Ref{}, fmt.Errorf("artifact: sync bytes source: %w", err)
 	}
-	if err := temporary.Close(); err != nil {
-		return Ref{}, fmt.Errorf("artifact: close bytes source: %w", err)
+	closeErr := temporary.Close()
+	closed = true
+	if closeErr != nil {
+		return Ref{}, fmt.Errorf("artifact: close bytes source: %w", closeErr)
 	}
 	return store.PutFile(path, mediaType)
 }
 
 // PutFile copies path into the store and returns its immutable reference.
-func (store Store) PutFile(path, mediaType string) (Ref, error) {
+func (store Store) PutFile(path, mediaType string) (_ Ref, resultErr error) {
 	info, err := os.Lstat(path)
 	if err != nil {
 		return Ref{}, fmt.Errorf("artifact: stat %s: %w", path, err)
@@ -90,7 +98,9 @@ func (store Store) PutFile(path, mediaType string) (Ref, error) {
 	if err != nil {
 		return Ref{}, fmt.Errorf("artifact: open %s: %w", path, err)
 	}
-	defer source.Close()
+	defer func() {
+		resultErr = errors.Join(resultErr, source.Close())
+	}()
 
 	temporaryDir := filepath.Join(store.root, "sha256")
 	if err := requireRealDirectoryFrom(store.anchor, temporaryDir, false); err != nil {
@@ -104,9 +114,11 @@ func (store Store) PutFile(path, mediaType string) (Ref, error) {
 	closed := false
 	defer func() {
 		if !closed {
-			_ = temporary.Close()
+			resultErr = errors.Join(resultErr, temporary.Close())
 		}
-		_ = os.Remove(temporaryPath)
+		if err := os.Remove(temporaryPath); err != nil && !errors.Is(err, os.ErrNotExist) {
+			resultErr = errors.Join(resultErr, fmt.Errorf("artifact: remove ingest file: %w", err))
+		}
 	}()
 	hash := sha256.New()
 	size, err := io.Copy(io.MultiWriter(temporary, hash), source)
@@ -120,10 +132,11 @@ func (store Store) PutFile(path, mediaType string) (Ref, error) {
 	if err := temporary.Sync(); err != nil {
 		return Ref{}, fmt.Errorf("artifact: sync ingest %s: %w", path, err)
 	}
-	if err := temporary.Close(); err != nil {
-		return Ref{}, fmt.Errorf("artifact: close ingest %s: %w", path, err)
-	}
+	closeErr := temporary.Close()
 	closed = true
+	if closeErr != nil {
+		return Ref{}, fmt.Errorf("artifact: close ingest %s: %w", path, closeErr)
+	}
 
 	targetDir := filepath.Join(store.root, "sha256", digest[:2])
 	if err := requireRealDirectoryFrom(store.anchor, targetDir, true); err != nil {
@@ -280,7 +293,7 @@ func validSHA256(value string) bool {
 	return err == nil && len(decoded) == sha256.Size
 }
 
-func verifyFile(path, wantDigest string, wantSize int64) error {
+func verifyFile(path, wantDigest string, wantSize int64) (resultErr error) {
 	info, err := os.Lstat(path)
 	if err != nil {
 		return fmt.Errorf("artifact: resolve %s: %w", wantDigest, err)
@@ -295,7 +308,9 @@ func verifyFile(path, wantDigest string, wantSize int64) error {
 	if err != nil {
 		return fmt.Errorf("artifact: open blob %s: %w", wantDigest, err)
 	}
-	defer file.Close()
+	defer func() {
+		resultErr = errors.Join(resultErr, file.Close())
+	}()
 	opened, err := file.Stat()
 	if err != nil {
 		return fmt.Errorf("artifact: stat opened blob %s: %w", wantDigest, err)

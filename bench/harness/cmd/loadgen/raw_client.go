@@ -138,9 +138,6 @@ func (c *rawClient) WriteMessage(payload []byte) error {
 }
 
 func (c *rawClient) writeFrame(opcode byte, payload []byte) error {
-	if len(payload) > math.MaxInt64 {
-		return fmt.Errorf("raw client: payload length %d overflows RFC 6455 length", len(payload))
-	}
 	header := make([]byte, 0, 14)
 	header = append(header, 0x80|opcode)
 	switch {

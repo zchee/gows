@@ -576,12 +576,14 @@ type EnvSnapshot struct {
 // echoserver binary that serves it, and resolved carries each name's real
 // echoserver -lib value and any appended server arguments. client is the
 // loadgen -client transport used for every run in the matrix.
-func execute(ctx context.Context, pol *policy.Policy, smoke bool, client, sessionID, policySum string, childEnvironment []string, loadgenBin string, binPaths, binarySums, adapterSums map[string]string, resolved map[string]policy.Resolved, samplesPath, errorsPath string) (int, error) {
+func execute(ctx context.Context, pol *policy.Policy, smoke bool, client, sessionID, policySum string, childEnvironment []string, loadgenBin string, binPaths, binarySums, adapterSums map[string]string, resolved map[string]policy.Resolved, samplesPath, errorsPath string) (_ int, resultErr error) {
 	sf, err := os.OpenFile(samplesPath, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o644)
 	if err != nil {
 		return 0, fmt.Errorf("open samples file: %w", err)
 	}
-	defer sf.Close()
+	defer func() {
+		resultErr = errors.Join(resultErr, sf.Close())
+	}()
 	logsDir := filepath.Join(filepath.Dir(samplesPath), "logs")
 	if err := os.MkdirAll(logsDir, 0o755); err != nil {
 		return 0, fmt.Errorf("create logs directory: %w", err)
@@ -1095,7 +1097,12 @@ func toolchainGoVersion(goExperiment string) string {
 	return strings.TrimSpace(string(out))
 }
 
-func goToolPath() string { return filepath.Join(runtime.GOROOT(), "bin", "go") }
+// goToolPath binds child builds and recorded provenance to this controller's
+// compiler rather than a potentially different Go launcher found through PATH.
+func goToolPath() string {
+	//lint:ignore SA1019 Exact build-toolchain identity is required by benchmark provenance.
+	return filepath.Join(runtime.GOROOT(), "bin", "go") //nolint:staticcheck // Exact build-toolchain identity is required by benchmark provenance.
+}
 
 func uniqueStrings(values []string) []string {
 	seen := make(map[string]struct{}, len(values))
@@ -1111,12 +1118,14 @@ func uniqueStrings(values []string) []string {
 }
 
 // sha256File returns the hex SHA-256 of a file's contents.
-func sha256File(path string) (string, error) {
+func sha256File(path string) (_ string, resultErr error) {
 	f, err := os.Open(path)
 	if err != nil {
 		return "", fmt.Errorf("hash %s: %w", path, err)
 	}
-	defer f.Close()
+	defer func() {
+		resultErr = errors.Join(resultErr, f.Close())
+	}()
 	h := sha256.New()
 	if _, err := io.Copy(h, f); err != nil {
 		return "", fmt.Errorf("hash %s: %w", path, err)
@@ -1344,14 +1353,16 @@ func commandOutput(name string, args ...string) (string, error) {
 	return strings.TrimSpace(string(out)), nil
 }
 
-// appendError records a run failure to errors.log with context.
+// appendError records a run failure to errors.log with context. Logging is
+// best-effort because the caller preserves the primary error and writes the
+// authoritative INVALIDATED.json marker on every failed run.
 func appendError(path, scenario, lib string, rep int, cause error) {
 	f, err := os.OpenFile(path, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644)
 	if err != nil {
 		return
 	}
-	defer f.Close()
-	fmt.Fprintf(f, "%s scenario=%q lib=%q rep=%d: %v\n", nowRFC(), scenario, lib, rep, cause)
+	defer func() { _ = f.Close() }()
+	_, _ = fmt.Fprintf(f, "%s scenario=%q lib=%q rep=%d: %v\n", nowRFC(), scenario, lib, rep, cause)
 }
 
 // writeJSONLine marshals v as one compact JSON line to w.

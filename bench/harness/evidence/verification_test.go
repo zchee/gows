@@ -212,9 +212,10 @@ func validVerificationManifest(t *testing.T, dir string, identity RepositoryIden
 			workingDir = "."
 		}
 		arch := identity.GOARCH
-		if id == "build-amd64" {
+		switch id {
+		case "build-amd64":
 			arch = "amd64"
-		} else if id == "build-arm64" {
+		case "build-arm64":
 			arch = "arm64"
 		}
 		checks = append(checks, VerificationCheck{

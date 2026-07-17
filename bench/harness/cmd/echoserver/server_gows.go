@@ -70,7 +70,7 @@ func runGoWS(ctx context.Context, addr string, cfg serverConfig) error {
 	}
 	go func() {
 		<-ctx.Done()
-		ln.Close()
+		_ = ln.Close()
 	}()
 
 	for {
@@ -88,7 +88,7 @@ func runGoWS(ctx context.Context, addr string, cfg serverConfig) error {
 // serveGoWSConn upgrades one accepted connection and runs its echo loop until
 // the peer disconnects or a protocol error tears the connection down.
 func serveGoWSConn(conn net.Conn, cfg serverConfig) {
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 
 	hs, err := gows.Upgrade(conn)
 	if err != nil {

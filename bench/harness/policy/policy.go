@@ -345,7 +345,9 @@ func (p *Policy) Validate() error {
 		return fmt.Errorf("policy: claim evidence requires strict_on validation")
 	case p.Series.RunKind == RunKindAA && (p.Series.EvidenceClass != EvidenceClassSelfValidation || p.Series.HostMode != HostModeSame || p.Series.AdapterClass != AdapterClassAA):
 		return fmt.Errorf("policy: aa runs require self_validation, same_host, and aa adapter class")
-	case p.Series.RunKind == RunKindBaseline && !((p.Series.EvidenceClass == EvidenceClassBaseline && p.Series.HostMode == HostModeSame) || (p.Series.EvidenceClass == EvidenceClassClaim && p.Series.HostMode == HostModeSeparate)):
+	case p.Series.RunKind == RunKindBaseline &&
+		(p.Series.EvidenceClass != EvidenceClassBaseline || p.Series.HostMode != HostModeSame) &&
+		(p.Series.EvidenceClass != EvidenceClassClaim || p.Series.HostMode != HostModeSeparate):
 		return fmt.Errorf("policy: baseline runs require baseline/same_host or claim/separate_host identity")
 	case p.Series.RunKind == RunKindDiagnostic && p.Series.EvidenceClass != EvidenceClassDiagnostic:
 		return fmt.Errorf("policy: diagnostic runs require diagnostic evidence")
@@ -559,7 +561,7 @@ func validArtifactID(value string) bool {
 }
 
 func validEnvKey(value string) bool {
-	if value == "" || !((value[0] >= 'A' && value[0] <= 'Z') || (value[0] >= 'a' && value[0] <= 'z') || value[0] == '_') {
+	if value == "" || (value[0] < 'A' || value[0] > 'Z') && (value[0] < 'a' || value[0] > 'z') && value[0] != '_' {
 		return false
 	}
 	for _, r := range value[1:] {

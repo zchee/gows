@@ -102,7 +102,11 @@ func main() {
 	defer stop()
 
 	debugSrv, debugErrCh := support.StartDebugServer(*debugAddr)
-	defer debugSrv.Close()
+	defer func() {
+		if err := debugSrv.Close(); err != nil {
+			log.Printf("echoserver: close debug server: %v", err)
+		}
+	}()
 
 	log.Printf("echoserver: lib=%s addr=%s debug-addr=%s buffer=%dB", *lib, *addr, *debugAddr, bufferSize)
 	if v, ok := gowsVariants[*lib]; ok && v.readBufSize != bufferSize {

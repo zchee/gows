@@ -14,7 +14,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"runtime"
 	"runtime/debug"
 	"strings"
 	"time"
@@ -399,12 +398,14 @@ func guardLogPrefix(scenario, block, library string) string {
 	return replacer.Replace(scenario) + "__" + replacer.Replace(block) + "__" + replacer.Replace(library)
 }
 
-func validateGuardLog(path string, baseline envSnapshot, guard policy.Guard) error {
+func validateGuardLog(path string, baseline envSnapshot, guard policy.Guard) (resultErr error) {
 	file, err := os.Open(path)
 	if err != nil {
 		return err
 	}
-	defer file.Close()
+	defer func() {
+		resultErr = errors.Join(resultErr, file.Close())
+	}()
 	scanner := bufio.NewScanner(file)
 	scanner.Buffer(make([]byte, 64*1024), 4*1024*1024)
 	count := 0
@@ -510,24 +511,24 @@ func validateToolchainIdentity(manifest runManifest) error {
 	if r.GOMAXPROCS == "" || r.GOGC != "100" || r.GOMEMLIMIT != "off" || r.GODEBUG != "" || r.GOWSSIMD != "" {
 		return fmt.Errorf("uncontrolled runtime environment: %+v", r)
 	}
-	wantGoTool := filepath.Join(runtime.GOROOT(), "bin", "go")
+	wantGoTool := stockGoToolPath()
 	if filepath.Clean(manifest.GoBinaryPath) != wantGoTool {
-		return fmt.Errorf("Go toolchain path = %q, want %q", manifest.GoBinaryPath, wantGoTool)
+		return fmt.Errorf("go toolchain path = %q, want %q", manifest.GoBinaryPath, wantGoTool)
 	}
 	info, err := os.Lstat(wantGoTool)
 	if err != nil {
-		return fmt.Errorf("stat Go toolchain: %w", err)
+		return fmt.Errorf("stat go toolchain: %w", err)
 	}
 	if !info.Mode().IsRegular() || info.Size() != manifest.GoBinarySizeBytes || !validHex(manifest.GoBinarySHA256, 64) {
-		return fmt.Errorf("Go toolchain file identity mismatch")
+		return fmt.Errorf("go toolchain file identity mismatch")
 	}
 	raw, err := os.ReadFile(wantGoTool)
 	if err != nil {
-		return fmt.Errorf("read Go toolchain: %w", err)
+		return fmt.Errorf("read go toolchain: %w", err)
 	}
 	sum := sha256.Sum256(raw)
 	if hex.EncodeToString(sum[:]) != manifest.GoBinarySHA256 {
-		return fmt.Errorf("Go toolchain SHA-256 mismatch")
+		return fmt.Errorf("go toolchain SHA-256 mismatch")
 	}
 	return nil
 }
@@ -580,9 +581,10 @@ func validateModuleGraph(run resolvedRun, root string) (map[string]moduleRecord,
 }
 
 func captureCurrentModuleGraph(root string, manifest runManifest) ([]byte, error) {
-	goTool := filepath.Join(runtime.GOROOT(), "bin", "go")
+	goTool := stockGoToolPath()
 	t := manifest.ToolchainEnvironment
-	environment := overrideEnv(os.Environ(),
+	environment := overrideEnv(
+		os.Environ(),
 		"GOENV="+t.GOENV, "GOTOOLCHAIN="+t.GOTOOLCHAIN, "GOFLAGS="+t.GOFLAGS,
 		"GOEXPERIMENT="+t.GOEXPERIMENT, "GOOS="+t.GOOS, "GOARCH="+t.GOARCH,
 		"GOAMD64="+t.GOAMD64, "GOARM64="+t.GOARM64, "GOFIPS140="+t.GOFIPS140,
@@ -843,12 +845,14 @@ func validateSamples(run resolvedRun) error {
 	return nil
 }
 
-func loadStrictSamples(path string) ([]paired.Sample, error) {
+func loadStrictSamples(path string) (_ []paired.Sample, resultErr error) {
 	file, err := os.Open(path)
 	if err != nil {
 		return nil, fmt.Errorf("evidence: open samples: %w", err)
 	}
-	defer file.Close()
+	defer func() {
+		resultErr = errors.Join(resultErr, file.Close())
+	}()
 	scanner := bufio.NewScanner(file)
 	scanner.Buffer(make([]byte, 64*1024), 64*1024*1024)
 	var samples []paired.Sample
@@ -943,9 +947,10 @@ func runPair(run resolvedRun, scenario string, repetition int) (paired.Sample, p
 		if sample.Scenario != scenario || sample.Repetition != repetition {
 			continue
 		}
-		if sample.Library == run.Policy.Candidate {
+		switch sample.Library {
+		case run.Policy.Candidate:
 			candidate = sample
-		} else if sample.Library == run.Policy.Comparator {
+		case run.Policy.Comparator:
 			comparator = sample
 		}
 	}
