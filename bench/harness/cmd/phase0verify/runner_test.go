@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"slices"
 	"strconv"
 	"strings"
@@ -115,7 +116,7 @@ func TestCommandSpecsMatchEvaluatorContract(t *testing.T) {
 		ModuleFilesSHA256: repository.ModuleFilesSHA256,
 		GoVersion:         repository.GoVersion, GoBinarySHA256: repository.GoBinarySHA256,
 		GOOS: repository.GOOS, GOARCH: repository.GOARCH,
-		Hostname: "test-host", BootIdentity: "darwin:kern.bootsessionuuid=test-boot",
+		Hostname: "test-host", BootIdentity: testBootIdentity(t),
 		Tools: slices.Clone(inputs.Tools), Checks: checks,
 	}
 	if _, err := evidence.MarshalVerificationManifest(manifest, repository, inputs); err != nil {
@@ -381,8 +382,23 @@ func validRepositoryIdentity() evidence.RepositoryIdentity {
 		Branch: evidence.ExpectedBranch, SourceHead: strings.Repeat("a", 40),
 		SourceTree: strings.Repeat("b", 40), SourceSHA256: strings.Repeat("c", 64),
 		ModulePath: "github.com/zchee/gows", ModuleFilesSHA256: strings.Repeat("d", 64),
-		GoVersion:      "go version go1.26.5 darwin/arm64",
+		GoVersion:      "go version go1.26.5 " + runtime.GOOS + "/" + runtime.GOARCH,
 		GoBinarySHA256: strings.Repeat("e", 64), GoBinarySizeBytes: 1,
-		GOOS: "darwin", GOARCH: "arm64", EvidencePath: evidence.EvidencePath,
+		GOOS: runtime.GOOS, GOARCH: runtime.GOARCH, EvidencePath: evidence.EvidencePath,
+	}
+}
+
+// testBootIdentity returns a fixture boot identity whose source prefix is
+// valid for the host operating system running the test.
+func testBootIdentity(t *testing.T) string {
+	t.Helper()
+	switch runtime.GOOS {
+	case "darwin":
+		return "darwin:kern.bootsessionuuid=test-boot"
+	case "linux":
+		return "linux:/proc/sys/kernel/random/boot_id=test-boot"
+	default:
+		t.Skipf("host OS %s has no supported boot identity source", runtime.GOOS)
+		return ""
 	}
 }

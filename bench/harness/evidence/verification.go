@@ -532,11 +532,13 @@ func validateVerificationCommand(check VerificationCheck, repository RepositoryI
 	if check.WorkingDir != workingDirectories[check.ID] {
 		return fmt.Errorf("evidence: verification check %q working directory = %q, want %q", check.ID, check.WorkingDir, workingDirectories[check.ID])
 	}
-	wantArch := repository.GOARCH
+	wantOS, wantArch := repository.GOOS, repository.GOARCH
 	if arch, ok := strings.CutPrefix(check.ID, "build-"); ok {
-		wantArch = arch
+		// Compile-link gates always target the supported darwin bench pair,
+		// independent of the host that produced the verification evidence.
+		wantOS, wantArch = "darwin", arch
 	}
-	if err := validateVerificationEnvironment(check, repository.GOOS, wantArch, inputs); err != nil {
+	if err := validateVerificationEnvironment(check, wantOS, wantArch, inputs); err != nil {
 		return err
 	}
 	exact := func(want ...string) error {
