@@ -16,16 +16,12 @@ WebSocket library for Go, engineered for performance and conformance.
 
 ## Features
 
-- **Zero-dependency core.** Every package in the library's build graph —
-  `gows` itself and `internal/*` — imports only the standard library:
-  `go list -deps` over those packages resolves zero third-party modules.
-  The root `go.mod` carries a single `require`,
-  [`github.com/go-json-experiment/json`](https://github.com/go-json-experiment/json),
-  used exclusively by the Autobahn conformance tooling under `autobahn/`;
-  no library or `internal/*` package imports it, so module graph pruning
-  keeps it out of consumers' builds. The comparison libraries only ever
-  appear in the separate `bench/` Go module, never in the core module's
-  dependency graph.
+- **Zero-dependency core.** Every package in the root module — `gows`
+  itself, `internal/*`, and the Autobahn conformance tooling under
+  `autobahn/` — imports only the standard library: the root `go.mod`
+  carries no `require` directives at all, and the module ships without a
+  `go.sum`. The comparison libraries only ever appear in the separate
+  `bench/` Go module, never in the core module's dependency graph.
 - **SIMD frame masking** (SSE2 / AVX2 / AVX-512 on amd64, NEON on arm64),
   runtime-dispatched by CPU feature detection with a `GOWS_SIMD` kill
   switch and a pure-Go fallback (`purego` build tag) for every kernel.

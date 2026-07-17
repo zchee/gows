@@ -15,13 +15,12 @@
 package main
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
 	"testing"
-
-	"github.com/go-json-experiment/json"
 )
 
 func TestCompareAllCasesAndRejectCompensatingStatusChange(t *testing.T) {

@@ -17,6 +17,7 @@ package autobahn
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -26,8 +27,6 @@ import (
 	"syscall"
 	"testing"
 	"time"
-
-	"github.com/go-json-experiment/json"
 )
 
 func TestFeatureRunServerLaunchReceiptAndCleanup(t *testing.T) {

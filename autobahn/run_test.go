@@ -16,6 +16,7 @@ package autobahn
 
 import (
 	"bytes"
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
@@ -23,8 +24,6 @@ import (
 	"strings"
 	"testing"
 	"time"
-
-	"github.com/go-json-experiment/json"
 )
 
 func TestRunHelpAndFeatureReportSafety(t *testing.T) {

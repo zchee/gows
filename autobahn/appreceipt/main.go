@@ -18,12 +18,10 @@ package main
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"os"
-
-	"github.com/go-json-experiment/json"
-	"github.com/go-json-experiment/json/jsontext"
 )
 
 type receipt struct {
@@ -71,7 +69,7 @@ func main() {
 		fmt.Fprintln(os.Stderr, "appreceipt: executable SHA-256 mismatch")
 		os.Exit(1)
 	}
-	b, err := json.Marshal(r, jsontext.WithIndent("  "))
+	b, err := json.MarshalIndent(r, "", "  ")
 	if err != nil {
 		panic(err)
 	}

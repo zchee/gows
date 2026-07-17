@@ -16,13 +16,12 @@
 package main
 
 import (
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
 	"os"
 	"sort"
-
-	"github.com/go-json-experiment/json"
 )
 
 type result struct{ Behavior, BehaviorClose string }
