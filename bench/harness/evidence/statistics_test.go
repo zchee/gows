@@ -47,6 +47,7 @@ func TestEvaluateAAPassesExactSameBinaryAndIsOrderStable(t *testing.T) {
 
 	permuted := slices.Clone(runs)
 	for i := range permuted {
+		permuted[i].Samples = slices.Clone(runs[i].Samples)
 		slices.Reverse(permuted[i].Samples)
 	}
 	again, err := evaluateAA(permuted)

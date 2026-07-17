@@ -67,6 +67,14 @@ func TestVerificationRecordRejectsCommandSubstitutionAndNarrowing(t *testing.T) 
 	inputs := validVerificationInputs(dir)
 	base := validVerificationManifest(t, dir, identity, inputs)
 
+	// Resolve check positions by ID so an inserted check cannot silently
+	// repoint a mutation at the wrong entry while the test keeps passing.
+	buildAMD64 := slices.Index(RequiredVerificationChecks(), "build-amd64")
+	assemblyAMD64 := slices.Index(RequiredVerificationChecks(), "assembly-amd64")
+	formatIndex := slices.Index(RequiredVerificationChecks(), "format")
+	staticIndex := slices.Index(RequiredVerificationChecks(), "static")
+	diffIndex := slices.Index(RequiredVerificationChecks(), "diff-check")
+
 	tests := map[string]func(*VerificationManifest){
 		"legacy boot identity": func(m *VerificationManifest) {
 			m.BootIdentity = "{ sec = 1, usec = 2 }"
@@ -103,22 +111,22 @@ func TestVerificationRecordRejectsCommandSubstitutionAndNarrowing(t *testing.T) 
 			m.Checks[0].Environment = replaceTestEnvironment(m.Checks[0].Environment, "TMPDIR=/tmp/attacker-tmp")
 		},
 		"wrong build architecture": func(m *VerificationManifest) {
-			m.Checks[7].Environment = verificationEnvironment(inputs, identity.GOOS, "arm64")
+			m.Checks[buildAMD64].Environment = verificationEnvironment(inputs, identity.GOOS, "arm64")
 		},
 		"build outside verification work root": func(m *VerificationManifest) {
-			m.Checks[7].Argv[4] = filepath.Join(dir, "gows-amd64.test")
+			m.Checks[buildAMD64].Argv[4] = filepath.Join(dir, "gows-amd64.test")
 		},
 		"assembly outside verification output": func(m *VerificationManifest) {
-			m.Checks[9].Argv[10] = filepath.Join(dir, "darwin-amd64")
+			m.Checks[assemblyAMD64].Argv[10] = filepath.Join(dir, "darwin-amd64")
 		},
 		"format omits tracked source": func(m *VerificationManifest) {
-			m.Checks[12].Argv = m.Checks[12].Argv[:len(m.Checks[12].Argv)-1]
+			m.Checks[formatIndex].Argv = m.Checks[formatIndex].Argv[:len(m.Checks[formatIndex].Argv)-1]
 		},
 		"static executable substitution": func(m *VerificationManifest) {
-			m.Checks[13].Argv[0] = "/bin/true"
+			m.Checks[staticIndex].Argv[0] = "/bin/true"
 		},
 		"diff executable substitution": func(m *VerificationManifest) {
-			m.Checks[14].Argv[0] = "/bin/true"
+			m.Checks[diffIndex].Argv[0] = "/bin/true"
 		},
 		"noncanonical log path": func(m *VerificationManifest) {
 			m.Checks[0].StdoutPath = "logs/root-test.stdout.log"
@@ -256,7 +264,7 @@ func replaceTestEnvironment(environment []string, replacement string) []string {
 			return result
 		}
 	}
-	return append(result, replacement)
+	panic("replaceTestEnvironment: environment lacks key " + key)
 }
 
 func cloneVerificationManifest(manifest VerificationManifest) VerificationManifest {

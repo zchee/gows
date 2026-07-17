@@ -1,7 +1,6 @@
 package support
 
 import (
-	"context"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -24,7 +23,7 @@ func TestFetchMemSnapshotRejectsInvalidResponses(t *testing.T) {
 			}))
 			defer server.Close()
 			addr := strings.TrimPrefix(server.URL, "http://")
-			if _, err := FetchMemSnapshot(context.Background(), addr); err == nil {
+			if _, err := FetchMemSnapshot(t.Context(), addr); err == nil {
 				t.Fatalf("FetchMemSnapshot accepted %s", name)
 			}
 		})
@@ -34,7 +33,7 @@ func TestFetchMemSnapshotRejectsInvalidResponses(t *testing.T) {
 func TestNewDebugRequestHasBoundedDeadline(t *testing.T) {
 	t.Parallel()
 	started := time.Now()
-	req, cancel, err := newDebugRequest(context.Background(), "127.0.0.1:1", "/debug/memstats")
+	req, cancel, err := newDebugRequest(t.Context(), "127.0.0.1:1", "/debug/memstats")
 	if err != nil {
 		t.Fatal(err)
 	}

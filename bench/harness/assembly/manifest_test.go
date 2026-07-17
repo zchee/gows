@@ -18,28 +18,24 @@ func TestManifestValidateSupportedTargets(t *testing.T) {
 }
 
 func TestManifestRejectsUnprovableAssemblyIdentity(t *testing.T) {
-	tests := []struct {
-		name    string
+	tests := map[string]struct {
 		mutate  func(*Manifest)
 		wantErr string
 	}{
-		{
-			name: "old schema",
+		"old schema": {
 			mutate: func(manifest *Manifest) {
 				manifest.SchemaVersion--
 			},
 			wantErr: "schema_version",
 		},
-		{
-			name: "custom experiment",
+		"custom experiment": {
 			mutate: func(manifest *Manifest) {
 				manifest.Target.GOEXPERIMENT = "greenteagc"
 				manifest.Target.Stock = false
 			},
 			wantErr: "not stock Go",
 		},
-		{
-			name: "wrong architecture source",
+		"wrong architecture source": {
 			mutate: func(manifest *Manifest) {
 				manifest.Packages[1].SelectedFiles = append(manifest.Packages[1].SelectedFiles, SourceFile{
 					Path:   "internal/mask/mask_arm64.s",
@@ -50,8 +46,7 @@ func TestManifestRejectsUnprovableAssemblyIdentity(t *testing.T) {
 			},
 			wantErr: "wrong-architecture",
 		},
-		{
-			name: "missing selected assembly source",
+		"missing selected assembly source": {
 			mutate: func(manifest *Manifest) {
 				files := manifest.Packages[1].SelectedFiles
 				manifest.Packages[1].SelectedFiles = slices.DeleteFunc(files, func(file SourceFile) bool {
@@ -60,15 +55,13 @@ func TestManifestRejectsUnprovableAssemblyIdentity(t *testing.T) {
 			},
 			wantErr: "did not select required source",
 		},
-		{
-			name: "missing linked kernel symbol",
+		"missing linked kernel symbol": {
 			mutate: func(manifest *Manifest) {
 				manifest.Symbols.Records = manifest.Symbols.Records[1:]
 			},
 			wantErr: "expected assembly symbol",
 		},
-		{
-			name: "reference oracle linked",
+		"reference oracle linked": {
 			mutate: func(manifest *Manifest) {
 				manifest.BuildGraph.Linked = append(manifest.BuildGraph.Linked, GraphNode{
 					ImportPath: "github.com/zchee/gows/bench/internal/thirdparty/coder",
@@ -77,85 +70,73 @@ func TestManifestRejectsUnprovableAssemblyIdentity(t *testing.T) {
 			},
 			wantErr: "reference-oracle package",
 		},
-		{
-			name: "runtime ISA override",
+		"runtime ISA override": {
 			mutate: func(manifest *Manifest) {
 				manifest.CPU.Runtime.GOWSSIMD = "sse2"
 			},
 			wantErr: "overridden",
 		},
-		{
-			name: "runtime dispatch mismatch",
+		"runtime dispatch mismatch": {
 			mutate: func(manifest *Manifest) {
 				manifest.CPU.Runtime.SelectedMask["4096"] = "sse2"
 			},
 			wantErr: "selected mask profile",
 		},
-		{
-			name: "uppercase source tree hash",
+		"uppercase source tree hash": {
 			mutate: func(manifest *Manifest) {
 				manifest.Repository.SourceTreeSHA256 = strings.Repeat("A", 64)
 			},
 			wantErr: "source-tree identity",
 		},
-		{
-			name: "uppercase git identity",
+		"uppercase git identity": {
 			mutate: func(manifest *Manifest) {
 				manifest.Repository.SourceHEAD = strings.Repeat("A", 40)
 			},
 			wantErr: "repository object identity",
 		},
-		{
-			name: "noncanonical artifact path",
+		"noncanonical artifact path": {
 			mutate: func(manifest *Manifest) {
 				manifest.Binary.Path = "binary/../probe"
 			},
 			wantErr: "binary artifact is invalid",
 		},
-		{
-			name: "relative Go tool path",
+		"relative Go tool path": {
 			mutate: func(manifest *Manifest) {
 				manifest.Toolchain.GoBinaryPath = "toolchain/bin/go"
 			},
 			wantErr: "Go toolchain binary identity",
 		},
-		{
-			name: "uppercase module hash",
+		"uppercase module hash": {
 			mutate: func(manifest *Manifest) {
 				manifest.Modules.BenchFilesSHA256 = strings.Repeat("B", 64)
 			},
 			wantErr: "module file hashes",
 		},
-		{
-			name: "linked reference corpus",
+		"linked reference corpus": {
 			mutate: func(manifest *Manifest) {
 				manifest.BuildGraph.Corpus[0].Linked = true
 			},
 			wantErr: "corpus identity",
 		},
-		{
-			name: "corpus hash mismatch",
+		"corpus hash mismatch": {
 			mutate: func(manifest *Manifest) {
 				manifest.BuildGraph.Corpus[0].SHA256 = strings.Repeat("a", 64)
 			},
 			wantErr: "corpus hash",
 		},
-		{
-			name: "dispatcher object mismatch",
+		"dispatcher object mismatch": {
 			mutate: func(manifest *Manifest) {
 				manifest.Dispatch.Records[0].ObjectSHA256 = strings.Repeat("a", 64)
 			},
 			wantErr: "source/object/package identity mismatch",
 		},
-		{
-			name: "dispatcher call edge mismatch",
+		"dispatcher call edge mismatch": {
 			mutate: func(manifest *Manifest) {
 				manifest.Dispatch.Records[0].Calls[0].EvidenceLine = "0 CALL example.invalid.abi0(SB)"
 			},
 			wantErr: "invalid call edge",
 		},
-		{
-			name: "translated execution spoof",
+		"translated execution spoof": {
 			mutate: func(manifest *Manifest) {
 				manifest.Target.GOOS = "darwin"
 				manifest.CPU.Runtime.GOOS = "darwin"
@@ -168,8 +149,7 @@ func TestManifestRejectsUnprovableAssemblyIdentity(t *testing.T) {
 			},
 			wantErr: "invalid translated execution identity",
 		},
-		{
-			name: "dirty final identity",
+		"dirty final identity": {
 			mutate: func(manifest *Manifest) {
 				manifest.Repository.Dirty = true
 				manifest.Repository.Status.Size = 1
@@ -178,8 +158,8 @@ func TestManifestRejectsUnprovableAssemblyIdentity(t *testing.T) {
 		},
 	}
 
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
+	for name, test := range tests {
+		t.Run(name, func(t *testing.T) {
 			manifest := validTestManifest(t, "amd64")
 			test.mutate(&manifest)
 			err := manifest.ValidateFinal()
@@ -191,12 +171,10 @@ func TestManifestRejectsUnprovableAssemblyIdentity(t *testing.T) {
 }
 
 func TestManifestAcceptsNativeAndTranslatedDarwinIdentity(t *testing.T) {
-	tests := []struct {
-		goarch    string
+	tests := map[string]struct {
 		execution ExecutionIdentity
 	}{
-		{
-			goarch: "arm64",
+		"arm64": {
 			execution: ExecutionIdentity{
 				Method:                 "darwin-sysctl",
 				Machine:                "arm64",
@@ -204,8 +182,7 @@ func TestManifestAcceptsNativeAndTranslatedDarwinIdentity(t *testing.T) {
 				PhysicalARM64Available: true,
 			},
 		},
-		{
-			goarch: "amd64",
+		"amd64": {
 			execution: ExecutionIdentity{
 				Method:                 "darwin-sysctl",
 				Machine:                "x86_64",
@@ -215,9 +192,9 @@ func TestManifestAcceptsNativeAndTranslatedDarwinIdentity(t *testing.T) {
 			},
 		},
 	}
-	for _, test := range tests {
-		t.Run(test.goarch, func(t *testing.T) {
-			manifest := validTestManifest(t, test.goarch)
+	for goarch, test := range tests {
+		t.Run(goarch, func(t *testing.T) {
+			manifest := validTestManifest(t, goarch)
 			manifest.Target.GOOS = "darwin"
 			manifest.CPU.Runtime.GOOS = "darwin"
 			manifest.CPU.Runtime.Execution = test.execution

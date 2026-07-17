@@ -3,11 +3,11 @@ package policy
 import (
 	"os"
 	"path/filepath"
-	"reflect"
 	"testing"
 	"time"
 
 	"github.com/go-json-experiment/json"
+	"github.com/google/go-cmp/cmp"
 )
 
 func TestDurationRoundTrip(t *testing.T) {
@@ -129,7 +129,7 @@ func TestPolicyRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("parse: %v", err)
 	}
-	if !reflect.DeepEqual(*got, want) {
+	if !cmp.Equal(*got, want) {
 		t.Fatalf("round-trip mismatch:\n got=%+v\nwant=%+v", *got, want)
 	}
 	// Duration fields must have survived as real durations, not zeroed.
@@ -404,7 +404,7 @@ func TestResolve(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			p := Policy{LibraryOverrides: tc.overrides}
 			got := p.Resolve(tc.name)
-			if !reflect.DeepEqual(got, tc.want) {
+			if !cmp.Equal(got, tc.want) {
 				t.Fatalf("Resolve(%q) =\n %+v\nwant\n %+v", tc.name, got, tc.want)
 			}
 		})
@@ -443,7 +443,7 @@ func TestPolicyRoundTripWithOverrides(t *testing.T) {
 	if err != nil {
 		t.Fatalf("parse: %v", err)
 	}
-	if !reflect.DeepEqual(*got, want) {
+	if !cmp.Equal(*got, want) {
 		t.Fatalf("round-trip mismatch:\n got=%+v\nwant=%+v", *got, want)
 	}
 }
@@ -512,10 +512,11 @@ func TestValidateOverrides(t *testing.T) {
 
 func TestFinalPolicyRejectsBuildAndArgumentOverrides(t *testing.T) {
 	t.Parallel()
-	for name, override := range map[string]LibraryOverride{
+	tests := map[string]LibraryOverride{
 		"build environment": {Lib: "gows", BuildEnv: []string{"CUSTOM=enabled"}},
 		"server argument":   {Lib: "gows", ServerArgs: []string{"-notsent-lowat", "16384"}},
-	} {
+	}
+	for name, override := range tests {
 		t.Run(name, func(t *testing.T) {
 			p := validPolicy()
 			p.LibraryOverrides = map[string]LibraryOverride{p.Candidate: override}
@@ -588,14 +589,14 @@ func TestExperimentPolicies(t *testing.T) {
 			if s.Warmup.Duration() != 5*time.Second || s.Duration.Duration() != 30*time.Second || s.Repetitions != 20 {
 				t.Errorf("windows = warmup %v duration %v reps %d, want 5s/30s/20", s.Warmup.Duration(), s.Duration.Duration(), s.Repetitions)
 			}
+			if p.Series.GoExperiment != w.goExperiment {
+				t.Errorf("series go_experiment = %q, want %q", p.Series.GoExperiment, w.goExperiment)
+			}
 			// Resolve must yield the candidate's real lib and arguments.
 			r := p.Resolve(p.Candidate)
 			if w.overrideOf == "" {
 				if len(p.LibraryOverrides) != 0 {
 					t.Errorf("library_overrides = %v, want none", p.LibraryOverrides)
-				}
-				if p.Series.GoExperiment != w.goExperiment {
-					t.Errorf("series go_experiment = %q, want %q", p.Series.GoExperiment, w.goExperiment)
 				}
 				if r.Lib != w.candidate || r.Bin != "" {
 					t.Errorf("resolve identity = %+v, want lib %q bin \"\"", r, w.candidate)
@@ -608,10 +609,10 @@ func TestExperimentPolicies(t *testing.T) {
 				if ov.Lib != w.lib {
 					t.Errorf("override lib = %q, want %q", ov.Lib, w.lib)
 				}
-				if !reflect.DeepEqual(ov.ServerArgs, w.serverArgs) {
+				if !cmp.Equal(ov.ServerArgs, w.serverArgs) {
 					t.Errorf("override server_args = %v, want %v", ov.ServerArgs, w.serverArgs)
 				}
-				if !reflect.DeepEqual(ov.BuildEnv, w.buildEnv) {
+				if !cmp.Equal(ov.BuildEnv, w.buildEnv) {
 					t.Errorf("override build_env = %v, want %v", ov.BuildEnv, w.buildEnv)
 				}
 				if r.Lib != w.lib {
@@ -661,12 +662,8 @@ func TestCanonicalPolicy(t *testing.T) {
 		t.Fatalf("canonical policy total scenarios = %d, want 7 (all primary since the Phase D pre-registration)", got)
 	}
 	byName := make(map[string]Scenario, len(p.Scenarios))
-	nonPrimary := 0
 	for _, s := range p.Scenarios {
 		byName[s.Name] = s
-		if !s.Primary {
-			nonPrimary++
-		}
 		if s.Warmup.Duration() != 5*time.Second {
 			t.Errorf("scenario %q warmup = %v, want 5s", s.Name, s.Warmup.Duration())
 		}
@@ -676,9 +673,6 @@ func TestCanonicalPolicy(t *testing.T) {
 		if s.Repetitions != 20 {
 			t.Errorf("scenario %q repetitions = %d, want 20", s.Name, s.Repetitions)
 		}
-	}
-	if nonPrimary != 0 {
-		t.Fatalf("canonical policy non-primary scenarios = %d, want 0", nonPrimary)
 	}
 	// The pipelined cells must carry their intended inflight windows and,
 	// per the 2026-07-14 Phase D pre-registration, gate as primary cells.

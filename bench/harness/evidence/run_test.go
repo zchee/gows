@@ -123,12 +123,12 @@ func TestValidateRunTimeline(t *testing.T) {
 	if err := validateRunTimeline("session", valid[0], valid[1], valid[2], valid[3], valid[4]); err != nil {
 		t.Fatalf("valid run timeline: %v", err)
 	}
-	mutations := map[string][]time.Time{
+	tests := map[string][]time.Time{
 		"environment start after manifest start": {valid[2], valid[1], valid[2], valid[3], valid[4]},
 		"environment end after manifest end":     {valid[0], valid[1], valid[4], valid[3], valid[4]},
 		"completion before manifest end":         {valid[0], valid[1], valid[2], valid[3], valid[2]},
 	}
-	for name, values := range mutations {
+	for name, values := range tests {
 		t.Run(name, func(t *testing.T) {
 			if err := validateRunTimeline("session", values[0], values[1], values[2], values[3], values[4]); err == nil {
 				t.Fatal("invalid run timeline was accepted")
@@ -171,6 +171,11 @@ func TestRunEnvironmentRejectsRecordedContamination(t *testing.T) {
 	power.PMSetBattery = "Now drawing from 'Battery Power'"
 	if err := validateRunEnvironment(baseline, power, guard); err == nil {
 		t.Fatal("recorded power-source drift was accepted")
+	}
+	hot := baseline
+	hot.Load1 = guard.MaxLoad1 + 0.1
+	if err := validateRunEnvironment(hot, hot, guard); err == nil {
+		t.Fatal("recorded initial load above the guard ceiling was accepted")
 	}
 	load := baseline
 	load.Load1 = 6.1

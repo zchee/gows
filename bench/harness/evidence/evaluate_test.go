@@ -10,9 +10,7 @@ import (
 
 func TestValidateTrackedRunPolicyBindsBytesSeriesAndCompleteMatrix(t *testing.T) {
 	root := t.TempDir()
-	runTestGit(t, root, "init", "-b", "main")
-	runTestGit(t, root, "config", "user.name", "Phase Zero Test")
-	runTestGit(t, root, "config", "user.email", "phase0@example.invalid")
+	initTestGitRepository(t, root)
 	pol := aaTestPolicy()
 	raw, err := jsonv2.Marshal(pol, jsonv2.Deterministic(true))
 	if err != nil {

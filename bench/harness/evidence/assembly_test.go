@@ -11,9 +11,7 @@ import (
 
 func TestValidateAssemblySourcesBindsSelectedBytesToSourceCommit(t *testing.T) {
 	root := t.TempDir()
-	runTestGit(t, root, "init", "-b", "main")
-	runTestGit(t, root, "config", "user.name", "Phase Zero Test")
-	runTestGit(t, root, "config", "user.email", "phase0@example.invalid")
+	initTestGitRepository(t, root)
 	const path = "internal/mask/mask_arm64.s"
 	const source = "TEXT maskNEON(SB), NOSPLIT, $0-0\nRET\n"
 	writeTestFile(t, root, path, source)

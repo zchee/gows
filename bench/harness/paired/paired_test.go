@@ -47,10 +47,8 @@ func TestRatios(t *testing.T) {
 
 func TestRatiosErrors(t *testing.T) {
 	tests := map[string]struct {
-		samples   []Sample
-		scenario  string
-		candidate string
-		metric    string
+		samples []Sample
+		metric  string
 	}{
 		"count mismatch": {
 			samples: []Sample{
@@ -58,32 +56,32 @@ func TestRatiosErrors(t *testing.T) {
 				mkSample("s", "cand", 1, 120, 0),
 				mkSample("s", "comp", 0, 100, 0),
 			},
-			scenario: "s", candidate: "cand", metric: MetricThroughput,
+			metric: MetricThroughput,
 		},
 		"missing candidate": {
 			samples: []Sample{
 				mkSample("s", "comp", 0, 100, 0),
 			},
-			scenario: "s", candidate: "cand", metric: MetricThroughput,
+			metric: MetricThroughput,
 		},
 		"comparator zero": {
 			samples: []Sample{
 				mkSample("s", "cand", 0, 110, 0),
 				mkSample("s", "comp", 0, 0, 0),
 			},
-			scenario: "s", candidate: "cand", metric: MetricThroughput,
+			metric: MetricThroughput,
 		},
 		"unknown metric": {
 			samples: []Sample{
 				mkSample("s", "cand", 0, 110, 0),
 				mkSample("s", "comp", 0, 100, 0),
 			},
-			scenario: "s", candidate: "cand", metric: "no_such_metric",
+			metric: "no_such_metric",
 		},
 	}
 	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {
-			if _, err := Ratios(tc.samples, tc.scenario, tc.candidate, "comp", tc.metric); err == nil {
+			if _, err := Ratios(tc.samples, "s", "cand", "comp", tc.metric); err == nil {
 				t.Fatalf("expected error, got nil")
 			}
 		})

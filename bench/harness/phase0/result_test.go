@@ -3,10 +3,10 @@ package phase0
 import (
 	"os"
 	"path/filepath"
-	"reflect"
 	"strings"
 	"testing"
 
+	"github.com/google/go-cmp/cmp"
 	"github.com/zchee/gows/bench/harness/artifact"
 	"github.com/zchee/gows/bench/harness/evidence"
 )
@@ -36,7 +36,7 @@ func TestResultMarshalLoadRoundTripIsCanonical(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := validResult()
-	if !reflect.DeepEqual(loaded, want) {
+	if !cmp.Equal(loaded, want) {
 		t.Fatalf("Load mismatch\n got: %#v\nwant: %#v", loaded, want)
 	}
 }

@@ -22,9 +22,7 @@ func TestValidatePhase0PathNamesRejectsProductionChanges(t *testing.T) {
 
 func TestValidateSourceAncestryQuarantinesDivergentAndHistoricalEvidence(t *testing.T) {
 	root := t.TempDir()
-	runTestGit(t, root, "init", "-b", "main")
-	runTestGit(t, root, "config", "user.name", "Phase Zero Test")
-	runTestGit(t, root, "config", "user.email", "phase0@example.invalid")
+	initTestGitRepository(t, root)
 
 	writeTestFile(t, root, "README.md", "planning\n")
 	runTestGit(t, root, "add", ".")
@@ -161,12 +159,19 @@ func TestRequireRealDirectoryPathRejectsSymlinkedComponent(t *testing.T) {
 	}
 }
 
-func newEvidenceTestRepository(t *testing.T) string {
+// initTestGitRepository initializes root as a git repository with the fixed
+// committer identity every evidence test shares.
+func initTestGitRepository(t *testing.T, root string) {
 	t.Helper()
-	root := t.TempDir()
 	runTestGit(t, root, "init", "-b", "main")
 	runTestGit(t, root, "config", "user.name", "Phase Zero Test")
 	runTestGit(t, root, "config", "user.email", "phase0@example.invalid")
+}
+
+func newEvidenceTestRepository(t *testing.T) string {
+	t.Helper()
+	root := t.TempDir()
+	initTestGitRepository(t, root)
 	writeTestFile(t, root, "README.md", "source\n")
 	runTestGit(t, root, "add", ".")
 	runTestGit(t, root, "commit", "-m", "source")
