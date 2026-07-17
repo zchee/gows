@@ -77,28 +77,6 @@ jobs:
         if: matrix.variant == 'purego'
         run: go test -tags=purego ./...
 
-  bench-build:
-    name: bench-build
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v7
-
-      - uses: actions/setup-go@v7
-        if: ${{ hashFiles('bench/go.mod') != '' }}
-        with:
-          go-version: '1.26.x'
-          cache: true
-
-      - name: go build
-        if: ${{ hashFiles('bench/go.mod') != '' }}
-        working-directory: bench
-        run: go build ./...
-
-      - name: go vet
-        if: ${{ hashFiles('bench/go.mod') != '' }}
-        working-directory: bench
-        run: go vet ./...
-
   flatekp-test:
     name: flatekp-test
     runs-on: ubuntu-latest
