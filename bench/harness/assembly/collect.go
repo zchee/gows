@@ -17,6 +17,8 @@ import (
 	"slices"
 	"sort"
 	"strings"
+
+	"github.com/zchee/gows/bench/harness/support"
 )
 
 const probeImportPath = "github.com/zchee/gows/bench/harness/cmd/asmprobetarget"
@@ -124,11 +126,10 @@ func Collect(ctx context.Context, cfg Config) (_ Bundle, resultErr error) {
 	if err != nil {
 		return Bundle{}, fmt.Errorf("assembly collect: absolute stock Go tool: %w", err)
 	}
-	goToolBytes, err := os.ReadFile(goTool)
+	goToolSum, goToolSize, err := support.FileSHA256(goTool)
 	if err != nil {
 		return Bundle{}, fmt.Errorf("assembly collect: read resolved Go tool %q: %w", goTool, err)
 	}
-	goToolSum := sha256.Sum256(goToolBytes)
 	env := targetEnvironment(os.Environ(), cfg.GOOS, cfg.GOARCH, goRoot, "latest")
 	artifacts := make(map[string][]byte)
 	targetID := cfg.GOOS + "-" + cfg.GOARCH
@@ -292,8 +293,8 @@ func Collect(ctx context.Context, cfg Config) (_ Bundle, resultErr error) {
 		Toolchain: Toolchain{
 			GoVersion:      effectiveGoEnv.GOVERSION,
 			GoBinaryPath:   goTool,
-			GoBinarySHA256: hex.EncodeToString(goToolSum[:]),
-			GoBinarySize:   int64(len(goToolBytes)),
+			GoBinarySHA256: goToolSum,
+			GoBinarySize:   goToolSize,
 		},
 		Binary:  binaryArtifact,
 		Version: versionArtifact,

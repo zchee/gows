@@ -12,6 +12,8 @@ import (
 	"runtime"
 	"slices"
 	"strings"
+
+	"github.com/zchee/gows/bench/harness/support"
 )
 
 type RepositoryState struct {
@@ -421,12 +423,11 @@ func stockGoIdentity() (version, sum string, size int64, resultErr error) {
 	if !info.Mode().IsRegular() {
 		return "", "", 0, fmt.Errorf("evidence: stock Go binary is not a regular file: %s", goTool)
 	}
-	raw, err := os.ReadFile(goTool)
+	sum, hashedSize, err := support.FileSHA256(goTool)
 	if err != nil {
 		return "", "", 0, fmt.Errorf("evidence: read stock Go binary: %w", err)
 	}
-	digest := sha256.Sum256(raw)
-	return version, hex.EncodeToString(digest[:]), info.Size(), nil
+	return version, sum, hashedSize, nil
 }
 
 // stockGoRoot returns the compiler toolchain embedded in the evaluator. The

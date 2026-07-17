@@ -963,9 +963,21 @@ func gitRawOutput(dir string, args ...string) ([]byte, error) {
 	cmd.Dir = dir
 	out, err := cmd.Output()
 	if err != nil {
-		return nil, fmt.Errorf("git %s: %w", strings.Join(args, " "), err)
+		return nil, gitCommandError(args, err)
 	}
 	return out, nil
+}
+
+// gitCommandError appends the stderr that exec.Cmd.Output captured on
+// failure, so callers surface git's actual diagnostic instead of only the
+// bare exit status.
+func gitCommandError(args []string, err error) error {
+	if exitErr, ok := errors.AsType[*exec.ExitError](err); ok {
+		if detail := bytes.TrimSpace(exitErr.Stderr); len(detail) > 0 {
+			return fmt.Errorf("git %s: %w: %s", strings.Join(args, " "), err, detail)
+		}
+	}
+	return fmt.Errorf("git %s: %w", strings.Join(args, " "), err)
 }
 
 func sha256Bytes(data []byte) string {
@@ -1318,7 +1330,7 @@ func gitOutput(dir string, args ...string) (string, error) {
 	cmd.Dir = dir
 	out, err := cmd.Output()
 	if err != nil {
-		return "", fmt.Errorf("git %s: %w", strings.Join(args, " "), err)
+		return "", gitCommandError(args, err)
 	}
 	return strings.TrimSpace(string(out)), nil
 }

@@ -19,6 +19,8 @@ import (
 	"slices"
 	"sort"
 	"strings"
+
+	"github.com/zchee/gows/bench/harness/support"
 )
 
 const manifestName = "manifest.json"
@@ -204,12 +206,11 @@ func validateBundleBytes(bundle Bundle, requireRuntime bool) error {
 }
 
 func validateArtifactRelationships(manifest Manifest, artifacts map[string][]byte) error {
-	goToolBytes, err := os.ReadFile(manifest.Toolchain.GoBinaryPath)
+	goToolSum, goToolSize, err := support.FileSHA256(manifest.Toolchain.GoBinaryPath)
 	if err != nil {
 		return fmt.Errorf("read exact stock Go tool: %w", err)
 	}
-	goToolSum := sha256.Sum256(goToolBytes)
-	if int64(len(goToolBytes)) != manifest.Toolchain.GoBinarySize || hex.EncodeToString(goToolSum[:]) != manifest.Toolchain.GoBinarySHA256 {
+	if goToolSize != manifest.Toolchain.GoBinarySize || goToolSum != manifest.Toolchain.GoBinarySHA256 {
 		return errors.New("exact stock Go tool no longer matches manifest identity")
 	}
 	statusBytes := artifacts[manifest.Repository.Status.Path]

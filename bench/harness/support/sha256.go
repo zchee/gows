@@ -3,8 +3,31 @@ package support
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
+	"io"
+	"os"
 	"strings"
 )
+
+// FileSHA256 streams path through SHA-256 and returns the canonical lowercase
+// hex digest together with the exact number of bytes hashed. Streaming keeps
+// large binaries such as the Go toolchain out of the heap, and reporting the
+// hashed byte count binds any recorded size to the same bytes as the digest.
+func FileSHA256(path string) (sum string, size int64, resultErr error) {
+	file, err := os.Open(path)
+	if err != nil {
+		return "", 0, err
+	}
+	defer func() {
+		resultErr = errors.Join(resultErr, file.Close())
+	}()
+	hash := sha256.New()
+	size, err = io.Copy(hash, file)
+	if err != nil {
+		return "", 0, err
+	}
+	return hex.EncodeToString(hash.Sum(nil)), size, nil
+}
 
 // ValidSHA256 reports whether value is exactly a lowercase hex-encoded SHA-256
 // digest (64 lowercase hexadecimal characters). Harness identities and
