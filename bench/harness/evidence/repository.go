@@ -349,7 +349,7 @@ func validatePhase0SourcePaths(root, planningHead, sourceHead string) error {
 
 func validatePhase0PathNames(names []string) error {
 	for _, name := range names {
-		if name == "" || name == "README.md" || name == ".github/workflows/bench.yml" || strings.HasPrefix(name, "bench/") {
+		if name == "" || name == "README.md" || name == ".github/workflows/bench.yaml" || strings.HasPrefix(name, "bench/") {
 			continue
 		}
 		return fmt.Errorf("evidence: Phase 0 source changed forbidden production path %q", name)

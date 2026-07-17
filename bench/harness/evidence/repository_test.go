@@ -9,7 +9,7 @@ import (
 )
 
 func TestValidatePhase0PathNamesRejectsProductionChanges(t *testing.T) {
-	allowed := []string{"README.md", ".github/workflows/bench.yml", "bench/harness/evidence/evaluate.go", ""}
+	allowed := []string{"README.md", ".github/workflows/bench.yaml", "bench/harness/evidence/evaluate.go", ""}
 	if err := validatePhase0PathNames(allowed); err != nil {
 		t.Fatalf("allowed Phase 0 paths: %v", err)
 	}

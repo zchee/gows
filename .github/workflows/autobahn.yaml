@@ -2,7 +2,7 @@ name: autobahn
 
 # Phase 0: manual trigger only, since gows itself has no server/client yet
 # (Phase 2). Once examples/autobahn lands this will be wired to push/PR
-# alongside test.yml.
+# alongside test.yaml.
 on:
   workflow_dispatch:
 
@@ -14,9 +14,9 @@ jobs:
     name: conformance (server)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v7
         if: ${{ hashFiles('examples/autobahn/**/*.go') != '' }}
         with:
           go-version: '1.26.x'
