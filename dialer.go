@@ -24,6 +24,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 
@@ -132,9 +133,9 @@ func Dial(ctx context.Context, rawURL string) (net.Conn, Handshake, error) {
 // applied to the connection, and its cancellation force-closes the
 // connection to interrupt whichever phase is in flight -- also on a ctx
 // with no deadline. When ctx ends the dial early, Dial returns an error
-// wrapping the context's cancellation cause, so errors.Is matches
-// [context.Canceled], [context.DeadlineExceeded], or a
-// [context.WithCancelCause] cause. An already-ended ctx fails before
+// wrapping both ctx.Err and any distinct cancellation cause, so
+// errors.Is matches [context.Canceled], [context.DeadlineExceeded], and
+// a [context.WithCancelCause] cause. An already-ended ctx fails before
 // any network I/O. On success, the ctx-derived deadline is cleared from
 // the returned net.Conn, and the cancellation callback is stopped and
 // fully synchronized, before Dial returns -- a late callback can never
@@ -186,10 +187,13 @@ func (d *Dialer) Dial(ctx context.Context, rawURL string) (net.Conn, Handshake, 
 
 	u, err := url.Parse(rawURL)
 	if err != nil {
-		return nil, Handshake{}, fmt.Errorf("gows: parse dial URL: %w", err)
+		return nil, Handshake{}, fmt.Errorf("gows: dial URL: %w", net.InvalidAddrError("malformed URL"))
 	}
 	if u.Scheme != "ws" && u.Scheme != "wss" {
 		return nil, Handshake{}, ErrNotWebSocketScheme
+	}
+	if u.Hostname() == "" {
+		return nil, Handshake{}, fmt.Errorf("gows: dial URL: %w", net.InvalidAddrError("missing hostname"))
 	}
 
 	var via []*http.Request
@@ -251,6 +255,9 @@ func (d *Dialer) dialHop(ctx context.Context, u *url.URL, hdr http.Header) (net.
 		if proxyURL.Scheme != "http" {
 			return nil, Handshake{}, "", ErrProxyUnsupportedScheme
 		}
+		if err := validateProxyAuthority(proxyURL); err != nil {
+			return nil, Handshake{}, "", err
+		}
 		proxyAuth = proxyBasicAuth(proxyURL.User)
 	}
 
@@ -267,7 +274,7 @@ func (d *Dialer) dialHop(ctx context.Context, u *url.URL, hdr http.Header) (net.
 	// Fail before any network I/O on an already-ended context; a custom
 	// [Dialer.NetDial] is not obliged to check it.
 	if ctx.Err() != nil {
-		return nil, Handshake{}, "", fmt.Errorf("gows: dial %s: %w", dialAddr, context.Cause(ctx))
+		return nil, Handshake{}, "", fmt.Errorf("gows: dial %s: %w", dialAddr, contextError(ctx))
 	}
 
 	dial := d.NetDial
@@ -277,8 +284,8 @@ func (d *Dialer) dialHop(ctx context.Context, u *url.URL, hdr http.Header) (net.
 	}
 	conn, err := dial(ctx, "tcp", dialAddr)
 	if err != nil {
-		if cause := context.Cause(ctx); cause != nil && !errors.Is(err, cause) {
-			return nil, Handshake{}, "", fmt.Errorf("gows: dial %s: %w: %w", dialAddr, cause, err)
+		if ctx.Err() != nil && !errorContainsContext(err, ctx) {
+			return nil, Handshake{}, "", fmt.Errorf("gows: dial %s: %w: %w", dialAddr, contextError(ctx), err)
 		}
 		return nil, Handshake{}, "", fmt.Errorf("gows: dial %s: %w", dialAddr, err)
 	}
@@ -289,15 +296,19 @@ func (d *Dialer) dialHop(ctx context.Context, u *url.URL, hdr http.Header) (net.
 	// force-closes the raw connection to unblock whichever phase is in
 	// flight (a TLS wrapper delegates deadlines and reads to it anyway).
 	deadline, _ := ctx.Deadline()
-	g := guardConn(ctx, conn, deadline)
+	g, err := guardConn(ctx, conn, deadline)
+	if err != nil {
+		_ = conn.Close()
+		return nil, Handshake{}, "", fmt.Errorf("gows: set handshake deadline: %w", err)
+	}
 	fail := func(err error) (net.Conn, Handshake, string, error) {
 		g.abort()
-		if cause := context.Cause(ctx); cause != nil && !errors.Is(err, cause) {
+		if ctx.Err() != nil && !errorContainsContext(err, ctx) {
 			// When ctx ended mid-exchange the transport-level error is
 			// usually just the interrupt's symptom (a closed connection or
 			// expired deadline); report the cancellation cause as the
 			// primary error, keeping the underlying error in the chain.
-			return nil, Handshake{}, "", fmt.Errorf("gows: dial: %w: %w", cause, err)
+			return nil, Handshake{}, "", fmt.Errorf("gows: dial: %w: %w", contextError(ctx), err)
 		}
 		return nil, Handshake{}, "", err
 	}
@@ -344,11 +355,14 @@ func (d *Dialer) dialHop(ctx context.Context, u *url.URL, hdr http.Header) (net.
 		// regardless -- fail the dial, like [net.Dialer.DialContext] does.
 		// release has already waited for the callback, so nothing can
 		// touch the connection after this return.
-		return nil, Handshake{}, "", fmt.Errorf("gows: handshake: %w", context.Cause(ctx))
+		return nil, Handshake{}, "", fmt.Errorf("gows: handshake: %w", contextError(ctx))
 	}
 	// Do not leak the guard's handshake deadline into the caller's
 	// ownership of the connection.
-	_ = conn.SetDeadline(time.Time{})
+	if err := conn.SetDeadline(time.Time{}); err != nil {
+		_ = conn.Close()
+		return nil, Handshake{}, "", fmt.Errorf("gows: clear handshake deadline: %w", err)
+	}
 	return conn, hs, "", nil
 }
 
@@ -409,7 +423,7 @@ func resolveRedirect(current *url.URL, location string) (*url.URL, error) {
 	default:
 		return nil, fmt.Errorf("gows: redirect: %w", ErrNotWebSocketScheme)
 	}
-	if next.Host == "" {
+	if next.Hostname() == "" {
 		return nil, ErrMalformedLocation
 	}
 	// URL userinfo is neither dialed with nor forwarded; drop it so it
@@ -437,6 +451,24 @@ func effectivePort(u *url.URL) string {
 		return "443"
 	}
 	return "80"
+}
+
+// validateProxyAuthority rejects malformed programmatic proxy URLs before
+// their authority is converted into a network address. Re-parsing String's
+// serialized form applies net/url's bracket and port syntax validation, while
+// discarding its error prevents userinfo or query material from entering the
+// returned error chain.
+func validateProxyAuthority(u *url.URL) error {
+	reparsed, err := url.Parse(u.String())
+	if err != nil || reparsed.Host != u.Host || reparsed.Hostname() == "" || strings.HasSuffix(reparsed.Host, ":") {
+		return fmt.Errorf("gows: proxy URL: %w", net.InvalidAddrError("malformed authority"))
+	}
+	if port := reparsed.Port(); port != "" {
+		if _, err := strconv.ParseUint(port, 10, 16); err != nil {
+			return fmt.Errorf("gows: proxy URL: %w", net.InvalidAddrError("malformed authority"))
+		}
+	}
+	return nil
 }
 
 // proxyBasicAuth renders proxy-URL userinfo as a Proxy-Authorization
@@ -526,16 +558,16 @@ func isRedirectStatus(code int) bool {
 }
 
 // findLocation returns the first Location value in the scanned header
-// block, or "" when none is present (or the block is malformed before
-// one appears).
-func findLocation(headers []byte) string {
+// block, or "" when none is present, after validating every header line.
+func findLocation(headers []byte) (string, error) {
 	sc := httpx.NewHeaderScanner(headers)
+	var location string
 	for sc.Next() {
-		if httpx.EqualFold(sc.Key(), "location") {
-			return string(sc.Value())
+		if location == "" && httpx.EqualFold(sc.Key(), "location") {
+			location = string(sc.Value())
 		}
 	}
-	return ""
+	return location, sc.Err()
 }
 
 // handshake writes the handshake request to conn and validates the
@@ -616,7 +648,11 @@ func (d *Dialer) handshake(conn net.Conn, u *url.URL, hdr http.Header, absoluteF
 	}
 	if code != 101 {
 		if d.CheckRedirect != nil && isRedirectStatus(code) {
-			if loc := findLocation(headers); loc != "" {
+			loc, err := findLocation(headers)
+			if err != nil {
+				return Handshake{}, "", fmt.Errorf("gows: scan redirect response headers: %w", err)
+			}
+			if loc != "" {
 				return Handshake{}, loc, nil
 			}
 		}

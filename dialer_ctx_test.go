@@ -66,6 +66,31 @@ func TestDialContextCanceledDuringNetDial(t *testing.T) {
 	}
 }
 
+func TestDialContextCancelCauseDuringNetDialMatchesErrAndCause(t *testing.T) {
+	cause := errors.New("dial canceled during NetDial")
+	ctx, cancel := context.WithCancelCause(t.Context())
+	entered := make(chan struct{})
+	go func() {
+		<-entered
+		cancel(cause)
+	}()
+
+	d := &gows.Dialer{
+		NetDial: func(ctx context.Context, network, addr string) (net.Conn, error) {
+			close(entered)
+			<-ctx.Done()
+			return nil, ctx.Err()
+		},
+	}
+	_, _, err := d.Dial(ctx, "ws://example.invalid/")
+	if !errors.Is(err, ctx.Err()) {
+		t.Fatalf("Dial = %v, want errors.Is ctx.Err (%v)", err, ctx.Err())
+	}
+	if !errors.Is(err, cause) {
+		t.Fatalf("Dial = %v, want errors.Is cancel cause", err)
+	}
+}
+
 // writeSignalConn closes ch just before the first Write starts, so a
 // test can cancel while the handshake request write is in flight.
 type writeSignalConn struct {
@@ -77,6 +102,65 @@ type writeSignalConn struct {
 func (c *writeSignalConn) Write(p []byte) (int, error) {
 	c.once.Do(func() { close(c.ch) })
 	return c.Conn.Write(p)
+}
+
+// cancelOnStopContext deterministically ends itself from the stop
+// function returned to context.AfterFunc. This models the success-boundary
+// race where ctx becomes done after the exchange completes but before the
+// callback goroutine starts.
+type cancelOnStopContext struct {
+	context.Context
+	done chan struct{}
+	once sync.Once
+	err  error
+}
+
+func newCancelOnStopContext(parent context.Context) *cancelOnStopContext {
+	return &cancelOnStopContext{Context: parent, done: make(chan struct{})}
+}
+
+func (c *cancelOnStopContext) Done() <-chan struct{} { return c.done }
+
+func (c *cancelOnStopContext) Err() error { return c.err }
+
+func (c *cancelOnStopContext) AfterFunc(func()) func() bool {
+	return func() bool {
+		c.once.Do(func() {
+			c.err = context.Canceled
+			close(c.done)
+		})
+		return true
+	}
+}
+
+type deadlineFailConn struct {
+	net.Conn
+	armErr   error
+	clearErr error
+	writeErr error
+	closed   bool
+}
+
+func (c *deadlineFailConn) Write(p []byte) (int, error) {
+	if c.writeErr != nil {
+		return 0, c.writeErr
+	}
+	return c.Conn.Write(p)
+}
+
+func (c *deadlineFailConn) SetDeadline(tm time.Time) error {
+	if tm.IsZero() && c.clearErr != nil {
+		return c.clearErr
+	}
+	if !tm.IsZero() && c.armErr != nil {
+		return c.armErr
+	}
+	return c.Conn.SetDeadline(tm)
+}
+
+func (c *deadlineFailConn) Close() error {
+	c.closed = true
+	return c.Conn.Close()
 }
 
 func TestDialContextCanceledDuringRequestWrite(t *testing.T) {
@@ -207,6 +291,91 @@ func TestDialContextDeadlineExceeded(t *testing.T) {
 	}
 }
 
+func TestDialContextCancelCauseMatchesErrAndCause(t *testing.T) {
+	cause := errors.New("dial canceled by caller")
+	ctx, cancel := context.WithCancelCause(t.Context())
+	cancel(cause)
+
+	dialed := false
+	d := &gows.Dialer{
+		NetDial: func(ctx context.Context, network, addr string) (net.Conn, error) {
+			dialed = true
+			return nil, errors.New("must not be reached")
+		},
+	}
+	_, _, err := d.Dial(ctx, "ws://example.invalid/")
+	if !errors.Is(err, ctx.Err()) {
+		t.Fatalf("Dial = %v, want errors.Is ctx.Err (%v)", err, ctx.Err())
+	}
+	if !errors.Is(err, cause) {
+		t.Fatalf("Dial = %v, want errors.Is cancel cause", err)
+	}
+	if dialed {
+		t.Error("Dial performed network I/O with an already-canceled context")
+	}
+}
+
+func TestDialDeadlineArmFailureClosesConnection(t *testing.T) {
+	serverConn, clientConn := net.Pipe()
+	defer serverConn.Close()
+	armErr := errors.New("cannot arm deadline")
+	rec := &deadlineFailConn{Conn: clientConn, armErr: armErr, writeErr: errors.New("write should not be reached")}
+	ctx, cancel := context.WithTimeout(t.Context(), time.Minute)
+	defer cancel()
+
+	d := &gows.Dialer{
+		NetDial: func(ctx context.Context, network, addr string) (net.Conn, error) {
+			return rec, nil
+		},
+	}
+	conn, _, err := d.Dial(ctx, "ws://example.invalid/")
+	if conn != nil {
+		conn.Close()
+		t.Fatal("Dial returned a connection after SetDeadline failed")
+	}
+	if !errors.Is(err, armErr) {
+		t.Fatalf("Dial = %v, want errors.Is arm failure", err)
+	}
+	if !rec.closed {
+		t.Error("Dial left the raw connection open after SetDeadline failed")
+	}
+}
+
+func TestDialDeadlineClearFailureClosesConnection(t *testing.T) {
+	serverConn, clientConn := net.Pipe()
+	defer serverConn.Close()
+	go func() {
+		req := readRawHeaderBlock(t, serverConn)
+		accept := mustAcceptFromRequest(t, req)
+		resp := "HTTP/1.1 101 Switching Protocols\r\n" +
+			"Upgrade: websocket\r\n" +
+			"Connection: Upgrade\r\n" +
+			"Sec-WebSocket-Accept: " + accept + "\r\n\r\n"
+		serverConn.Write([]byte(resp))
+	}()
+
+	clearErr := errors.New("cannot clear deadline")
+	rec := &deadlineFailConn{Conn: clientConn, clearErr: clearErr}
+	ctx, cancel := context.WithTimeout(t.Context(), time.Minute)
+	defer cancel()
+	d := &gows.Dialer{
+		NetDial: func(ctx context.Context, network, addr string) (net.Conn, error) {
+			return rec, nil
+		},
+	}
+	conn, _, err := d.Dial(ctx, "ws://example.invalid/")
+	if conn != nil {
+		conn.Close()
+		t.Fatal("Dial returned a connection with an uncleared deadline")
+	}
+	if !errors.Is(err, clearErr) {
+		t.Fatalf("Dial = %v, want errors.Is clear failure", err)
+	}
+	if !rec.closed {
+		t.Error("Dial left the raw connection open after clearing the deadline failed")
+	}
+}
+
 // TestDialSuccessClearsDeadlines pins the ownership handoff: the guard
 // deadline derived from ctx is reset to the zero time on success, and
 // the returned connection carries live traffic unbounded by it.
@@ -272,19 +441,11 @@ func TestDialSuccessClearsDeadlines(t *testing.T) {
 	serverConn.Close()
 }
 
-// TestDialCancelAtSuccessBoundary drives cancellation into the exact
-// success boundary: the fake server cancels the context the moment it
-// finishes writing the 101 response, so the callback and Dial's
-// release race by construction. Both outcomes are legal; the race
-// detector (this test is exercised under -race -count=100 by the
-// verification gates) checks the callback synchronization, and a
-// successful connection must be fully usable.
 func TestDialCancelAtSuccessBoundary(t *testing.T) {
 	serverConn, clientConn := net.Pipe()
 	defer serverConn.Close()
 
-	ctx, cancel := context.WithCancel(t.Context())
-	defer cancel()
+	ctx := newCancelOnStopContext(t.Context())
 	go func() {
 		req := readRawHeaderBlock(t, serverConn)
 		accept := mustAcceptFromRequest(t, req)
@@ -293,25 +454,23 @@ func TestDialCancelAtSuccessBoundary(t *testing.T) {
 			"Connection: Upgrade\r\n" +
 			"Sec-WebSocket-Accept: " + accept + "\r\n\r\n"
 		serverConn.Write([]byte(resp))
-		cancel()
 	}()
 
+	rec := &closeRecorderConn{Conn: clientConn}
 	d := &gows.Dialer{
 		NetDial: func(ctx context.Context, network, addr string) (net.Conn, error) {
-			return clientConn, nil
+			return rec, nil
 		},
 	}
 	conn, _, err := d.Dial(ctx, "ws://example.invalid/")
-	if err != nil {
-		if !errors.Is(err, context.Canceled) {
-			t.Fatalf("Dial = %v, want nil or errors.Is context.Canceled", err)
-		}
-		return
+	if conn != nil {
+		conn.Close()
+		t.Fatal("Dial returned a connection after ctx became done at the success boundary")
 	}
-	// Success: the callback was disarmed and joined, so the connection
-	// belongs to the caller alone -- even though ctx is now canceled.
-	if err := conn.SetDeadline(time.Time{}); err != nil {
-		t.Fatalf("SetDeadline on the dialed conn = %v, want usable connection", err)
+	if !errors.Is(err, context.Canceled) || !errors.Is(err, ctx.Err()) {
+		t.Fatalf("Dial = %v, want errors.Is ctx.Err (context.Canceled)", err)
 	}
-	conn.Close()
+	if !rec.closed.Load() {
+		t.Error("Dial left the raw connection open after success-boundary cancellation")
+	}
 }

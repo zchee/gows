@@ -15,9 +15,12 @@
 package gows_test
 
 import (
+	"context"
 	"crypto/tls"
 	"crypto/x509"
 	"errors"
+	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"os"
@@ -27,6 +30,7 @@ import (
 	"time"
 
 	"github.com/zchee/gows"
+	"github.com/zchee/gows/internal/httpx"
 )
 
 // hopRecord captures one accepted connection on a hop server: the raw
@@ -135,6 +139,103 @@ func upgradeResponse(t *testing.T, req []byte) string {
 // followAll is the minimal opt-in policy: follow every redirect.
 func followAll(*http.Request, []*http.Request) error { return nil }
 
+type redirectPipeHop struct {
+	wantAddr string
+	respond  func([]byte) string
+	request  chan []byte
+	done     chan error
+}
+
+func newRedirectPipeHop(wantAddr string, respond func([]byte) string) *redirectPipeHop {
+	return &redirectPipeHop{
+		wantAddr: wantAddr,
+		respond:  respond,
+		request:  make(chan []byte, 1),
+		done:     make(chan error, 1),
+	}
+}
+
+func (h *redirectPipeHop) serve(t *testing.T, conn net.Conn) {
+	t.Helper()
+	defer close(h.done)
+	defer conn.Close()
+
+	req := readRawHeaderBlock(t, conn)
+	h.request <- req
+	if _, err := conn.Write([]byte(h.respond(req))); err != nil {
+		h.done <- fmt.Errorf("write response: %w", err)
+		return
+	}
+	if err := conn.SetReadDeadline(time.Now().Add(3 * time.Second)); err != nil {
+		if errors.Is(err, io.ErrClosedPipe) {
+			h.done <- nil
+			return
+		}
+		h.done <- fmt.Errorf("set close-observation deadline: %w", err)
+		return
+	}
+	var b [1]byte
+	if _, err := conn.Read(b[:]); err == nil {
+		h.done <- errors.New("client sent data instead of closing the raw hop")
+	} else if errors.Is(err, os.ErrDeadlineExceeded) {
+		h.done <- errors.New("client did not close the raw hop")
+	} else {
+		h.done <- nil
+	}
+}
+
+func (h *redirectPipeHop) awaitRequest(t *testing.T) []byte {
+	t.Helper()
+	select {
+	case req := <-h.request:
+		return req
+	case <-time.After(3 * time.Second):
+		t.Fatal("redirect pipe hop did not receive a request")
+		return nil
+	}
+}
+
+func (h *redirectPipeHop) awaitClosed(t *testing.T) {
+	t.Helper()
+	select {
+	case err, ok := <-h.done:
+		if !ok {
+			t.Error("redirect pipe hop handler finished without a result")
+			return
+		}
+		if err != nil {
+			t.Errorf("redirect pipe hop: %v", err)
+		}
+		// The handler closes done only after its deferred connection close,
+		// so draining it joins the goroutine and proves resource cleanup.
+		for range h.done {
+		}
+	case <-time.After(3 * time.Second):
+		t.Error("redirect pipe hop handler did not finish")
+	}
+}
+
+func redirectPipeDial(t *testing.T, hops ...*redirectPipeHop) func(context.Context, string, string) (net.Conn, error) {
+	t.Helper()
+	next := 0
+	return func(_ context.Context, network, addr string) (net.Conn, error) {
+		if network != "tcp" {
+			return nil, fmt.Errorf("NetDial network = %q, want tcp", network)
+		}
+		if next >= len(hops) {
+			return nil, fmt.Errorf("unexpected NetDial call %d to %q", next+1, addr)
+		}
+		hop := hops[next]
+		next++
+		if addr != hop.wantAddr {
+			return nil, fmt.Errorf("NetDial call %d address = %q, want %q", next, addr, hop.wantAddr)
+		}
+		serverConn, clientConn := net.Pipe()
+		go hop.serve(t, serverConn)
+		return clientConn, nil
+	}
+}
+
 func TestDialRedirectRelative(t *testing.T) {
 	var recorded []*http.Request
 	var vias [][]*http.Request
@@ -214,6 +315,44 @@ func TestDialRedirectSameOriginKeepsCredentials(t *testing.T) {
 	}
 }
 
+func TestDialRedirectCanonicalSameOriginKeepsCredentials(t *testing.T) {
+	first := newRedirectPipeHop("EXAMPLE.TEST:80", func([]byte) string {
+		return redirectResponse("ws://example.test:80/final")
+	})
+	final := newRedirectPipeHop("example.test:80", func(req []byte) string {
+		return upgradeResponse(t, req)
+	})
+	d := &gows.Dialer{
+		HTTPHeader: http.Header{
+			"Authorization": {"Bearer keep-canonical"},
+			"Cookie":        {"session=canonical"},
+		},
+		CheckRedirect: followAll,
+		NetDial:       redirectPipeDial(t, first, final),
+	}
+
+	conn, _, err := d.Dial(t.Context(), "ws://EXAMPLE.TEST/start")
+	if err != nil {
+		t.Fatalf("Dial with canonical same-origin redirect: %v", err)
+	}
+	if err := conn.Close(); err != nil {
+		t.Errorf("close final connection: %v", err)
+	}
+
+	firstReq := string(first.awaitRequest(t))
+	finalReq := string(final.awaitRequest(t))
+	for name, req := range map[string]string{"initial": firstReq, "redirected": finalReq} {
+		if !strings.Contains(req, "Authorization: Bearer keep-canonical\r\n") {
+			t.Errorf("%s request dropped Authorization:\n%s", name, req)
+		}
+		if !strings.Contains(req, "Cookie: session=canonical\r\n") {
+			t.Errorf("%s request dropped Cookie:\n%s", name, req)
+		}
+	}
+	first.awaitClosed(t)
+	final.awaitClosed(t)
+}
+
 func TestDialRedirectCrossOriginStripsCredentials(t *testing.T) {
 	targetAddr, targetRec := startHopServer(t, nil, func(n int, req []byte) string {
 		return upgradeResponse(t, req)
@@ -252,6 +391,60 @@ func TestDialRedirectCrossOriginStripsCredentials(t *testing.T) {
 		t.Errorf("cross-origin hop dropped a non-credential header:\n%s", second)
 	}
 	srcRec(0).awaitClosed(t, "cross-origin intermediate hop")
+}
+
+func TestDialRedirectCrossOriginCredentialsStayStrippedOnReturn(t *testing.T) {
+	firstA := newRedirectPipeHop("a.test:80", func([]byte) string {
+		return redirectResponse("ws://b.test/away")
+	})
+	hopB := newRedirectPipeHop("b.test:80", func([]byte) string {
+		return redirectResponse("ws://A.TEST:80/return")
+	})
+	returnA := newRedirectPipeHop("A.TEST:80", func(req []byte) string {
+		return upgradeResponse(t, req)
+	})
+	d := &gows.Dialer{
+		HTTPHeader: http.Header{
+			"Authorization": {"Bearer never-resurrect"},
+			"cookie":        {"session=never-resurrect"},
+			"X-Ordinary":    {"survives-every-hop"},
+		},
+		CheckRedirect: followAll,
+		NetDial:       redirectPipeDial(t, firstA, hopB, returnA),
+	}
+
+	conn, _, err := d.Dial(t.Context(), "ws://a.test/start")
+	if err != nil {
+		t.Fatalf("Dial with cross-origin return redirect: %v", err)
+	}
+	if err := conn.Close(); err != nil {
+		t.Errorf("close final connection: %v", err)
+	}
+
+	initialReq := string(firstA.awaitRequest(t))
+	if !strings.Contains(initialReq, "Authorization: Bearer never-resurrect\r\n") ||
+		!strings.Contains(initialReq, "cookie: session=never-resurrect\r\n") {
+		t.Fatalf("initial request lost caller credentials:\n%s", initialReq)
+	}
+	if !strings.Contains(initialReq, "X-Ordinary: survives-every-hop\r\n") {
+		t.Errorf("initial request dropped the ordinary header:\n%s", initialReq)
+	}
+	for name, req := range map[string]string{
+		"cross-origin B": string(hopB.awaitRequest(t)),
+		"returned A":     string(returnA.awaitRequest(t)),
+	} {
+		for _, forbidden := range []string{"Authorization", "authorization", "Cookie", "cookie", "never-resurrect"} {
+			if strings.Contains(req, forbidden) {
+				t.Errorf("%s request resurrected %q:\n%s", name, forbidden, req)
+			}
+		}
+		if !strings.Contains(req, "X-Ordinary: survives-every-hop\r\n") {
+			t.Errorf("%s request dropped the ordinary header:\n%s", name, req)
+		}
+	}
+	firstA.awaitClosed(t)
+	hopB.awaitClosed(t)
+	returnA.awaitClosed(t)
 }
 
 func TestDialRedirectDowngradeStripsCredentials(t *testing.T) {
@@ -332,6 +525,34 @@ func TestDialRedirectCheckRedirectStops(t *testing.T) {
 		t.Fatalf("Dial = %v, want the CheckRedirect error", err)
 	}
 	rec(0).awaitClosed(t, "policy-stopped hop")
+}
+
+func TestDialRedirectRejectsMalformedHeaderAfterLocation(t *testing.T) {
+	serverConn, clientConn := net.Pipe()
+	defer serverConn.Close()
+	go func() {
+		readRawHeaderBlock(t, serverConn)
+		serverConn.Write([]byte("HTTP/1.1 302 Found\r\nLocation: /next\r\nMalformed\r\n\r\n"))
+	}()
+
+	dials := 0
+	d := &gows.Dialer{
+		CheckRedirect: followAll,
+		NetDial: func(ctx context.Context, network, addr string) (net.Conn, error) {
+			dials++
+			if dials > 1 {
+				return nil, errors.New("malformed redirect was followed")
+			}
+			return clientConn, nil
+		},
+	}
+	_, _, err := d.Dial(t.Context(), "ws://example.invalid/start")
+	if !errors.Is(err, httpx.ErrMalformedHeader) {
+		t.Fatalf("Dial = %v, want errors.Is malformed response header", err)
+	}
+	if dials != 1 {
+		t.Fatalf("NetDial calls = %d, want 1 (malformed redirect must not be followed)", dials)
+	}
 }
 
 func TestDialRedirectSanitizedFailures(t *testing.T) {

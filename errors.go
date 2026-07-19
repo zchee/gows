@@ -15,9 +15,39 @@
 package gows
 
 import (
+	"context"
 	"errors"
 	"strconv"
 )
+
+type contextErrorChain struct {
+	err   error
+	cause error
+}
+
+// Error returns the standard context cancellation error text.
+func (e contextErrorChain) Error() string { return e.err.Error() }
+
+// Unwrap exposes both ctx.Err and its distinct cancellation cause.
+func (e contextErrorChain) Unwrap() []error { return []error{e.err, e.cause} }
+
+func contextError(ctx context.Context) error {
+	err := ctx.Err()
+	cause := context.Cause(ctx)
+	if cause == nil || errors.Is(cause, err) {
+		return err
+	}
+	return contextErrorChain{err: err, cause: cause}
+}
+
+func errorContainsContext(err error, ctx context.Context) bool {
+	ctxErr := ctx.Err()
+	if !errors.Is(err, ctxErr) {
+		return false
+	}
+	cause := context.Cause(ctx)
+	return cause == nil || errors.Is(cause, ctxErr) || errors.Is(err, cause)
+}
 
 // Sentinel errors returned by [Upgrader.Upgrade], [Upgrader.UpgradeHTTP],
 // [Dialer.Dial], [Conn.Close], [Conn.WriteMessage], and [Conn.NextWriter].
@@ -121,7 +151,8 @@ var (
 	// header this package owns as part of the opening handshake or of
 	// the HTTP exchange carrying it: Host, Upgrade, Connection, any
 	// Sec-WebSocket-* field, Content-Length, Transfer-Encoding, Trailer,
-	// TE, or Proxy-Authorization. Reserved headers cannot be supplied
+	// TE, Keep-Alive, Proxy-Authorization, or Proxy-Connection. Reserved
+	// headers cannot be supplied
 	// through the extra-header seam; use the dedicated configuration
 	// field where one exists (e.g. [Dialer.Subprotocols] for
 	// Sec-WebSocket-Protocol, the [Dialer.Proxy] URL for proxy

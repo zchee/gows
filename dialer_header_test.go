@@ -162,6 +162,14 @@ func TestDialHeaderValidation(t *testing.T) {
 			header:  http.Header{"Proxy-Authorization": {secret}},
 			wantErr: gows.ErrReservedHeader,
 		},
+		"error: reserved Keep-Alive": {
+			header:  http.Header{"kEeP-aLiVe": {secret}},
+			wantErr: gows.ErrReservedHeader,
+		},
+		"error: reserved Proxy-Connection": {
+			header:  http.Header{"pRoXy-CoNnEcTiOn": {secret}},
+			wantErr: gows.ErrReservedHeader,
+		},
 		"error: reserved Sec-WebSocket family member": {
 			header:  http.Header{"sec-websocket-key": {"AAAA"}},
 			wantErr: gows.ErrReservedHeader,

@@ -12,9 +12,9 @@ import "encoding/binary"
 // original (exported-within-gws) name. Unlike gorilla/coder, it masks the
 // full buffer in one call rather than returning a rotated key for chunked
 // resumption.
-func MaskXOR(b []byte, key []byte) {
-	var maskKey = binary.LittleEndian.Uint32(key)
-	var key64 = uint64(maskKey)<<32 + uint64(maskKey)
+func MaskXOR(b, key []byte) {
+	maskKey := binary.LittleEndian.Uint32(key)
+	key64 := uint64(maskKey)<<32 + uint64(maskKey)
 
 	for len(b) >= 64 {
 		v := binary.LittleEndian.Uint64(b)
@@ -42,7 +42,7 @@ func MaskXOR(b []byte, key []byte) {
 		b = b[8:]
 	}
 
-	var n = len(b)
+	n := len(b)
 	for i := 0; i < n; i++ {
 		idx := i & 3
 		b[i] ^= key[idx]

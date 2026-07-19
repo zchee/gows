@@ -49,7 +49,7 @@ func TestFeatureRunServerLaunchReceiptAndCleanup(t *testing.T) {
 	}
 	var p map[string]any
 	readJSONFile(t, filepath.Join(reports, "server", "provenance.json"), &p)
-	if p["agent"] != "gows-v04-feature-server" || p["application_termination"] != "owned-cleanup" || int(p["application_exit_status"].(float64)) != 143 || p["container_id"] != strings.Repeat("c", 64) || p["application_expected_sha256"] != fileSHA256(t, app) || p["application_observed_sha256"] != fileSHA256(t, app) || p["case_delay"] != "10ms" {
+	if p["agent"] != "gows-v04-feature-server" || p["application_termination"] != "owned-cleanup" || int(p["application_exit_status"].(float64)) != 143 || p["container_id"] != strings.Repeat("c", 64) || p["image_id"] != "sha256:"+strings.Repeat("b", 64) || p["application_expected_sha256"] != fileSHA256(t, app) || p["application_observed_sha256"] != fileSHA256(t, app) || p["case_delay"] != "10ms" {
 		t.Fatalf("provenance=%v", p)
 	}
 	pid := int(p["application_pid"].(float64))
@@ -66,6 +66,79 @@ func TestFeatureRunServerLaunchReceiptAndCleanup(t *testing.T) {
 	}
 }
 
+func TestFeatureRunCanonicalizesImageID(t *testing.T) {
+	validID := strings.Repeat("b", 64)
+	tests := map[string]struct {
+		output  string
+		wantID  string
+		wantErr bool
+	}{
+		"success: Docker-prefixed ID remains unchanged": {
+			output: "sha256:" + validID,
+			wantID: "sha256:" + validID,
+		},
+		"success: Podman-bare ID gains the canonical prefix": {
+			output: validID,
+			wantID: "sha256:" + validID,
+		},
+		"error: empty ID is rejected": {
+			wantErr: true,
+		},
+		"error: malformed ID is rejected": {
+			output:  "not-an-image-id",
+			wantErr: true,
+		},
+		"error: extra output line is rejected without leaking it": {
+			output:  "sha256:" + validID + "\nsensitive-extra-line",
+			wantErr: true,
+		},
+		"error: another digest algorithm is rejected": {
+			output:  "sha512:" + validID,
+			wantErr: true,
+		},
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			dir, bin := featureSandbox(t)
+			reports := filepath.Join(dir, "image-id-reports")
+			fixture := filepath.Join(dir, "index.json")
+			writeIndexFixture(t, fixture, "gows-v04-feature-server", "OK")
+			writeFeatureDocker(t, bin, false)
+			app := writeFeatureApp(t, bin, "image-id-app", "trap 'exit 143' TERM; while :; do sleep 1; done")
+			cmd := exec.Command("bash", "./feature-run.sh", "server", "--", app, "-mode", "server")
+			cmd.Dir = "."
+			cmd.Env = featureEnv(cmd.Environ(), bin, dir, reports, fixture, "image-id")
+			cmd.Env = append(
+				cmd.Env,
+				"AUTOBAHN_EXPECTED_APPLICATION_SHA256="+fileSHA256(t, app),
+				"FEATURE_IMAGE_ID_OUTPUT_SET=1",
+				"FEATURE_IMAGE_ID_OUTPUT="+tt.output,
+			)
+			out, err := cmd.CombinedOutput()
+			if tt.wantErr {
+				if err == nil || !strings.Contains(string(out), "inspected image ID is invalid") {
+					t.Fatalf("err=%v out=%s", err, out)
+				}
+				if strings.Contains(string(out), "sensitive-extra-line") {
+					t.Fatalf("error leaked inspected image ID output: %s", out)
+				}
+				if _, statErr := os.Stat(filepath.Join(reports, "server", "provenance.json")); !os.IsNotExist(statErr) {
+					t.Fatalf("invalid image ID produced provenance: %v", statErr)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("err=%v\n%s", err, out)
+			}
+			var provenance map[string]any
+			readJSONFile(t, filepath.Join(reports, "server", "provenance.json"), &provenance)
+			if provenance["image_id"] != tt.wantID {
+				t.Fatalf("image_id=%v, want %q", provenance["image_id"], tt.wantID)
+			}
+		})
+	}
+}
+
 func TestFeatureRunClientCreatesCompletionAfterNaturalExit(t *testing.T) {
 	dir, bin := featureSandbox(t)
 	reports := filepath.Join(dir, "client-success-reports")
@@ -76,7 +149,13 @@ func TestFeatureRunClientCreatesCompletionAfterNaturalExit(t *testing.T) {
 	cmd := exec.Command("bash", "./feature-run.sh", "client", "--", app, "-mode=client")
 	cmd.Dir = "."
 	cmd.Env = featureEnv(cmd.Environ(), bin, dir, reports, fixture, "client-success")
-	cmd.Env = append(cmd.Env, "AUTOBAHN_EXPECTED_APPLICATION_SHA256="+fileSHA256(t, app), "READY_REPORT_ROOT="+reports)
+	cmd.Env = append(
+		cmd.Env,
+		"AUTOBAHN_EXPECTED_APPLICATION_SHA256="+fileSHA256(t, app),
+		"READY_REPORT_ROOT="+reports,
+		"FEATURE_IMAGE_ID_OUTPUT_SET=1",
+		"FEATURE_IMAGE_ID_OUTPUT="+strings.Repeat("b", 64),
+	)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("err=%v\n%s", err, out)
@@ -87,7 +166,7 @@ func TestFeatureRunClientCreatesCompletionAfterNaturalExit(t *testing.T) {
 	}
 	var p map[string]any
 	readJSONFile(t, filepath.Join(reports, "clients", "provenance.json"), &p)
-	if p["completion_file"] != completion || p["completion_mechanism"] != "sentinel" || p["completion_stop_reason"] != "sentinel" {
+	if p["completion_file"] != completion || p["completion_mechanism"] != "sentinel" || p["completion_stop_reason"] != "sentinel" || p["image_id"] != "sha256:"+strings.Repeat("b", 64) {
 		t.Fatalf("provenance=%v", p)
 	}
 }
@@ -364,7 +443,7 @@ func writeFeatureDocker(t *testing.T, bin string, slow bool) {
 	}
 	script := `#!/bin/sh
 if [ "$1" = run ]; then prev="";for arg in "$@";do if [ "$prev" = --cidfile ];then echo "` + strings.Repeat("c", 64) + `" >"$arg";fi;prev="$arg";done;for arg in "$@"; do case "$arg" in *:/reports) root="${arg%%:*}"; if echo "$@"|grep -q fuzzingclient;then sub=server;else sub=clients;fi;mkdir -p "$root/$sub";cp "$REPORT_FIXTURE" "$root/$sub/index.json";;esac;done; ` + sleep + `; exit 0;fi
-if [ "$1" = image ];then echo "sha256:` + strings.Repeat("b", 64) + `";fi
+if [ "$1" = image ];then if [ "${FEATURE_IMAGE_ID_OUTPUT_SET:-0}" = 1 ];then printf '%s' "${FEATURE_IMAGE_ID_OUTPUT:-}";else echo "sha256:` + strings.Repeat("b", 64) + `";fi;fi
 exit 0
 `
 	writeExecutable(t, filepath.Join(bin, "docker"), script)

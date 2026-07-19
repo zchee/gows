@@ -35,11 +35,14 @@ var referencePrefixes = []string{
 
 // Config controls one supported-target collection.
 type Config struct {
-	RepoRoot   string
-	GOOS       string
-	GOARCH     string
-	RunRuntime bool
-	AllowDirty bool
+	RepoRoot string
+	GOOS     string
+	GOARCH   string
+	// TargetGoRoot selects the compiler that produces the target bundle. An
+	// empty value preserves the historical runtime.GOROOT default.
+	TargetGoRoot string
+	RunRuntime   bool
+	AllowDirty   bool
 }
 
 // Bundle contains a manifest and all immutable artifacts referenced by it.
@@ -91,6 +94,10 @@ func Collect(ctx context.Context, cfg Config) (_ Bundle, resultErr error) {
 	if _, err := ExpectedSymbols(cfg.GOARCH); err != nil {
 		return Bundle{}, err
 	}
+	goRoot, goTool, err := resolveTargetGoRoot(cfg.TargetGoRoot)
+	if err != nil {
+		return Bundle{}, fmt.Errorf("assembly collect: target toolchain: %w", err)
+	}
 	repository, err := collectRepositorySnapshot(ctx, repoRoot)
 	if err != nil {
 		return Bundle{}, fmt.Errorf("assembly collect: repository identity: %w", err)
@@ -110,22 +117,6 @@ func Collect(ctx context.Context, cfg Config) (_ Bundle, resultErr error) {
 		}
 	}()
 
-	goRoot, err := filepath.EvalSymlinks(compilerGoRoot())
-	if err != nil {
-		return Bundle{}, fmt.Errorf("assembly collect: resolve stock GOROOT: %w", err)
-	}
-	goRoot, err = filepath.Abs(goRoot)
-	if err != nil {
-		return Bundle{}, fmt.Errorf("assembly collect: absolute stock GOROOT: %w", err)
-	}
-	goTool, err := filepath.EvalSymlinks(filepath.Join(goRoot, "bin", "go"))
-	if err != nil {
-		return Bundle{}, fmt.Errorf("assembly collect: resolve stock Go tool: %w", err)
-	}
-	goTool, err = filepath.Abs(goTool)
-	if err != nil {
-		return Bundle{}, fmt.Errorf("assembly collect: absolute stock Go tool: %w", err)
-	}
 	goToolSum, goToolSize, err := support.FileSHA256(goTool)
 	if err != nil {
 		return Bundle{}, fmt.Errorf("assembly collect: read resolved Go tool %q: %w", goTool, err)
@@ -336,6 +327,47 @@ func Collect(ctx context.Context, cfg Config) (_ Bundle, resultErr error) {
 		return Bundle{}, fmt.Errorf("assembly collect: generated manifest: %w", err)
 	}
 	return Bundle{Manifest: manifest, Artifacts: artifacts}, nil
+}
+
+// resolveTargetGoRoot resolves and validates the compiler used to produce a
+// target bundle. Explicit roots must already be absolute, clean and canonical;
+// rejecting aliases prevents provenance from depending on invocation spelling.
+func resolveTargetGoRoot(explicit string) (string, string, error) {
+	root := explicit
+	if root == "" {
+		root = compilerGoRoot()
+	}
+	if !filepath.IsAbs(root) {
+		return "", "", fmt.Errorf("GOROOT %q is not absolute", root)
+	}
+	cleanRoot := filepath.Clean(root)
+	if cleanRoot != root {
+		return "", "", fmt.Errorf("GOROOT %q is not clean", root)
+	}
+	canonicalRoot, err := filepath.EvalSymlinks(root)
+	if err != nil {
+		return "", "", fmt.Errorf("resolve GOROOT %q: %w", root, err)
+	}
+	canonicalRoot, err = filepath.Abs(canonicalRoot)
+	if err != nil {
+		return "", "", fmt.Errorf("absolute GOROOT %q: %w", root, err)
+	}
+	if canonicalRoot != root {
+		return "", "", fmt.Errorf("GOROOT %q is not symlink-canonical (want %q)", root, canonicalRoot)
+	}
+	goTool := filepath.Join(canonicalRoot, "bin", "go")
+	canonicalTool, err := filepath.EvalSymlinks(goTool)
+	if err != nil {
+		return "", "", fmt.Errorf("resolve Go tool %q: %w", goTool, err)
+	}
+	canonicalTool, err = filepath.Abs(canonicalTool)
+	if err != nil {
+		return "", "", fmt.Errorf("absolute Go tool %q: %w", goTool, err)
+	}
+	if canonicalTool != goTool {
+		return "", "", fmt.Errorf("Go tool %q is not symlink-canonical (want %q)", goTool, canonicalTool)
+	}
+	return canonicalRoot, canonicalTool, nil
 }
 
 // compilerGoRoot returns the exact compiler toolchain that built asmprobe;

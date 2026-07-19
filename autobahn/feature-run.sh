@@ -100,6 +100,18 @@ wait_ready() {
   return 1
 }
 
+canonical_image_id() {
+  local image_id="$1"
+  if [[ "$image_id" =~ ^sha256:[0-9a-fA-F]{64}$ ]]; then
+    printf '%s\n' "$image_id"
+  elif [[ "$image_id" =~ ^[0-9a-fA-F]{64}$ ]]; then
+    printf 'sha256:%s\n' "$image_id"
+  else
+    echo "feature-run.sh: inspected image ID is invalid" >&2
+    return 1
+  fi
+}
+
 APP_STARTED=""; APP_ENDED=""; APP_STATUS=0; TERMINATION=natural
 common_env=(AUTOBAHN_PROFILE=feature AUTOBAHN_AGENT="$AGENT" AUTOBAHN_REPORTS_DIR="$REPORTS_DIR" AUTOBAHN_RUN_ID="$RUN_ID" AUTOBAHN_IMAGE="$IMAGE" AUTOBAHN_NETWORK_MODE="$NETWORK_MODE" AUTOBAHN_CASE_DELAY="$EFFECTIVE_CASE_DELAY" AUTOBAHN_COMPLETION_FILE="$COMPLETION_FILE" AUTOBAHN_APPLICATION_COMMAND="$APP_COMMAND" AUTOBAHN_GENERATOR_EVIDENCE="$GENERATOR_EVIDENCE" AUTOBAHN_STRICT_EVIDENCE=1 AUTOBAHN_SKIP_PROVENANCE=1 AUTOBAHN_CLIENT_TIMEOUT="$CLIENT_TIMEOUT" AUTOBAHN_SERVER_TIMEOUT="$SERVER_TIMEOUT")
 if [[ "$DIRECTION" == server ]]; then
@@ -130,7 +142,8 @@ mkdir -p "$REPORTS_DIR"
 RECEIPT="${REPORTS_DIR}/application-receipt.json"
 (cd "$ROOT_DIR" && go run ./autobahn/appreceipt -run-id "$RUN_ID" -direction "$DIRECTION" -agent "$AGENT" -command "$APP_COMMAND" -executable "$APP_EXECUTABLE" -expected-executable-sha256 "$EXPECTED_APP_SHA" -started "$APP_STARTED" -ended "$APP_ENDED" -termination "$TERMINATION" -pid "$APP_PID" -status "$APP_STATUS" -output "$RECEIPT")
 INDEX_SUBTREE=server; [[ "$DIRECTION" == client ]] && INDEX_SUBTREE=clients
-IMAGE_ID="$(docker image inspect --format '{{.Id}}' "$IMAGE")"
+RAW_IMAGE_ID="$(docker image inspect --format '{{.Id}}' "$IMAGE")"
+IMAGE_ID="$(canonical_image_id "$RAW_IMAGE_ID")" || exit 1
 CONTAINER_ID="$(cat "${REPORTS_DIR}/${RUN_ID}-${DIRECTION}-container-id.txt")"
 EFFECTIVE_NETWORK_MODE="$(cat "${REPORTS_DIR}/${RUN_ID}-${DIRECTION}-network-mode.txt")"
 COMPLETION_MECHANISM=default-timeout

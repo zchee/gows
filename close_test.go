@@ -157,6 +157,28 @@ type failWriteConn struct {
 
 func (c *failWriteConn) Write(p []byte) (int, error) { return 0, c.err }
 
+type deadlineCaptureConn struct {
+	net.Conn
+	deadlineErr error
+	writeErr    error
+	deadline    time.Time
+	closed      bool
+}
+
+func (c *deadlineCaptureConn) SetDeadline(tm time.Time) error {
+	c.deadline = tm
+	return c.deadlineErr
+}
+
+func (c *deadlineCaptureConn) Write([]byte) (int, error) {
+	return 0, c.writeErr
+}
+
+func (c *deadlineCaptureConn) Close() error {
+	c.closed = true
+	return c.Conn.Close()
+}
+
 func TestWriteCloseWriteError(t *testing.T) {
 	a, b := net.Pipe()
 	defer a.Close()
@@ -357,6 +379,49 @@ func TestCloseContextAlreadyCanceled(t *testing.T) {
 	}
 	if rerr != nil && errors.Is(rerr, os.ErrDeadlineExceeded) {
 		t.Fatalf("peer read timed out (%v): connection was not closed", rerr)
+	}
+}
+
+func TestCloseContextCancelCauseMatchesErrAndCause(t *testing.T) {
+	a, b := net.Pipe()
+	defer b.Close()
+	c := NewServerConn(a)
+	cause := errors.New("close canceled by caller")
+	ctx, cancel := context.WithCancelCause(t.Context())
+	cancel(cause)
+
+	err := c.CloseContext(ctx, CloseNormalClosure, "late")
+	if !errors.Is(err, ctx.Err()) {
+		t.Fatalf("CloseContext = %v, want errors.Is ctx.Err (%v)", err, ctx.Err())
+	}
+	if !errors.Is(err, cause) {
+		t.Fatalf("CloseContext = %v, want errors.Is cancel cause", err)
+	}
+}
+
+func TestCloseContextUsesCallerAbsoluteDeadline(t *testing.T) {
+	a, b := net.Pipe()
+	defer b.Close()
+	armErr := errors.New("deadline rejected")
+	rec := &deadlineCaptureConn{
+		Conn:        a,
+		deadlineErr: armErr,
+		writeErr:    errors.New("write should not be reached"),
+	}
+	c := NewServerConn(rec, WithCloseTimeout(time.Nanosecond))
+	deadline := time.Now().Add(time.Hour)
+	ctx, cancel := context.WithDeadline(t.Context(), deadline)
+	defer cancel()
+
+	err := c.CloseContext(ctx, CloseNormalClosure, "bye")
+	if !errors.Is(err, armErr) {
+		t.Fatalf("CloseContext = %v, want errors.Is SetDeadline failure", err)
+	}
+	if !rec.deadline.Equal(deadline) {
+		t.Fatalf("SetDeadline = %v, want caller deadline %v", rec.deadline, deadline)
+	}
+	if !rec.closed {
+		t.Error("CloseContext left the raw connection open after SetDeadline failed")
 	}
 }
 

@@ -373,9 +373,9 @@ type Dialer struct {
 	// reserved and rejected with [ErrReservedHeader]: Host, Upgrade,
 	// Connection, every Sec-WebSocket-* field (use
 	// [Dialer.Subprotocols] and the compression fields instead),
-	// Content-Length, Transfer-Encoding, Trailer, TE, and
-	// Proxy-Authorization (proxy credentials belong in the
-	// [Dialer.Proxy] URL and are sent only to the proxy). Names must be
+	// Content-Length, Transfer-Encoding, Trailer, TE, Keep-Alive,
+	// Proxy-Authorization, and Proxy-Connection (proxy credentials belong
+	// in the [Dialer.Proxy] URL and are sent only to the proxy). Names must be
 	// valid RFC 7230 tokens and values valid field-content (no CR, LF,
 	// NUL, or other control bytes) or Dial fails with
 	// [ErrMalformedHeader], and the combined serialized size of every

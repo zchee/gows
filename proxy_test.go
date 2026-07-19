@@ -355,6 +355,124 @@ func TestDialProxyUnsupportedScheme(t *testing.T) {
 	}
 }
 
+func TestDialRejectsHostlessProxyBeforeNetworkIO(t *testing.T) {
+	const secret = "SECRET-proxy-userinfo-query"
+	tests := map[string]string{
+		"error: empty authority":             "http:///proxy?token=" + secret,
+		"error: port without hostname":       "http://:8080/proxy?token=" + secret,
+		"error: userinfo without a hostname": "http://user:" + secret + "@/proxy?token=" + secret,
+	}
+	for name, rawProxyURL := range tests {
+		t.Run(name, func(t *testing.T) {
+			dialed := false
+			d := &gows.Dialer{
+				Proxy: proxyFor(t, rawProxyURL, nil),
+				NetDial: func(ctx context.Context, network, addr string) (net.Conn, error) {
+					dialed = true
+					return nil, errors.New("must not be reached")
+				},
+			}
+			_, _, err := d.Dial(t.Context(), "ws://origin.example/socket")
+			var invalidAddr net.InvalidAddrError
+			if !errors.As(err, &invalidAddr) {
+				t.Fatalf("Dial = %v, want net.InvalidAddrError", err)
+			}
+			if dialed {
+				t.Error("Dial performed network I/O for a hostless proxy")
+			}
+			for e := err; e != nil; e = errors.Unwrap(e) {
+				if strings.Contains(e.Error(), secret) {
+					t.Fatalf("error chain leaks proxy URL material: %q", e)
+				}
+			}
+		})
+	}
+}
+
+func TestDialRejectsMalformedProxyAuthorityBeforeNetworkIO(t *testing.T) {
+	const secret = "SECRET-proxy-authority"
+	tests := map[string]*url.URL{
+		"error: nonnumeric explicit port": {
+			Scheme:   "http",
+			Host:     "proxy.test:notaport",
+			User:     url.UserPassword("user", secret),
+			RawQuery: "token=" + secret,
+		},
+		"error: out-of-range explicit port": {
+			Scheme:   "http",
+			Host:     "proxy.test:70000",
+			User:     url.UserPassword("user", secret),
+			RawQuery: "token=" + secret,
+		},
+		"error: missing IPv6 bracket": {
+			Scheme:   "http",
+			Host:     "[::1",
+			User:     url.UserPassword("user", secret),
+			RawQuery: "token=" + secret,
+		},
+	}
+	for name, proxyURL := range tests {
+		t.Run(name, func(t *testing.T) {
+			dialed := false
+			d := &gows.Dialer{
+				Proxy: func(*http.Request) (*url.URL, error) {
+					return proxyURL, nil
+				},
+				NetDial: func(ctx context.Context, network, addr string) (net.Conn, error) {
+					dialed = true
+					return nil, errors.New("must not be reached")
+				},
+			}
+			_, _, err := d.Dial(t.Context(), "ws://origin.example/socket")
+			var invalidAddr net.InvalidAddrError
+			if !errors.As(err, &invalidAddr) {
+				t.Fatalf("Dial = %v, want net.InvalidAddrError", err)
+			}
+			if dialed {
+				t.Error("Dial performed network I/O for a malformed proxy authority")
+			}
+			for e := err; e != nil; e = errors.Unwrap(e) {
+				if strings.Contains(e.Error(), secret) {
+					t.Fatalf("error chain leaks proxy URL material: %q", e)
+				}
+			}
+		})
+	}
+}
+
+func TestDialValidProxyAuthorityFormation(t *testing.T) {
+	boom := errors.New("stop after address capture")
+	tests := map[string]struct {
+		proxyURL *url.URL
+		wantAddr string
+	}{
+		"success: hostname with default port": {proxyURL: &url.URL{Scheme: "http", Host: "proxy.test"}, wantAddr: "proxy.test:80"},
+		"success: IPv4 with explicit port":    {proxyURL: &url.URL{Scheme: "http", Host: "127.0.0.1:3128"}, wantAddr: "127.0.0.1:3128"},
+		"success: IPv6 with explicit port":    {proxyURL: &url.URL{Scheme: "http", Host: "[::1]:3128"}, wantAddr: "[::1]:3128"},
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			var gotAddr string
+			d := &gows.Dialer{
+				Proxy: func(*http.Request) (*url.URL, error) {
+					return tt.proxyURL, nil
+				},
+				NetDial: func(ctx context.Context, network, addr string) (net.Conn, error) {
+					gotAddr = addr
+					return nil, boom
+				},
+			}
+			_, _, err := d.Dial(t.Context(), "ws://origin.example/socket")
+			if !errors.Is(err, boom) {
+				t.Fatalf("Dial = %v, want address-capture error", err)
+			}
+			if gotAddr != tt.wantAddr {
+				t.Errorf("NetDial address = %q, want %q", gotAddr, tt.wantAddr)
+			}
+		})
+	}
+}
+
 func TestDialContextCanceledDuringProxyConnect(t *testing.T) {
 	proxyLn, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {

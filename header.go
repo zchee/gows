@@ -46,7 +46,9 @@ var reservedRequestHeaders = [...]string{
 	"Transfer-Encoding",
 	"Trailer",
 	"TE",
+	"Keep-Alive",
 	"Proxy-Authorization",
+	"Proxy-Connection",
 }
 
 // reservedHeaderName reports whether name is reserved for

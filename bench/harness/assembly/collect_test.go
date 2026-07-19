@@ -30,6 +30,24 @@ func TestNormalizeVersionMRemovesTemporaryPath(t *testing.T) {
 	}
 }
 
+func TestResolveTargetGoRootRejectsNonCanonicalRoots(t *testing.T) {
+	canonical, _, err := resolveTargetGoRoot("")
+	if err != nil {
+		t.Skipf("host compiler GOROOT unavailable: %v", err)
+	}
+	for name, root := range map[string]string{
+		"relative": "relative/goroot",
+		"unclean":  canonical + string(filepath.Separator) + ".",
+		"missing":  filepath.Join(t.TempDir(), "missing"),
+	} {
+		t.Run(name, func(t *testing.T) {
+			if _, _, err := resolveTargetGoRoot(root); err == nil {
+				t.Fatalf("resolveTargetGoRoot(%q) unexpectedly succeeded", root)
+			}
+		})
+	}
+}
+
 func TestCollectSupportedTargetsAndVerifyImmutableBundles(t *testing.T) {
 	if runtime.GOARCH != "amd64" && runtime.GOARCH != "arm64" {
 		t.Skipf("host architecture %s cannot supply supported native runtime evidence", runtime.GOARCH)
@@ -40,16 +58,18 @@ func TestCollectSupportedTargetsAndVerifyImmutableBundles(t *testing.T) {
 	}
 	ctx, cancel := context.WithTimeout(t.Context(), 2*time.Minute)
 	defer cancel()
+	targetGoRoot := os.Getenv("GOWS_ASSEMBLY_TEST_STOCK_GOROOT")
 
 	for _, goarch := range []string{"amd64", "arm64"} {
 		t.Run(goarch, func(t *testing.T) {
 			runRuntime := goarch == runtime.GOARCH
 			bundle, err := Collect(ctx, Config{
-				RepoRoot:   repoRoot,
-				GOOS:       runtime.GOOS,
-				GOARCH:     goarch,
-				RunRuntime: runRuntime,
-				AllowDirty: true,
+				RepoRoot:     repoRoot,
+				GOOS:         runtime.GOOS,
+				GOARCH:       goarch,
+				TargetGoRoot: targetGoRoot,
+				RunRuntime:   runRuntime,
+				AllowDirty:   true,
 			})
 			if err != nil {
 				t.Fatalf("Collect() error = %v", err)
@@ -73,6 +93,15 @@ func TestCollectSupportedTargetsAndVerifyImmutableBundles(t *testing.T) {
 			resolvedGoTool, err := filepath.EvalSymlinks(bundle.Manifest.Toolchain.GoBinaryPath)
 			if err != nil || resolvedGoTool != bundle.Manifest.Toolchain.GoBinaryPath {
 				t.Fatalf("Go tool path is not exact/canonical: path=%q resolved=%q err=%v", bundle.Manifest.Toolchain.GoBinaryPath, resolvedGoTool, err)
+			}
+			if targetGoRoot != "" {
+				expectedTool := filepath.Join(targetGoRoot, "bin", "go")
+				if bundle.Manifest.Toolchain.GoBinaryPath != expectedTool {
+					t.Fatalf("selected Go tool = %q, want %q", bundle.Manifest.Toolchain.GoBinaryPath, expectedTool)
+				}
+			}
+			if !bundle.Manifest.Target.Stock || bundle.Manifest.Target.GOEXPERIMENT != "" || bundle.Manifest.Target.GOTOOLCHAIN != "local" {
+				t.Fatalf("target stock identity incomplete: %+v", bundle.Manifest.Target)
 			}
 			if runRuntime && runtime.GOOS == "darwin" && !bundle.Manifest.CPU.Runtime.Execution.TranslationAvailable {
 				t.Fatalf("Darwin translation identity unavailable: %+v", bundle.Manifest.CPU.Runtime.Execution)

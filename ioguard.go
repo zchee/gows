@@ -39,6 +39,7 @@ import (
 //   - The connection is closed at most once across the callback,
 //     [connGuard.abort], and any direct [connGuard.closeConn] call.
 type connGuard struct {
+	ctx       context.Context
 	conn      net.Conn
 	done      chan struct{}
 	stop      func() bool
@@ -48,15 +49,18 @@ type connGuard struct {
 // guardConn arms a connGuard for one exchange on conn governed by ctx,
 // bounded by the absolute deadline (the zero time applies no deadline,
 // leaving cancellation as the only interrupt). The caller must pair it
-// with exactly one release or abort call.
-func guardConn(ctx context.Context, conn net.Conn, deadline time.Time) *connGuard {
-	g := &connGuard{conn: conn, done: make(chan struct{})}
-	_ = conn.SetDeadline(deadline)
+// with exactly one release or abort call. If applying the deadline fails,
+// no cancellation callback is registered and the caller must close conn.
+func guardConn(ctx context.Context, conn net.Conn, deadline time.Time) (*connGuard, error) {
+	if err := conn.SetDeadline(deadline); err != nil {
+		return nil, err
+	}
+	g := &connGuard{ctx: ctx, conn: conn, done: make(chan struct{})}
 	g.stop = context.AfterFunc(ctx, func() {
 		defer close(g.done)
 		g.closeConn()
 	})
-	return g
+	return g, nil
 }
 
 // closeConn closes the guarded connection, exactly once no matter how
@@ -74,7 +78,11 @@ func (g *connGuard) closeConn() {
 // must clear it.
 func (g *connGuard) release() bool {
 	if g.stop() {
-		return true
+		if g.ctx.Err() == nil {
+			return true
+		}
+		g.closeConn()
+		return false
 	}
 	<-g.done
 	return false

@@ -576,16 +576,17 @@ func (c *Conn) WriteClose(code CloseCode, reason string) error {
 // [Conn.WriteClose] and let that reader observe the peer's reply.
 //
 // The whole handshake -- the Close-frame write and the wait for the
-// peer's Close -- shares a single absolute deadline: the earlier of
-// time.Now() plus the Conn's close timeout ([WithCloseTimeout]) and
-// ctx's deadline, fixed once on entry; no phase renews or extends the
-// budget. When the close-timeout half is the binding one and expires,
+// peer's Close -- shares a single absolute deadline fixed once on entry.
+// When ctx has a deadline, that exact deadline is authoritative;
+// otherwise time.Now() plus the Conn's close timeout
+// ([WithCloseTimeout]) is used. No phase renews or extends the budget.
+// When the close-timeout budget expires,
 // CloseContext force-closes the connection and returns
 // [ErrCloseTimeout]. Whenever ctx is what ends the handshake early --
 // cancellation, or its own deadline being the binding half -- the
 // connection is force-closed to unblock whichever I/O is in flight and
-// the returned error wraps ctx's cancellation cause, so
-// errors.Is(err, ctx.Err()) holds; the cancellation callback is
+// the returned error wraps ctx.Err and any distinct cancellation cause,
+// so errors.Is matches both; the cancellation callback is
 // stopped and fully synchronized before CloseContext returns, and the
 // connection is closed on every path -- the error only reports whether
 // the closing handshake completed cleanly.
@@ -603,20 +604,22 @@ func (c *Conn) CloseContext(ctx context.Context, code CloseCode, reason string) 
 	if ctx.Err() != nil {
 		// Already ended: close the connection without writing anything.
 		c.teardown()
-		return fmt.Errorf("gows: close: %w", context.Cause(ctx))
+		return fmt.Errorf("gows: close: %w", contextError(ctx))
 	}
 
 	// One absolute deadline for the whole handshake: the Close-frame
 	// write and the peer-Close drain share it, so the total time is
 	// bounded by a single budget rather than per-phase renewals. The
 	// guard also force-closes the connection if ctx ends mid-handshake.
-	deadline := time.Now().Add(c.closeTimeout)
-	ctxBound := false
-	if d, ok := ctx.Deadline(); ok && d.Before(deadline) {
-		deadline = d
-		ctxBound = true
+	deadline, ctxBound := ctx.Deadline()
+	if !ctxBound {
+		deadline = time.Now().Add(c.closeTimeout)
 	}
-	g := guardConn(ctx, c.conn, deadline)
+	g, err := guardConn(ctx, c.conn, deadline)
+	if err != nil {
+		c.teardown()
+		return fmt.Errorf("gows: set close deadline: %w", err)
+	}
 
 	sendErr := c.sendClose(code, []byte(reason))
 	var drainErr error
@@ -642,7 +645,7 @@ func (c *Conn) CloseContext(ctx context.Context, code CloseCode, reason string) 
 	budgetExpired := func(cause error) error {
 		if ctxBound {
 			<-ctx.Done()
-			return fmt.Errorf("gows: close: %w", context.Cause(ctx))
+			return fmt.Errorf("gows: close: %w", contextError(ctx))
 		}
 		if cause != nil {
 			return fmt.Errorf("%w: %w", ErrCloseTimeout, cause)
@@ -655,7 +658,7 @@ func (c *Conn) CloseContext(ctx context.Context, code CloseCode, reason string) 
 		// ctx ended (release joined the force-close callback, so nothing
 		// races the caller after this return); the transport errors above
 		// were just the interrupt's symptom.
-		return fmt.Errorf("gows: close: %w", context.Cause(ctx))
+		return fmt.Errorf("gows: close: %w", contextError(ctx))
 	case sendErr != nil:
 		if errors.Is(sendErr, os.ErrDeadlineExceeded) {
 			// The Close-frame write ran out of the shared budget against a

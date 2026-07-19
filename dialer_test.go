@@ -27,6 +27,7 @@ import (
 	"math/big"
 	"net"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -156,6 +157,102 @@ func TestDialBadScheme(t *testing.T) {
 	_, _, err := d.Dial(t.Context(), "http://example.com/")
 	if !errors.Is(err, gows.ErrNotWebSocketScheme) {
 		t.Fatalf("Dial: err = %v, want ErrNotWebSocketScheme", err)
+	}
+}
+
+func TestDialRejectsHostlessOriginBeforeNetworkIO(t *testing.T) {
+	const secret = "SECRET-origin-userinfo-query"
+	tests := map[string]string{
+		"error: empty authority":             "ws:///socket?token=" + secret,
+		"error: port without hostname":       "wss://:443/socket?token=" + secret,
+		"error: userinfo without a hostname": "ws://user:" + secret + "@/socket?token=" + secret,
+	}
+	for name, rawURL := range tests {
+		t.Run(name, func(t *testing.T) {
+			dialed := false
+			d := &gows.Dialer{
+				NetDial: func(ctx context.Context, network, addr string) (net.Conn, error) {
+					dialed = true
+					return nil, errors.New("must not be reached")
+				},
+			}
+			_, _, err := d.Dial(t.Context(), rawURL)
+			var invalidAddr net.InvalidAddrError
+			if !errors.As(err, &invalidAddr) {
+				t.Fatalf("Dial = %v, want net.InvalidAddrError", err)
+			}
+			if dialed {
+				t.Error("Dial performed network I/O for a hostless origin")
+			}
+			for e := err; e != nil; e = errors.Unwrap(e) {
+				if strings.Contains(e.Error(), secret) {
+					t.Fatalf("error chain leaks origin URL material: %q", e)
+				}
+			}
+		})
+	}
+}
+
+func TestDialSanitizesMalformedOriginURL(t *testing.T) {
+	const secret = "SECRET-origin-parse"
+	tests := map[string]string{
+		"error: invalid explicit port": "ws://user:" + secret + "@example.com:notaport/socket?token=" + secret,
+		"error: missing IPv6 bracket":  "wss://user:" + secret + "@[::1/socket?token=" + secret,
+		"error: invalid path escape":   "ws://example.com/%zz?token=" + secret,
+	}
+	for name, rawURL := range tests {
+		t.Run(name, func(t *testing.T) {
+			dialed := false
+			d := &gows.Dialer{
+				NetDial: func(ctx context.Context, network, addr string) (net.Conn, error) {
+					dialed = true
+					return nil, errors.New("must not be reached")
+				},
+			}
+			_, _, err := d.Dial(t.Context(), rawURL)
+			var invalidAddr net.InvalidAddrError
+			if !errors.As(err, &invalidAddr) {
+				t.Fatalf("Dial = %v, want net.InvalidAddrError", err)
+			}
+			if dialed {
+				t.Error("Dial performed network I/O for a malformed origin URL")
+			}
+			for e := err; e != nil; e = errors.Unwrap(e) {
+				if strings.Contains(e.Error(), secret) {
+					t.Fatalf("error chain leaks origin URL material: %q", e)
+				}
+			}
+		})
+	}
+}
+
+func TestDialValidOriginAuthorityFormation(t *testing.T) {
+	boom := errors.New("stop after address capture")
+	tests := map[string]struct {
+		rawURL   string
+		wantAddr string
+	}{
+		"success: hostname with default port": {rawURL: "ws://example.test/socket", wantAddr: "example.test:80"},
+		"success: IPv4 with explicit port":    {rawURL: "wss://127.0.0.1:9443/socket", wantAddr: "127.0.0.1:9443"},
+		"success: IPv6 with explicit port":    {rawURL: "ws://[::1]:8080/socket", wantAddr: "[::1]:8080"},
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			var gotAddr string
+			d := &gows.Dialer{
+				NetDial: func(ctx context.Context, network, addr string) (net.Conn, error) {
+					gotAddr = addr
+					return nil, boom
+				},
+			}
+			_, _, err := d.Dial(t.Context(), tt.rawURL)
+			if !errors.Is(err, boom) {
+				t.Fatalf("Dial = %v, want address-capture error", err)
+			}
+			if gotAddr != tt.wantAddr {
+				t.Errorf("NetDial address = %q, want %q", gotAddr, tt.wantAddr)
+			}
+		})
 	}
 }
 
