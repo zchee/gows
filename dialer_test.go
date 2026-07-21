@@ -177,8 +177,7 @@ func TestDialRejectsHostlessOriginBeforeNetworkIO(t *testing.T) {
 				},
 			}
 			_, _, err := d.Dial(t.Context(), rawURL)
-			var invalidAddr net.InvalidAddrError
-			if !errors.As(err, &invalidAddr) {
+			if _, ok := errors.AsType[net.InvalidAddrError](err); !ok {
 				t.Fatalf("Dial = %v, want net.InvalidAddrError", err)
 			}
 			if dialed {
@@ -210,8 +209,7 @@ func TestDialSanitizesMalformedOriginURL(t *testing.T) {
 				},
 			}
 			_, _, err := d.Dial(t.Context(), rawURL)
-			var invalidAddr net.InvalidAddrError
-			if !errors.As(err, &invalidAddr) {
+			if _, ok := errors.AsType[net.InvalidAddrError](err); !ok {
 				t.Fatalf("Dial = %v, want net.InvalidAddrError", err)
 			}
 			if dialed {
