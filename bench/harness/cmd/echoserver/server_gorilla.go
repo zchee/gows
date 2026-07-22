@@ -9,8 +9,8 @@ import (
 )
 
 // runGorilla serves a binary echo using gorilla/websocket's recommended
-// net/http Hijack-based Upgrader, with WriteBufferPool enabled per plan §8
-// ("each lib's recommended API allowed").
+// net/http Hijack-based Upgrader, with WriteBufferPool enabled so each
+// library uses its recommended high-performance API.
 func runGorilla(ctx context.Context, addr string, cfg serverConfig) error {
 	upgrader := websocket.Upgrader{
 		ReadBufferSize:    bufferSize,

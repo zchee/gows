@@ -121,8 +121,7 @@ func offsetsFor(short bool) []int {
 // TestKernelsDifferential masks the same input with every available kernel and
 // the reference at every length 0..4097 and every start offset 0..63, then
 // checks that both the transformed bytes and the returned key match. This is
-// the primary defense against tail/alignment/key-phase bugs in the assembly
-// (plan §10 scenario 1).
+// the primary defense against tail/alignment/key-phase bugs in the assembly.
 func TestKernelsDifferential(t *testing.T) {
 	t.Parallel()
 

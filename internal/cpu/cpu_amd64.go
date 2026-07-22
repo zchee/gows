@@ -73,7 +73,7 @@ func init() {
 	// AVX-512 additionally requires the OS to have enabled the opmask (bit 5),
 	// ZMM_Hi256 (bit 6), and Hi16_ZMM (bit 7) state components. Using ZMM
 	// without this check risks SIGILL on kernels/VMs that do not save that
-	// state (plan §10 XCR0 risk).
+	// state (XCR0).
 	const xcr0AVX512 = 0xe0
 	zmmEnabled := xcr0&xcr0AVX512 == xcr0AVX512
 	hasAVX512 := zmmEnabled &&

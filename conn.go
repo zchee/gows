@@ -213,7 +213,7 @@ func WithBuffered(b []byte) ConnOption {
 // WithSkipUTF8Validation disables the RFC 6455 §8.1 UTF-8 validity check on
 // inbound Text frames and Close-frame reasons. Validation is on by default;
 // disabling it trades conformance for throughput and is intended for
-// benchmarks and callers that validate payloads themselves (plan §8).
+// benchmarks and callers that validate payloads themselves.
 func WithSkipUTF8Validation(skip bool) ConnOption {
 	return func(c *connConfig) {
 		c.skipUTF8 = skip

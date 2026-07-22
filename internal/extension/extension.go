@@ -26,14 +26,15 @@
 //	extension-token          = registered-token   ; = token
 //	extension-param          = token [ "=" (token | quoted-string) ]
 //
-// without depending on net/http or net/textproto, mirroring the style of
-// the sibling internal/httpx package (whose EqualFold this package's
-// deflate.go reuses rather than duplicating it).
+// without depending on net/http or net/textproto. Reuses EqualFold and
+// TrimOWS from the sibling internal/httpx package rather than duplicating them.
 package extension
 
 import (
 	"bytes"
 	"errors"
+
+	"github.com/zchee/gows/internal/httpx"
 )
 
 // ErrMalformedExtensionParam indicates an extension-param's value used
@@ -76,7 +77,7 @@ func (s *OfferScanner) Next() bool {
 		} else {
 			raw, s.b = s.b, nil
 		}
-		raw = trimOWS(raw)
+		raw = httpx.TrimOWS(raw)
 		if len(raw) == 0 {
 			continue // Empty list element (RFC 7230 §7): skip, not an error.
 		}
@@ -85,11 +86,11 @@ func (s *OfferScanner) Next() bool {
 		if !ok {
 			name, params = raw, nil
 		}
-		name = trimOWS(name)
+		name = httpx.TrimOWS(name)
 		if len(name) == 0 {
 			continue // No extension-token at all: not a parseable element.
 		}
-		s.name, s.params = name, trimOWS(params)
+		s.name, s.params = name, httpx.TrimOWS(params)
 		return true
 	}
 	return false
@@ -138,18 +139,18 @@ func (s *ParamScanner) Next() bool {
 		} else {
 			raw, s.b = s.b, nil
 		}
-		raw = trimOWS(raw)
+		raw = httpx.TrimOWS(raw)
 		if len(raw) == 0 {
 			continue
 		}
 
 		if name, rawValue, hasValue := bytes.Cut(raw, []byte("=")); hasValue {
-			name = trimOWS(name)
+			name = httpx.TrimOWS(name)
 			if len(name) == 0 || !isToken(name) {
 				s.err = ErrMalformedExtensionParam
 				return false
 			}
-			value, ok := unquoteToken(trimOWS(rawValue))
+			value, ok := unquoteToken(httpx.TrimOWS(rawValue))
 			if !ok {
 				s.err = ErrMalformedExtensionParam
 				return false
@@ -275,18 +276,4 @@ func isTchar(c byte) bool {
 		return true
 	}
 	return false
-}
-
-// trimOWS trims leading and trailing optional whitespace (SP or HTAB)
-// from b, per RFC 7230 §3.2.3. It is a local copy of the identical
-// unexported helper in internal/httpx, which this package cannot
-// import.
-func trimOWS(b []byte) []byte {
-	for len(b) > 0 && (b[0] == ' ' || b[0] == '\t') {
-		b = b[1:]
-	}
-	for len(b) > 0 && (b[len(b)-1] == ' ' || b[len(b)-1] == '\t') {
-		b = b[:len(b)-1]
-	}
-	return b
 }

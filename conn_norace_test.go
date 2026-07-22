@@ -17,5 +17,5 @@
 package gows
 
 // raceEnabledInternal is false on a non-race build; see its counterpart in
-// conn_race_test.go for why the AC3 allocation assertions consult it.
+// conn_race_test.go for why the zero-alloc assertions consult it.
 const raceEnabledInternal = false

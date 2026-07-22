@@ -21,7 +21,7 @@ import (
 )
 
 // bufferSize is the shared read/write buffer size (bytes) applied to every
-// library that exposes such a knob, per plan §8 fairness rules. It is also the
+// library that exposes such a knob, for comparative fairness. It is also the
 // read-buffer size of the stock "gows" and "gows-noutf8" variants.
 const bufferSize = 4096
 

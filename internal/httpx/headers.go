@@ -143,7 +143,7 @@ func (s *HeaderScanner) Next() bool {
 		return false
 	}
 
-	s.key, s.val, s.b = key, trimOWS(val), rest
+	s.key, s.val, s.b = key, TrimOWS(val), rest
 	return true
 }
 
@@ -194,7 +194,7 @@ func ContainsToken(b []byte, lower string) bool {
 		} else {
 			tok, b = b, nil
 		}
-		if EqualFold(trimOWS(tok), lower) {
+		if EqualFold(TrimOWS(tok), lower) {
 			return true
 		}
 	}
@@ -224,9 +224,9 @@ func cutByte(b []byte, c byte) (before, after []byte, ok bool) {
 	return b[:i], b[i+1:], true
 }
 
-// trimOWS trims leading and trailing optional whitespace (SP or HTAB)
+// TrimOWS trims leading and trailing optional whitespace (SP or HTAB)
 // from b, per RFC 7230 §3.2.3.
-func trimOWS(b []byte) []byte {
+func TrimOWS(b []byte) []byte {
 	for len(b) > 0 && (b[0] == ' ' || b[0] == '\t') {
 		b = b[1:]
 	}

@@ -1,12 +1,12 @@
-// Package bench holds the mask-kernel comparison benchmarks described in
-// the gows plan §6 Phase 0 item 3: gorilla maskBytes, coder maskGo, gws
-// MaskXOR, and gobwas Cipher, vendored under internal/thirdparty with
-// attribution (see that package's doc comments) rather than go:linkname'd,
-// for build stability across upstream refactors. BenchmarkMaskGoWS calls
-// gows's own internal/mask.Mask directly (not vendored -- gows is a real
-// dependency of this module via the local replace in go.mod), exercising
-// its actual runtime CPU-feature dispatch (AVX2/AVX-512/NEON/scalar) rather
-// than one fixed kernel, same as production traffic would hit.
+// Package bench holds mask-kernel comparison benchmarks against vendored
+// competitor kernels: gorilla maskBytes, coder maskGo, gws MaskXOR, and
+// gobwas Cipher, under internal/thirdparty with attribution (see that
+// package's doc comments) rather than go:linkname'd, for build stability
+// across upstream refactors. BenchmarkMaskGoWS calls gows's own
+// internal/mask.Mask directly (not vendored -- gows is a real dependency
+// of this module via the local replace in go.mod), exercising its actual
+// runtime CPU-feature dispatch (AVX2/AVX-512/NEON/scalar) rather than one
+// fixed kernel, same as production traffic would hit.
 //
 // Run with: go test -bench=BenchmarkMask -benchmem -count=10 ./...
 package bench
@@ -23,7 +23,7 @@ import (
 	tpgws "github.com/zchee/gows/bench/internal/thirdparty/gws"
 )
 
-// sizes matches plan §6 Phase 1 item 2's benchmark size sweep.
+// sizes matches the standard kernel-benchmark size sweep.
 var sizes = []int{64, 256, 1024, 4096, 16384, 65536}
 
 var maskKey = [4]byte{0x12, 0x34, 0x56, 0x78}

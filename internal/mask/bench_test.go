@@ -49,8 +49,8 @@ func BenchmarkMask(b *testing.B) {
 }
 
 // BenchmarkKernel measures each available kernel individually so the per-kernel
-// throughput curves (used to calibrate the dispatch thresholds, AC4) can be
-// compared directly.
+// throughput curves used to calibrate the dispatch thresholds can be compared
+// directly.
 func BenchmarkKernel(b *testing.B) {
 	for _, kern := range Kernels() {
 		b.Run(kern.Name, func(b *testing.B) {

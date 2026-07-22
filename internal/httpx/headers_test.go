@@ -277,6 +277,29 @@ func TestEqualFold(t *testing.T) {
 	}
 }
 
+func TestTrimOWS(t *testing.T) {
+	tests := map[string]struct {
+		in   string
+		want string
+	}{
+		"no whitespace":            {in: "upgrade", want: "upgrade"},
+		"leading spaces":           {in: "  upgrade", want: "upgrade"},
+		"trailing tabs":            {in: "upgrade\t\t", want: "upgrade"},
+		"both sides mixed":         {in: " \tupgrade \t ", want: "upgrade"},
+		"only whitespace":          {in: " \t ", want: ""},
+		"empty":                    {in: "", want: ""},
+		"internal space preserved": {in: " keep me ", want: "keep me"},
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			got := string(httpx.TrimOWS([]byte(tt.in)))
+			if got != tt.want {
+				t.Errorf("TrimOWS(%q) = %q, want %q", tt.in, got, tt.want)
+			}
+		})
+	}
+}
+
 func TestParseRequestLineAllocs(t *testing.T) {
 	raw := []byte(upgradeRequest)
 	f := func() {

@@ -1,7 +1,7 @@
 // Package gobwas vendors gobwas/ws's masking kernel for benchmark
 // comparison purposes (bench/kernels_test.go). PR #198 reported ~16.8 GB/s
 // @4KB for this implementation on the reference hardware of the era; that
-// figure is re-measured here rather than assumed (see AC4 in the plan).
+// figure is re-measured here rather than assumed.
 //
 // Source: github.com/gobwas/ws@v1.4.0, cipher.go, func Cipher and var remain.
 // License: MIT (Sergey Kamardin).

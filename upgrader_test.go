@@ -511,9 +511,9 @@ func TestUpgradeAllocs(t *testing.T) {
 	// needs a few more iterations to reach steady state than a single
 	// class does (see internal/pool, whose single-class AllocsPerRun
 	// tests are unaffected). This is a race-detector/GC-timing artifact,
-	// not a real per-call allocation: AC13's actual benchmark numbers
-	// come from BenchmarkUpgrade run without -race, as is standard
-	// practice for allocation-sensitive benchmarks.
+	// not a real per-call allocation: the actual benchmark numbers come
+	// from BenchmarkUpgrade run without -race, as is standard practice
+	// for allocation-sensitive benchmarks.
 	for range 10 {
 		f()
 	}

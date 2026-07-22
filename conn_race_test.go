@@ -18,6 +18,6 @@ package gows
 
 // raceEnabledInternal reports whether this (package gows) test binary was built
 // with -race. The race detector's sync.Pool instrumentation can add a phantom
-// allocation to AllocsPerRun, so the strict AC3 allocation assertions are
-// enforced only on non-race builds; the observed value is always logged.
+// allocation to AllocsPerRun, so the zero-alloc assertions are enforced only on
+// non-race builds; the observed value is always logged.
 const raceEnabledInternal = true

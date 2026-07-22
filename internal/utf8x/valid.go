@@ -30,10 +30,9 @@
 // The validation core is a byte-at-a-time DFA (see the [dfaState] doc
 // comment for why a single byte of state is enough to carry across Feed
 // calls) with an ASCII word fast path for the common case of long
-// ASCII-only runs. This scalar implementation is the Phase 2 baseline;
-// Phase 3 plans to replace only the interior bulk loop with a SIMD
-// kernel behind the same Feed/Done/Reset contract, so boundary handling
-// is deliberately kept scalar and self-contained here.
+// ASCII-only runs. Architecture-specific SIMD kernels in this package
+// accelerate the interior bulk loop behind the same Feed/Done/Reset
+// contract; boundary handling stays scalar and self-contained here.
 package utf8x
 
 import "encoding/binary"

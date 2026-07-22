@@ -56,8 +56,7 @@ func TestSIMDIntegrationDifferential(t *testing.T) {
 // TestSIMDSplitSweep splits SIMD-sized buffers (valid, invalid, and truncated)
 // at every byte boundary and confirms the streaming verdict always equals the
 // one-shot verdict. With buffers well over the SIMD threshold, split points
-// routinely land inside a vector block mid-multibyte-sequence (plan §10
-// scenario 2).
+// routinely land inside a vector block mid-multibyte sequence.
 func TestSIMDSplitSweep(t *testing.T) {
 	surrogate := []byte{0xED, 0xA0, 0x80} // encoded U+D800, invalid
 	inputs := map[string][]byte{

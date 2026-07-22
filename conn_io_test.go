@@ -387,7 +387,7 @@ func TestConcurrentWriteAndAutoPong(t *testing.T) {
 	_ = srv.Close(CloseNormalClosure, "")
 }
 
-// --- allocation acceptance (AC3) --------------------------------------------
+// --- allocation acceptance --------------------------------------------------
 
 func TestReadMessageZeroAllocs(t *testing.T) {
 	frame := clientFrame(true, OpcodeBinary, bytes.Repeat([]byte{0x7f}, 1024))
@@ -402,9 +402,9 @@ func TestReadMessageZeroAllocs(t *testing.T) {
 	})
 	t.Logf("ReadMessage allocs/op = %v (race=%v)", allocs, raceEnabledInternal)
 	// The race detector's sync.Pool instrumentation can add a phantom alloc;
-	// enforce the strict AC3 bound only on non-race builds.
+	// enforce the zero-alloc bound only on non-race builds.
 	if !raceEnabledInternal && allocs != 0 {
-		t.Errorf("ReadMessage allocs/op = %v, want 0 (AC3)", allocs)
+		t.Errorf("ReadMessage allocs/op = %v, want 0", allocs)
 	}
 }
 

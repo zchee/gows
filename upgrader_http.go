@@ -56,8 +56,8 @@ func UpgradeHTTP(w http.ResponseWriter, r *http.Request) (net.Conn, Handshake, e
 // Handshake.Buffered; see [Handshake] for the contract a caller building
 // a Conn on top of the returned net.Conn must follow.
 func (u *Upgrader) UpgradeHTTP(w http.ResponseWriter, r *http.Request) (net.Conn, Handshake, error) {
-	if u.ClientWindowBits != 0 && (u.ClientWindowBits < minDeflateWindowBits || u.ClientWindowBits > deflateWindowBits) {
-		return nil, Handshake{}, ErrInvalidWindowBits
+	if err := u.validateClientWindowBits(); err != nil {
+		return nil, Handshake{}, err
 	}
 	if r.Method != http.MethodGet {
 		http.Error(w, "gows: method is not GET", http.StatusBadRequest)

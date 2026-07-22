@@ -201,7 +201,7 @@ func TestReadMessageFragmented(t *testing.T) {
 
 // TestReadMessageByteFragments splits a multibyte-UTF-8 message into 1-byte
 // fragments, exercising the streaming UTF-8 validator across every possible
-// code-point boundary (plan §10 scenario 2).
+// code-point boundary.
 func TestReadMessageByteFragments(t *testing.T) {
 	t.Parallel()
 

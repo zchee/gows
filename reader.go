@@ -359,7 +359,7 @@ func (c *Conn) readFramePayload(h Header) error {
 	// not io.ReadFull's io.ErrUnexpectedEOF upgrade), so a truncated stream
 	// surfaces identically here and on the buffered path.
 	//
-	// Known limitation, confirmed by strace on the AC5 benchmark harness: how
+	// Known limitation, confirmed by strace on the echo benchmark harness: how
 	// many actual read(2) calls this needs is governed by *arrival pacing* on
 	// the wire, not by the size requested here. If a peer writes a frame's
 	// header and payload as two separate write(2) calls, a fast reader can

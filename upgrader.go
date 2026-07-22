@@ -161,6 +161,15 @@ func compressionParamsFromDeflate(p extension.DeflateParams) CompressionParams {
 	}
 }
 
+// validateClientWindowBits reports [ErrInvalidWindowBits] when ClientWindowBits
+// is set outside RFC 7692 §7.1.2's inclusive range [8, 15].
+func (u *Upgrader) validateClientWindowBits() error {
+	if u.ClientWindowBits != 0 && (u.ClientWindowBits < minDeflateWindowBits || u.ClientWindowBits > deflateWindowBits) {
+		return ErrInvalidWindowBits
+	}
+	return nil
+}
+
 // doubleCRLF marks the end of an HTTP request or response header block.
 var doubleCRLF = []byte("\r\n\r\n")
 
@@ -193,11 +202,10 @@ func Upgrade(c net.Conn) (Handshake, error) {
 // request line or header.
 //
 // On success, Upgrade does not close c or read any further from it. The
-// caller owns c from that point on (e.g. to build a Conn on top of it,
-// once that type exists).
+// caller owns c from that point on (e.g. to build a [Conn] on top of it).
 func (u *Upgrader) Upgrade(c net.Conn) (Handshake, error) {
-	if u.ClientWindowBits != 0 && (u.ClientWindowBits < minDeflateWindowBits || u.ClientWindowBits > deflateWindowBits) {
-		return Handshake{}, ErrInvalidWindowBits
+	if err := u.validateClientWindowBits(); err != nil {
+		return Handshake{}, err
 	}
 	maxHeader := u.MaxHeaderBytes
 	if maxHeader <= 0 {
@@ -379,25 +387,12 @@ func negotiateSubprotocol(offered []string, clientList []byte) string {
 			} else {
 				tok, rest = rest, nil
 			}
-			if string(trimOWS(tok)) == want {
+			if string(httpx.TrimOWS(tok)) == want {
 				return want
 			}
 		}
 	}
 	return ""
-}
-
-// trimOWS trims leading and trailing optional whitespace (SP or HTAB)
-// from b, per RFC 7230 §3.2.3. It is a local copy of the identical
-// unexported helper in internal/httpx, which this package cannot import.
-func trimOWS(b []byte) []byte {
-	for len(b) > 0 && (b[0] == ' ' || b[0] == '\t') {
-		b = b[1:]
-	}
-	for len(b) > 0 && (b[len(b)-1] == ' ' || b[len(b)-1] == '\t') {
-		b = b[:len(b)-1]
-	}
-	return b
 }
 
 // splitTarget splits an origin-form request-target (RFC 7230 §5.3.1)

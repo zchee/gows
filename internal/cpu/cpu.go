@@ -20,7 +20,7 @@
 // "sse2" caps the amd64 dispatch at SSE2, "avx2" caps it at AVX2, and
 // "avx512" (or an empty/unknown value) imposes no cap. On arm64, "off"
 // disables NEON. The switch is provided as an escape hatch for environments
-// where a SIMD path misbehaves (see plan §9 risk table).
+// where a SIMD path misbehaves.
 package cpu
 
 import (

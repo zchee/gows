@@ -151,12 +151,9 @@ func init() {
 //
 // This is a process-wide setting, not a per-Upgrader/per-Dialer/per-Conn
 // [ConnOption], because [Conn] itself has no per-connection backend,
-// level, or window-bits state in this phase -- only a compression bool
-// (see [WithCompression]) -- so compress.go's pools have nowhere to
-// store a different configuration per connection; adding that is out of
-// this phase's scope (the deferred context-takeover opt-in follow-up
-// will need the same per-Conn state this seam deliberately isn't adding
-// yet). [Upgrader.NegotiateWindowBits]
+// level, or window-bits state -- only a compression bool (see
+// [WithCompression]) -- so compress.go's pools have nowhere to store a
+// different configuration per connection. [Upgrader.NegotiateWindowBits]
 // and [Dialer.WindowBits] still exist as explicit, independent
 // per-instance opt-ins: whether a *specific* Upgrader/Dialer negotiates
 // (or offers) a non-default window size with its peers is a legitimate

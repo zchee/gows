@@ -1,7 +1,6 @@
-// Package bench also holds the permessage-deflate backend comparison
-// described in plan §4.2 (deflate bullet) and §13 open question 2: stdlib
-// compress/flate vs github.com/klauspost/compress/flate, under the exact
-// per-message, no-context-takeover framing gows's compress.go will use.
+// Package bench also holds the permessage-deflate backend comparison of
+// stdlib compress/flate vs github.com/klauspost/compress/flate, under the
+// exact per-message, no-context-takeover framing gows's compress.go uses.
 //
 // Run with: go test -run=TestDeflateRoundTrip -bench=BenchmarkDeflate -benchmem -count=10 .
 package bench

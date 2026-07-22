@@ -30,7 +30,7 @@ import "github.com/zchee/gows/internal/cpu"
 //     (159 vs 100 GB/s, 1.59x), but once the payload exceeds the 48 KB L1d the
 //     workload is memory-bandwidth-bound and ZMM regresses (64 KB: 43 vs
 //     49 GB/s). Payloads at or above thresholdZMMMax therefore fall through to
-//     AVX2 rather than pay the ZMM penalty for no gain (plan §10 scenario 1).
+//     AVX2 rather than pay the ZMM penalty for no gain.
 const (
 	thresholdSIMD   = 64
 	thresholdYMM    = 128

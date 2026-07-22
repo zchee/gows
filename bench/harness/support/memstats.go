@@ -46,7 +46,7 @@ func ReadMemSnapshot() MemSnapshot {
 // StartDebugServer starts a plain net/http server on addr exposing
 // GET /debug/memstats as JSON, plus the standard net/http/pprof handlers
 // under /debug/pprof/ (e.g. "curl .../debug/pprof/profile?seconds=10" for a
-// CPU profile of a losing config under load -- plan §8's regression-tuning
+// CPU profile of a losing config under load -- regression-tuning
 // evidence requirement). Both are intentionally isolated from every
 // echoserver library implementation's hot path: runtime.ReadMemStats and
 // profiling only run when this endpoint is polled/hit by loadgen or an
