@@ -24,6 +24,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -303,6 +304,16 @@ func (d *Dialer) dialHop(ctx context.Context, u *url.URL, hdr http.Header) (net.
 	}
 	fail := func(err error) (net.Conn, Handshake, string, error) {
 		g.abort()
+		// The connection deadline can fire a beat before the context timer
+		// (same race CloseContext's budgetExpired handles). When the I/O
+		// timed out under a ctx-bound deadline, wait for that beat so Dial
+		// surfaces ctx.Err deterministically -- errors.Is(err, ctx.Err())
+		// and errors.Is(err, context.DeadlineExceeded) both hold.
+		if ctx.Err() == nil && errors.Is(err, os.ErrDeadlineExceeded) {
+			if _, ok := ctx.Deadline(); ok {
+				<-ctx.Done()
+			}
+		}
 		if ctx.Err() != nil && !errorContainsContext(err, ctx) {
 			// When ctx ended mid-exchange the transport-level error is
 			// usually just the interrupt's symptom (a closed connection or
