@@ -149,6 +149,14 @@ func init() {
 // holds a reference to whichever pooled value it borrowed before the
 // swap.
 //
+// Existing [PreparedMessage] values are not rebuilt: their compressed
+// frames (if any) stay frozen against the backend that was active at
+// [NewPreparedMessage] time. Call NewPreparedMessage again after a swap
+// if broadcast bytes must come from the new backend. Live Conns that
+// already pinned a context-takeover compressor at construction likewise
+// keep that pin; only newly constructed Conns and pool-sourced
+// compress/decompress paths adopt b.
+//
 // This is a process-wide setting, not a per-Upgrader/per-Dialer/per-Conn
 // [ConnOption], because [Conn] itself has no per-connection backend,
 // level, or window-bits state -- only a compression bool (see

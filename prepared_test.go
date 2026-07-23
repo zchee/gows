@@ -140,8 +140,8 @@ func TestWritePreparedMessageClientRoleRejected(t *testing.T) {
 		t.Fatalf("NewPreparedMessage: %v", err)
 	}
 	c := NewClientConn(&scriptConn{})
-	if err := c.WritePreparedMessage(pm); !errors.Is(err, errPreparedMessageClientRole) {
-		t.Fatalf("WritePreparedMessage on client role: err = %v, want errPreparedMessageClientRole", err)
+	if err := c.WritePreparedMessage(pm); !errors.Is(err, ErrPreparedMessageClientRole) {
+		t.Fatalf("WritePreparedMessage on client role: err = %v, want ErrPreparedMessageClientRole", err)
 	}
 }
 

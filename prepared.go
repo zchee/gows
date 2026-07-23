@@ -19,20 +19,21 @@ import (
 	"fmt"
 )
 
-// errPreparedMessageClientRole indicates [Conn.WritePreparedMessage] was
-// called on a client-role Conn. A [PreparedMessage]'s frames are
+// ErrPreparedMessageClientRole is returned by [Conn.WritePreparedMessage]
+// when c is a client-role Conn. A [PreparedMessage]'s frames are
 // precomputed unmasked; RFC 6455 §5.1 requires the client to mask every
 // outbound frame with a fresh, unpredictable key per frame, which cannot
 // be done once at [NewPreparedMessage] time and reused -- so
 // WritePreparedMessage supports the server role only.
-var errPreparedMessageClientRole = errors.New("gows: WritePreparedMessage is not supported for the client role")
+var ErrPreparedMessageClientRole = errors.New("gows: WritePreparedMessage is not supported for the client role")
 
 // PreparedMessage holds the precomputed wire frame(s) for one message,
-// built once by [NewPreparedMessage] and sent to many connections via
-// [Conn.WritePreparedMessage] without repeating the framing -- or,
-// crucially, the compression -- work per connection: the broadcast
-// pattern gorilla/websocket's identically-named type and gws's
-// Broadcaster both provide.
+// built once by [NewPreparedMessage] and sent to many server-role
+// connections via [Conn.WritePreparedMessage] without repeating the
+// framing -- or, crucially, the compression -- work per connection: the
+// broadcast pattern gorilla/websocket's identically-named type and gws's
+// Broadcaster both provide. Client-role Conns cannot use it (see
+// [ErrPreparedMessageClientRole]): the frames are stored unmasked.
 //
 // A PreparedMessage's compressed frame (when it has one) is always
 // compressed against a fresh, empty LZ77 window, independent of any
@@ -51,6 +52,12 @@ var errPreparedMessageClientRole = errors.New("gows: WritePreparedMessage is not
 // compressed at a window larger than the Conn's negotiated outgoing
 // ceiling, or when the Conn's outgoing compression has been disabled.
 //
+// The compressed frame is also frozen against the process-wide
+// [DeflateBackend] that was active at [NewPreparedMessage] time. A later
+// [SetDeflateBackend] does not refresh existing PreparedMessages; rebuild
+// them after a backend swap if the new compressor should produce the
+// broadcast bytes.
+//
 // The zero value is not usable; construct a PreparedMessage with
 // [NewPreparedMessage].
 type PreparedMessage struct {
@@ -68,11 +75,13 @@ type PreparedMessage struct {
 //
 // The compressed frame, if any, is produced by whichever [DeflateBackend]
 // is process-wide active at the moment NewPreparedMessage runs (see
-// [SetDeflateBackend]); a *PreparedMessage already built keeps using its
+// [SetDeflateBackend]). A *PreparedMessage already built keeps using its
 // frozen-at-construction-time compressed bytes even if a later
 // SetDeflateBackend call changes what newly compressed messages look
-// like -- consistent with a PreparedMessage's whole purpose (compress
-// once, reuse the same bytes for every connection that sends it).
+// like -- call NewPreparedMessage again after a backend swap if those
+// new bytes are required. This freeze is intentional: the type's purpose
+// is compress-once, reuse the same wire bytes for every server Conn that
+// sends it.
 func NewPreparedMessage(op Opcode, payload []byte) (*PreparedMessage, error) {
 	pm := &PreparedMessage{}
 	pm.plain = AppendHeader(nil, Header{Fin: true, Opcode: op, Length: int64(len(payload))})
@@ -101,13 +110,13 @@ func NewPreparedMessage(op Opcode, payload []byte) (*PreparedMessage, error) {
 // [Conn.NextWriter] stream is open ([ErrWriterBusy]): interleaving a
 // complete data frame between fragments would violate RFC 6455 §5.4.
 //
-// WritePreparedMessage only supports the server role -- see
-// [errPreparedMessageClientRole] -- since a PreparedMessage's frames are
-// precomputed unmasked; calling it on a client-role Conn returns an
-// error without writing anything.
+// WritePreparedMessage only supports the server role: a PreparedMessage's
+// frames are precomputed unmasked, and RFC 6455 §5.1 requires a client to
+// mask every outbound frame with a fresh key. Calling it on a client-role
+// Conn returns [ErrPreparedMessageClientRole] without writing anything.
 func (c *Conn) WritePreparedMessage(pm *PreparedMessage) error {
 	if c.client {
-		return errPreparedMessageClientRole
+		return ErrPreparedMessageClientRole
 	}
 
 	c.wmu.Lock()

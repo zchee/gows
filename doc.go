@@ -28,7 +28,10 @@
 // that drains every complete buffered message per wakeup and, combined
 // with [Conn.WriteMessageBuffered] and [Conn.Flush], coalesces replies
 // into a single write. A [PreparedMessage] encodes a payload once for
-// broadcast across many connections. The closing handshake is driven
+// broadcast across many server-role connections via
+// [Conn.WritePreparedMessage] (client-role Conns are rejected: frames
+// are precomputed unmasked, which RFC 6455 §5.1 forbids reusing on the
+// client). The closing handshake is driven
 // with [Conn.Close] (or the context-bounded [Conn.CloseContext]) when
 // the calling goroutine owns the read side, or started with
 // [Conn.WriteClose] from any goroutine while a reader is active. The
@@ -42,7 +45,13 @@
 // is pluggable via [SetDeflateBackend]; the default is the standard
 // library's compress/flate, and an optional klauspost/compress backend
 // ships in the separate flatekp module so the root module stays free of
-// third-party dependencies.
+// third-party dependencies. [NewPreparedMessage] freezes any compressed
+// frame against the backend active at construction time -- a later
+// [SetDeflateBackend] does not rebuild existing [PreparedMessage] values.
+// Optional surfaces beyond the core RFC handshake include
+// [Dialer.Proxy] / [Dialer.CheckRedirect], [Upgrader.RawPath] zero-copy
+// path access, and fine-grained window / context-takeover knobs on
+// [Upgrader] and [Dialer].
 //
 // The implementation targets strict RFC conformance (validated against
 // the full Autobahn|Testsuite matrix in both directions) and high
