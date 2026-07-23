@@ -77,7 +77,7 @@ func (d *Dialer) deflateOffer() (header string, params extension.DeflateParams) 
 		params.ClientMaxWindowBits = d.WindowBits
 	} else if d.OfferClientMaxWindowBits {
 		b.WriteString("; client_max_window_bits")
-		params.ClientMaxWindowBits = -1
+		params.ClientMaxWindowBits = extension.ClientMaxWindowBitsBare
 	}
 	if d.ServerWindowBits != 0 {
 		fmt.Fprintf(&b, "; server_max_window_bits=%d", d.ServerWindowBits)
@@ -670,32 +670,15 @@ func (d *Dialer) handshake(conn net.Conn, u *url.URL, hdr http.Header, absoluteF
 		return Handshake{}, "", &UnexpectedStatusError{StatusCode: code, Reason: string(status.Reason)}
 	}
 
-	var upgradeOK, connectionOK bool
-	var accept, serverProtocol, serverExtensions []byte
-
-	sc := httpx.NewHeaderScanner(headers)
-	for sc.Next() {
-		switch {
-		case httpx.EqualFold(sc.Key(), "upgrade"):
-			upgradeOK = upgradeOK || httpx.ContainsToken(sc.Value(), "websocket")
-		case httpx.EqualFold(sc.Key(), "connection"):
-			connectionOK = connectionOK || httpx.ContainsToken(sc.Value(), "upgrade")
-		case httpx.EqualFold(sc.Key(), "sec-websocket-accept"):
-			accept = sc.Value()
-		case httpx.EqualFold(sc.Key(), "sec-websocket-protocol"):
-			serverProtocol = sc.Value()
-		case httpx.EqualFold(sc.Key(), "sec-websocket-extensions"):
-			serverExtensions = sc.Value()
-		}
-	}
-	if err := sc.Err(); err != nil {
+	hf, err := scanWSHandshakeHeaders(headers)
+	if err != nil {
 		return Handshake{}, "", fmt.Errorf("gows: scan handshake response headers: %w", err)
 	}
 
-	if !upgradeOK {
+	if !hf.upgradeOK {
 		return Handshake{}, "", ErrNotUpgrade
 	}
-	if !connectionOK {
+	if !hf.connectionOK {
 		return Handshake{}, "", ErrNotConnectionUpgrade
 	}
 	// The Sec-WebSocket-Accept comparison need not run in constant time:
@@ -703,14 +686,14 @@ func (d *Dialer) handshake(conn net.Conn, u *url.URL, hdr http.Header, absoluteF
 	// just generated, not a secret whose comparison timing could leak
 	// anything an attacker doesn't already know.
 	wantAccept := httpx.AppendAccept(nil, wsKey)
-	if !bytes.Equal(accept, wantAccept) {
+	if !bytes.Equal(hf.accept, wantAccept) {
 		return Handshake{}, "", ErrAcceptMismatch
 	}
 
 	selected := ""
-	if len(serverProtocol) > 0 {
+	if len(hf.protocol) > 0 {
 		for _, want := range d.Subprotocols {
-			if string(serverProtocol) == want {
+			if string(hf.protocol) == want {
 				selected = want
 				break
 			}
@@ -722,8 +705,8 @@ func (d *Dialer) handshake(conn net.Conn, u *url.URL, hdr http.Header, absoluteF
 
 	var compressed bool
 	var agreedParams extension.DeflateParams
-	if d.EnableCompression && serverExtensions != nil && hasDeflateElement(serverExtensions) {
-		respParams, verr := extension.ValidateDeflateResponse(offerParams, serverExtensions)
+	if d.EnableCompression && hf.extensions != nil && hasDeflateElement(hf.extensions) {
+		respParams, verr := extension.ValidateDeflateResponse(offerParams, hf.extensions)
 		if verr != nil {
 			return Handshake{}, "", fmt.Errorf("%w: %w", ErrInvalidCompressionResponse, verr)
 		}

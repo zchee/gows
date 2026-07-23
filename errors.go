@@ -132,12 +132,22 @@ var (
 	// case; install a backend whose MinWindowBits is at most the desired
 	// ceiling (e.g. via github.com/zchee/gows/flatekp) before dialing.
 	ErrUnsupportedWindowBits = errors.New("gows: negotiated window bits unsupported by the active deflate backend")
-	// ErrInvalidCloseReason indicates a [Conn.Close] call's reason string
-	// was not valid UTF-8, which RFC 6455 §5.5.1 requires for a Close
-	// frame's reason text. Close returns this before sending anything --
-	// putting invalid UTF-8 on the wire would make this package the
-	// non-conformant peer.
+	// ErrInvalidCloseCode indicates a [Conn.Close], [Conn.CloseContext],
+	// or [Conn.WriteClose] call's code is not sendable per [ValidCloseCode]
+	// (reserved 1005/1006/1015, out of the defined ranges, etc.). The
+	// call returns this before sending anything.
+	ErrInvalidCloseCode = errors.New("gows: invalid close code")
+	// ErrInvalidCloseReason indicates a [Conn.Close], [Conn.CloseContext],
+	// or [Conn.WriteClose] call's reason string was not valid UTF-8, which
+	// RFC 6455 §5.5.1 requires for a Close frame's reason text. The call
+	// returns this before sending anything -- putting invalid UTF-8 on the
+	// wire would make this package the non-conformant peer.
 	ErrInvalidCloseReason = errors.New("gows: close reason is not valid UTF-8")
+	// ErrCloseReasonTooLong indicates a [Conn.Close], [Conn.CloseContext],
+	// or [Conn.WriteClose] call's reason, with the 2-byte close code, would
+	// exceed a control frame's 125-byte payload limit (RFC 6455 §5.5). The
+	// call returns this before sending anything.
+	ErrCloseReasonTooLong = errors.New("gows: close reason too long")
 	// ErrWriterBusy is returned by [Conn.WriteMessage] and
 	// [Conn.NextWriter] when a previous [Conn.NextWriter] stream is
 	// still open (its writer has not been Closed). A Conn allows at

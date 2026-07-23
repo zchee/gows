@@ -35,7 +35,7 @@ func TestParseDeflateOfferRFCExamples(t *testing.T) {
 		"window size control": {
 			raw: "permessage-deflate; client_max_window_bits; server_max_window_bits=10",
 			want: extension.DeflateParams{
-				ClientMaxWindowBits: -1,
+				ClientMaxWindowBits: extension.ClientMaxWindowBitsBare,
 				ServerMaxWindowBits: 10,
 			},
 			wantOK: true,
@@ -44,7 +44,7 @@ func TestParseDeflateOfferRFCExamples(t *testing.T) {
 			raw: "permessage-deflate; client_max_window_bits; server_max_window_bits=10, " +
 				"permessage-deflate; client_max_window_bits",
 			want: extension.DeflateParams{
-				ClientMaxWindowBits: -1,
+				ClientMaxWindowBits: extension.ClientMaxWindowBitsBare,
 				ServerMaxWindowBits: 10,
 			},
 			wantOK: true,
@@ -84,7 +84,7 @@ func TestParseDeflateOfferFallback(t *testing.T) {
 	if !ok {
 		t.Fatalf("ok = false, want true (should fall back to the second, valid offer)")
 	}
-	want := extension.DeflateParams{ClientMaxWindowBits: -1}
+	want := extension.DeflateParams{ClientMaxWindowBits: extension.ClientMaxWindowBitsBare}
 	if got != want {
 		t.Fatalf("params = %+v, want %+v", got, want)
 	}
@@ -162,7 +162,7 @@ func TestAppendDeflateResponse(t *testing.T) {
 			want:   "permessage-deflate; server_max_window_bits=10; client_max_window_bits=12",
 		},
 		"bare ClientMaxWindowBits (-1) sentinel omitted, never emitted bare": {
-			agreed: extension.DeflateParams{ClientMaxWindowBits: -1},
+			agreed: extension.DeflateParams{ClientMaxWindowBits: extension.ClientMaxWindowBitsBare},
 			want:   "permessage-deflate",
 		},
 	}
@@ -199,12 +199,12 @@ func TestValidateDeflateResponse(t *testing.T) {
 			want:     extension.DeflateParams{},
 		},
 		"RFC 7692 §7.1.3: first option accepted": {
-			offered:  extension.DeflateParams{ClientMaxWindowBits: -1, ServerMaxWindowBits: 10},
+			offered:  extension.DeflateParams{ClientMaxWindowBits: extension.ClientMaxWindowBitsBare, ServerMaxWindowBits: 10},
 			response: "permessage-deflate; server_max_window_bits=10",
 			want:     extension.DeflateParams{ServerMaxWindowBits: 10},
 		},
 		"RFC 7692 §7.1.3: second option accepted": {
-			offered:  extension.DeflateParams{ClientMaxWindowBits: -1},
+			offered:  extension.DeflateParams{ClientMaxWindowBits: extension.ClientMaxWindowBitsBare},
 			response: "permessage-deflate",
 			want:     extension.DeflateParams{},
 		},
@@ -229,12 +229,12 @@ func TestValidateDeflateResponse(t *testing.T) {
 			wantErr:  extension.ErrDeflateUnrequestedClientMaxWindowBits,
 		},
 		"client_max_window_bits valued when offer had it bare": {
-			offered:  extension.DeflateParams{ClientMaxWindowBits: -1},
+			offered:  extension.DeflateParams{ClientMaxWindowBits: extension.ClientMaxWindowBitsBare},
 			response: "permessage-deflate; client_max_window_bits=10",
 			want:     extension.DeflateParams{ClientMaxWindowBits: 10},
 		},
 		"client_max_window_bits bare in response is invalid": {
-			offered:  extension.DeflateParams{ClientMaxWindowBits: -1},
+			offered:  extension.DeflateParams{ClientMaxWindowBits: extension.ClientMaxWindowBitsBare},
 			response: "permessage-deflate; client_max_window_bits",
 			wantErr:  extension.ErrDeflateInvalidResponse,
 		},

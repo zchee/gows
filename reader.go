@@ -161,19 +161,13 @@ func (c *Conn) readMessageBody() (Opcode, []byte, error) {
 
 		if h.Fin {
 			if c.msgCompressed {
-				decoded, err := c.decompressMessage(c.msgBuf)
+				// UTF-8 validation for a compressed text message runs once
+				// against the decompressed bytes -- the wire bytes fed to
+				// readFramePayload were compressed data, not UTF-8, and were
+				// never fed to c.utf8v (see readFramePayload).
+				decoded, err := c.finishCompressedMessage()
 				if err != nil {
-					if errors.Is(err, errDecompressedTooLarge) {
-						return c.failData(CloseMessageTooBig, "decompressed message exceeds read limit")
-					}
-					return c.failData(CloseProtocolError, "invalid compressed message payload")
-				}
-				// UTF-8 validation for a compressed text message runs once,
-				// here, against the decompressed bytes -- the wire bytes fed
-				// to readFramePayload were compressed data, not UTF-8, and
-				// were never fed to c.utf8v (see readFramePayload).
-				if c.msgIsText && !c.skipUTF8 && !utf8x.Valid(decoded) {
-					return c.failData(CloseInvalidFramePayloadData, "invalid UTF-8 in text message")
+					return 0, nil, err
 				}
 				return msgOp, decoded, nil
 			}
@@ -482,6 +476,10 @@ func (c *Conn) ensure(n int) error {
 
 // fillOnce reads once from the connection into the read buffer, compacting the
 // unconsumed bytes to the front first when the buffer tail is exhausted.
+//
+// A Read that returns (0, nil) is fail-closed as [io.ErrNoProgress], matching
+// the handshake path's [readHeaderBlock] guard: a misbehaving net.Conn must
+// not spin the streaming reader forever.
 func (c *Conn) fillOnce() error {
 	if c.r0 == c.r1 {
 		c.r0, c.r1 = 0, 0
@@ -494,10 +492,15 @@ func (c *Conn) fillOnce() error {
 	}
 	n, err := c.conn.Read(c.rbuf[c.r1:])
 	c.r1 += n
-	if n == 0 && err != nil {
+	// Process any delivered bytes first (io.Reader contract); surface the
+	// error on a subsequent fill when n was zero.
+	if n > 0 {
+		return nil
+	}
+	if err != nil {
 		return err
 	}
-	return nil
+	return io.ErrNoProgress
 }
 
 // failClose fails the connection: it sends a Close frame with the given code
@@ -894,12 +897,29 @@ func (c *Conn) skipPayload(n int64) error {
 	return nil
 }
 
+// finishCompressedMessage decompresses c.msgBuf (bounded by the read limit)
+// and validates UTF-8 for a text message. Shared by [Conn.readMessageBody]
+// and [Conn.reassembleCompressed] so the decompress→validate sequence has
+// one definition.
+func (c *Conn) finishCompressedMessage() ([]byte, error) {
+	decoded, err := c.decompressMessage(c.msgBuf)
+	if err != nil {
+		if errors.Is(err, errDecompressedTooLarge) {
+			return nil, c.failClose(CloseMessageTooBig, "decompressed message exceeds read limit")
+		}
+		return nil, c.failClose(CloseProtocolError, "invalid compressed message payload")
+	}
+	if c.msgIsText && !c.skipUTF8 && !utf8x.Valid(decoded) {
+		return nil, c.failClose(CloseInvalidFramePayloadData, "invalid UTF-8 in text message")
+	}
+	return decoded, nil
+}
+
 // reassembleCompressed reassembles a compressed message whose opening frame
 // header has already been decoded, accumulating the compressed wire bytes of
-// every fragment into c.msgBuf (enforcing the read limit), inflates them (bounded
-// by the read limit), and validates UTF-8 for a text message. It mirrors
-// [Conn.readMessage]'s compressed-message handling exactly, and is used only
-// by NextReader's compressed-inbound fallback -- never the hot path.
+// every fragment into c.msgBuf (enforcing the read limit), then finishes via
+// [Conn.finishCompressedMessage]. Used only by NextReader's compressed-inbound
+// fallback -- never the hot path.
 func (c *Conn) reassembleCompressed(first Header, op Opcode) ([]byte, error) {
 	c.msgBuf = c.msgBuf[:0]
 	c.msgIsText = op == OpcodeText
@@ -934,15 +954,5 @@ func (c *Conn) reassembleCompressed(first Header, op Opcode) ([]byte, error) {
 		}
 	}
 
-	decoded, err := c.decompressMessage(c.msgBuf)
-	if err != nil {
-		if errors.Is(err, errDecompressedTooLarge) {
-			return nil, c.failClose(CloseMessageTooBig, "decompressed message exceeds read limit")
-		}
-		return nil, c.failClose(CloseProtocolError, "invalid compressed message payload")
-	}
-	if c.msgIsText && !c.skipUTF8 && !utf8x.Valid(decoded) {
-		return nil, c.failClose(CloseInvalidFramePayloadData, "invalid UTF-8 in text message")
-	}
-	return decoded, nil
+	return c.finishCompressedMessage()
 }

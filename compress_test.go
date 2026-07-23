@@ -87,7 +87,10 @@ func TestNegotiateDeflate(t *testing.T) {
 
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
-			got, ok := negotiateDeflate([]byte(tt.extensions), tt.negotiateWindowBits, tt.allowContextTakeover, 0)
+			got, ok := negotiateDeflate([]byte(tt.extensions), deflateNegotiatePolicy{
+				negotiateWindowBits:  tt.negotiateWindowBits,
+				allowContextTakeover: tt.allowContextTakeover,
+			})
 			if ok != tt.wantOK {
 				t.Fatalf("ok = %v, want %v (got=%+v)", ok, tt.wantOK, got)
 			}
@@ -225,7 +228,9 @@ func TestNegotiateDeflateWindowBits(t *testing.T) {
 
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
-			got, ok := negotiateDeflate([]byte(tt.extensions), tt.negotiateWindowBits, false, 0)
+			got, ok := negotiateDeflate([]byte(tt.extensions), deflateNegotiatePolicy{
+				negotiateWindowBits: tt.negotiateWindowBits,
+			})
 			if ok != tt.wantOK {
 				t.Fatalf("ok = %v, want %v (got=%+v)", ok, tt.wantOK, got)
 			}
@@ -1071,7 +1076,9 @@ func TestNegotiateDeflateClientWindowBits(t *testing.T) {
 	}
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
-			got, ok := negotiateDeflate([]byte(tt.extensions), false, false, tt.clientWindowBits)
+			got, ok := negotiateDeflate([]byte(tt.extensions), deflateNegotiatePolicy{
+				clientWindowBits: tt.clientWindowBits,
+			})
 			if ok != tt.wantOK {
 				t.Fatalf("ok = %v, want %v (got=%+v)", ok, tt.wantOK, got)
 			}
@@ -1596,7 +1603,9 @@ func TestNegotiateDeflateContextTakeoverAllCombinations(t *testing.T) {
 
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
-			got, ok := negotiateDeflate([]byte(tt.extensions), false, true, 0)
+			got, ok := negotiateDeflate([]byte(tt.extensions), deflateNegotiatePolicy{
+				allowContextTakeover: true,
+			})
 			if !ok {
 				t.Fatalf("negotiateDeflate: ok = false, want true")
 			}
@@ -1612,7 +1621,7 @@ func TestNegotiateDeflateContextTakeoverAllCombinations(t *testing.T) {
 // even for an offer that would otherwise allow context takeover on both
 // directions.
 func TestNegotiateDeflateContextTakeoverOff(t *testing.T) {
-	got, ok := negotiateDeflate([]byte("permessage-deflate"), false, false, 0)
+	got, ok := negotiateDeflate([]byte("permessage-deflate"), deflateNegotiatePolicy{})
 	if !ok {
 		t.Fatalf("negotiateDeflate: ok = false, want true")
 	}

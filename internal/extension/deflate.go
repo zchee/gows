@@ -55,6 +55,12 @@ var (
 	ErrDeflateServerMaxWindowBitsTooLarge = errors.New("extension: response set server_max_window_bits greater than the offer allowed")
 )
 
+// ClientMaxWindowBitsBare is stored in [DeflateParams.ClientMaxWindowBits]
+// when client_max_window_bits was present without a value (offer-only form
+// per RFC 7692 §7.1.2.2: the client accepts a valued response parameter
+// and the server picks the value). Never used in a response.
+const ClientMaxWindowBitsBare = -1
+
 // DeflateParams describes one negotiated, offered, or responded
 // configuration of the permessage-deflate extension (RFC 7692 §7).
 type DeflateParams struct {
@@ -69,12 +75,38 @@ type DeflateParams struct {
 	// parameter never has a bare (valueless) form.
 	ServerMaxWindowBits int
 	// ClientMaxWindowBits corresponds to the client_max_window_bits
-	// parameter (RFC 7692 §7.1.2.2): 0 if absent entirely, -1 if present
-	// but bare (valid only in an offer: "client supports receiving this
-	// parameter in a response, server picks the value"), otherwise 8-15.
-	// A response's client_max_window_bits is never bare; see
-	// [ValidateDeflateResponse].
+	// parameter (RFC 7692 §7.1.2.2): 0 if absent entirely,
+	// [ClientMaxWindowBitsBare] if present but bare (valid only in an
+	// offer), otherwise 8-15. A response's client_max_window_bits is
+	// never bare; see [ValidateDeflateResponse]. Prefer
+	// [DeflateParams.HasClientMaxWindowBits],
+	// [DeflateParams.ClientMaxWindowBitsIsBare], and
+	// [DeflateParams.ClientMaxWindowBitsValue] over comparing the raw
+	// field to 0 / -1.
 	ClientMaxWindowBits int
+}
+
+// HasClientMaxWindowBits reports whether client_max_window_bits was
+// present at all (bare or valued).
+func (p DeflateParams) HasClientMaxWindowBits() bool {
+	return p.ClientMaxWindowBits != 0
+}
+
+// ClientMaxWindowBitsIsBare reports whether client_max_window_bits was
+// present without a value (offer-only form).
+func (p DeflateParams) ClientMaxWindowBitsIsBare() bool {
+	return p.ClientMaxWindowBits == ClientMaxWindowBitsBare
+}
+
+// ClientMaxWindowBitsValue returns the numeric window bits when valued
+// (8-15), or 0 when absent, bare, or outside the RFC 7692 range. Safe
+// for public-API surfaces and response emission that must not observe
+// the bare-offer sentinel or out-of-range values.
+func (p DeflateParams) ClientMaxWindowBitsValue() int {
+	if p.ClientMaxWindowBits < minWindowBits || p.ClientMaxWindowBits > maxWindowBits {
+		return 0
+	}
+	return p.ClientMaxWindowBits
 }
 
 // ParseDeflateOffer scans b, a Sec-WebSocket-Extensions header value,
@@ -136,8 +168,8 @@ func ParseDeflateOfferParams(params ParamScanner) (DeflateParams, bool) {
 //
 // AppendDeflateResponse never emits a bare client_max_window_bits (RFC
 // 7692 §7.1.2.2 requires a response's client_max_window_bits, if
-// present at all, to carry a value): a agreed.ClientMaxWindowBits of -1
-// (the offer-only "bare" sentinel) is treated the same as 0 (absent).
+// present at all, to carry a value): [ClientMaxWindowBitsBare] is treated
+// the same as absent.
 func AppendDeflateResponse(dst []byte, agreed DeflateParams) []byte {
 	dst = append(dst, DeflateExtensionName...)
 	if agreed.ServerNoContextTakeover {
@@ -150,9 +182,9 @@ func AppendDeflateResponse(dst []byte, agreed DeflateParams) []byte {
 		dst = append(dst, "; server_max_window_bits="...)
 		dst = strconv.AppendInt(dst, int64(agreed.ServerMaxWindowBits), 10)
 	}
-	if agreed.ClientMaxWindowBits >= minWindowBits && agreed.ClientMaxWindowBits <= maxWindowBits {
+	if v := agreed.ClientMaxWindowBitsValue(); v != 0 {
 		dst = append(dst, "; client_max_window_bits="...)
-		dst = strconv.AppendInt(dst, int64(agreed.ClientMaxWindowBits), 10)
+		dst = strconv.AppendInt(dst, int64(v), 10)
 	}
 	return dst
 }
@@ -180,10 +212,10 @@ func ValidateDeflateResponse(offered DeflateParams, response []byte) (DeflatePar
 			continue
 		}
 		params, ok := parseDeflateParams(sc.Params())
-		if !ok || params.ClientMaxWindowBits < 0 {
+		if !ok || params.ClientMaxWindowBitsIsBare() {
 			return DeflateParams{}, ErrDeflateInvalidResponse
 		}
-		if params.ClientMaxWindowBits != 0 && offered.ClientMaxWindowBits == 0 {
+		if params.HasClientMaxWindowBits() && !offered.HasClientMaxWindowBits() {
 			return DeflateParams{}, ErrDeflateUnrequestedClientMaxWindowBits
 		}
 		if params.ServerMaxWindowBits != 0 && offered.ServerMaxWindowBits != 0 &&
@@ -202,9 +234,9 @@ func ValidateDeflateResponse(offered DeflateParams, response []byte) (DeflatePar
 // window-bits values are always rejected. The one difference between
 // offer- and response-side validity -- whether a bare
 // client_max_window_bits is acceptable -- is left to the caller
-// ([ParseDeflateOffer] accepts it as -1; [ValidateDeflateResponse]
-// rejects a -1 result itself), since this function has no way to know
-// which side is calling it.
+	// ([ParseDeflateOffer] accepts it as [ClientMaxWindowBitsBare];
+	// [ValidateDeflateResponse] rejects a bare result itself), since this
+	// function has no way to know which side is calling it.
 func parseDeflateParams(params ParamScanner) (DeflateParams, bool) {
 	var p DeflateParams
 	var haveServerNCT, haveClientNCT, haveServerBits, haveClientBits bool
@@ -243,7 +275,7 @@ func parseDeflateParams(params ParamScanner) (DeflateParams, bool) {
 			}
 			haveClientBits = true
 			if value == nil {
-				p.ClientMaxWindowBits = -1
+				p.ClientMaxWindowBits = ClientMaxWindowBitsBare
 				continue
 			}
 			bits, ok := parseWindowBits(value)

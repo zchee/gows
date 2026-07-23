@@ -248,7 +248,9 @@ type Upgrader struct {
 	// compression per RFC 7692 §7's decline conditions. Declining is
 	// never a handshake failure: the connection still succeeds, just
 	// without compression. When negotiated, [Handshake.Compressed] is
-	// true; pass it to [WithCompression] when constructing the [Conn].
+	// true; prefer [WithCompressionParams](hs.CompressionParams) when
+	// constructing the [Conn] (or [WithCompression](hs.Compressed) when
+	// context-takeover policy does not matter).
 	EnableCompression bool
 
 	// NegotiateWindowBits, when true (and EnableCompression is also
@@ -514,6 +516,14 @@ type Dialer struct {
 
 // Handshake describes a completed WebSocket opening handshake, returned
 // by [Upgrader.Upgrade], [Upgrader.UpgradeHTTP], and [Dialer.Dial].
+//
+// Path access has two mutually exclusive modes:
+//   - Default: [Handshake.Path] / [Handshake.Query] are owned strings;
+//     [Handshake.Release] is a no-op.
+//   - [Upgrader.RawPath]: Path/Query stay empty; use [Handshake.RawPath]
+//     / [Handshake.RawQuery] and call [Handshake.Release] exactly once
+//     when finished. Mixing modes (reading Path after RawPath, or using
+//     RawPath slices after Release) is undefined.
 type Handshake struct {
 	// Path is the handshake request-target's path component (e.g.
 	// "/chat"), not percent-decoded. From [Upgrader.Upgrade] with
@@ -542,9 +552,11 @@ type Handshake struct {
 	Buffered []byte
 	// Compressed reports whether permessage-deflate (RFC 7692) was
 	// negotiated for this connection, via [Upgrader.EnableCompression] or
-	// [Dialer.EnableCompression]. Pass it to [WithCompression] when
-	// constructing the [Conn] on top of the handshake's net.Conn; passing
-	// a hardcoded value instead of this field risks a Conn that
+	// [Dialer.EnableCompression]. Prefer
+	// [WithCompressionParams](hs.CompressionParams) when constructing the
+	// [Conn]; [WithCompression](hs.Compressed) is only equivalent when
+	// context-takeover policy does not matter (see [WithCompression]).
+	// Passing a hardcoded value instead of this field risks a Conn that
 	// disagrees with what the peer actually agreed to.
 	Compressed bool
 

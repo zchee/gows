@@ -67,19 +67,18 @@ func TestWriteClose(t *testing.T) {
 	longestReason := strings.Repeat("r", 123)
 
 	tests := map[string]struct {
-		code       CloseCode
-		reason     string
-		wantErr    error
-		wantErrSub string // non-sentinel errors, matched by substring
+		code    CloseCode
+		reason  string
+		wantErr error
 	}{
 		"success: normal code with reason": {code: CloseNormalClosure, reason: "bye"},
 		"success: empty reason":            {code: CloseNormalClosure},
 		"success: 123-byte reason":         {code: CloseNormalClosure, reason: longestReason},
-		"error: zero code":                 {code: 0, wantErrSub: "invalid close code"},
-		"error: reserved 1005":             {code: CloseNoStatusReceived, wantErrSub: "invalid close code"},
-		"error: reserved 1006":             {code: CloseAbnormalClosure, wantErrSub: "invalid close code"},
+		"error: zero code":                 {code: 0, wantErr: ErrInvalidCloseCode},
+		"error: reserved 1005":             {code: CloseNoStatusReceived, wantErr: ErrInvalidCloseCode},
+		"error: reserved 1006":             {code: CloseAbnormalClosure, wantErr: ErrInvalidCloseCode},
 		"error: invalid UTF-8 reason":      {code: CloseNormalClosure, reason: "\xff\xfe", wantErr: ErrInvalidCloseReason},
-		"error: 124-byte reason":           {code: CloseNormalClosure, reason: longestReason + "r", wantErrSub: "close reason too long"},
+		"error: 124-byte reason":           {code: CloseNormalClosure, reason: longestReason + "r", wantErr: ErrCloseReasonTooLong},
 	}
 
 	for name, tt := range tests {
@@ -92,7 +91,7 @@ func TestWriteClose(t *testing.T) {
 			errCh := make(chan error, 1)
 			go func() { errCh <- c.WriteClose(tt.code, tt.reason) }()
 
-			if tt.wantErr == nil && tt.wantErrSub == "" {
+			if tt.wantErr == nil {
 				f := readWireFrame(t, b)
 				if f.h.Opcode != OpcodeClose || !f.h.Fin {
 					t.Fatalf("wire frame = %+v, want a Fin Close frame", f.h)
@@ -113,9 +112,6 @@ func TestWriteClose(t *testing.T) {
 			}
 			if tt.wantErr != nil && !errors.Is(err, tt.wantErr) {
 				t.Fatalf("WriteClose = %v, want errors.Is %v", err, tt.wantErr)
-			}
-			if tt.wantErrSub != "" && !strings.Contains(err.Error(), tt.wantErrSub) {
-				t.Fatalf("WriteClose = %v, want substring %q", err, tt.wantErrSub)
 			}
 			assertNoWireBytes(t, b)
 		})

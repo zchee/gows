@@ -74,18 +74,20 @@ const maxCoalescedWriteSize = 2 << 10
 //
 // The zero value is not usable; construct a Conn with [NewServerConn] or
 // [NewClientConn].
-// The field order is laid out for the M-series (Apple Silicon) 128-byte L1D
-// cache line, and TestConnFieldLayout pins the invariants with unsafe.Offsetof
-// so a future reorder cannot silently regress them:
+// The field order separates the read and write working sets across a
+// 128-byte boundary (M-series L1D line size; also two typical 64-byte
+// amd64 L1D lines). TestConnFieldLayout pins the invariants with
+// unsafe.Offsetof so a future reorder cannot silently regress them:
 //
 //   - Every field the ReadMessage/NextReader hot path touches per frame lives
-//     in the first 128 bytes -- the whole read working set is one cache line.
+//     in the first 128 bytes -- the whole read working set fits one M-series
+//     line (or two amd64 lines).
 //   - The write block (wmu and the write scratch/state that WriteMessage,
 //     the control replies, and NextWriter serialize under it) starts on the
 //     next 128-byte boundary, via an explicit pad, so a concurrent writer's
-//     line never straddles the reader's.
+//     cache lines never share the reader's first line group.
 //   - Compression-only scratch and teardown state sit below both, off the two
-//     hot lines, since the overwhelmingly common Conn never compresses.
+//     hot regions, since the overwhelmingly common Conn never compresses.
 type Conn struct {
 	// --- read-hot: the first 128B, one M-series L1D line (see TestConnFieldLayout) ---
 	conn          net.Conn          // underlying transport (read every fill, written every emit)
@@ -231,18 +233,23 @@ func WithCloseTimeout(d time.Duration) ConnOption {
 	}
 }
 
-// WithCompression enables permessage-deflate (RFC 7692) framing for this
-// Conn: an inbound message whose first frame carries RSV1 is decompressed
-// before [Conn.ReadMessage] returns it, and an outbound data message at or
-// above the compression threshold is compressed and sent with RSV1 set.
-// Pass [Handshake.Compressed], not a hardcoded value -- constructing a Conn
-// with compression enabled when the peer never agreed to it produces frames
-// the peer will reject with a protocol error, and vice versa.
+// WithCompression enables or disables permessage-deflate (RFC 7692)
+// framing for this Conn: an inbound message whose first frame carries
+// RSV1 is decompressed before [Conn.ReadMessage] returns it, and an
+// outbound data message at or above the compression threshold is
+// compressed and sent with RSV1 set.
 //
-// A Conn built with WithCompression alone always uses no-context-takeover
-// for both directions (this package's original behavior), regardless of
-// what was actually negotiated; use [WithCompressionParams] instead to
-// honor a negotiated context takeover.
+// Prefer [WithCompressionParams](hs.CompressionParams) whenever
+// [Handshake.Compressed] is true: WithCompression alone always forces
+// no-context-takeover for both directions (this package's original
+// behavior), even when the handshake negotiated context takeover.
+// Passing a hardcoded bool instead of hs.Compressed risks a Conn that
+// disagrees with what the peer actually agreed to.
+//
+// When Compressed is false, omit both options (or pass false here).
+// When Compressed is true and context-takeover policy does not matter,
+// WithCompression(true) is equivalent to WithCompressionParams with a
+// zero [CompressionParams].
 func WithCompression(enabled bool) ConnOption {
 	return func(c *connConfig) {
 		c.compression = enabled
@@ -439,10 +446,12 @@ func (c *Conn) SetWriteDeadline(t time.Time) error {
 // frames until the peer closes or the close timeout elapses, and finally
 // closes the underlying connection.
 //
-// code must be a valid sendable close code ([ValidCloseCode]); reason must be
-// valid UTF-8 ([ErrInvalidCloseReason] if not) and, with the 2-byte code, at
-// most 125 bytes (RFC 6455 §5.5). Close is idempotent: after the first call
-// the underlying connection is closed once and subsequent calls return nil.
+// code must be a valid sendable close code ([ValidCloseCode];
+// [ErrInvalidCloseCode] if not); reason must be valid UTF-8
+// ([ErrInvalidCloseReason] if not) and, with the 2-byte code, at most
+// 125 bytes ([ErrCloseReasonTooLong] if not; RFC 6455 §5.5). Close is
+// idempotent: after the first call the underlying connection is closed
+// once and subsequent calls return nil.
 //
 // Close reads from the connection and therefore must not be called
 // concurrently with [Conn.ReadMessage]; it takes over the read side.
@@ -540,13 +549,14 @@ func (c *Conn) teardown() {
 // read side is quiescent.
 //
 // code and reason are validated exactly as for [Conn.Close], with the
-// same helper: code must be sendable per [ValidCloseCode], reason must
-// be valid UTF-8 ([ErrInvalidCloseReason]) and fit a control frame's
-// 125-byte payload alongside the 2-byte code. On a validation failure
-// nothing is written. WriteClose is idempotent and safe for concurrent
-// use: once a Close frame has been sent (by any API) or the connection
-// is torn down, it returns nil without writing. A transport failure
-// while writing the frame is returned as-is.
+// same helper: code must be sendable per [ValidCloseCode]
+// ([ErrInvalidCloseCode]), reason must be valid UTF-8
+// ([ErrInvalidCloseReason]) and fit a control frame's 125-byte payload
+// alongside the 2-byte code ([ErrCloseReasonTooLong]). On a validation
+// failure nothing is written. WriteClose is idempotent and safe for
+// concurrent use: once a Close frame has been sent (by any API) or the
+// connection is torn down, it returns nil without writing. A transport
+// failure while writing the frame is returned as-is.
 //
 // Like every frame write, WriteClose blocks until the frame is written
 // or the connection's write deadline expires; bound it with
@@ -684,15 +694,18 @@ func (c *Conn) CloseContext(ctx context.Context, code CloseCode, reason string) 
 // code must be sendable per [ValidCloseCode], reason must be valid
 // UTF-8 (RFC 6455 §5.5.1) and, with the 2-byte code, fit a control
 // frame's 125-byte payload (RFC 6455 §5.5).
+//
+// Every failure is an [errors.Is]-friendly sentinel ([ErrInvalidCloseCode],
+// [ErrInvalidCloseReason], or [ErrCloseReasonTooLong]); nothing is sent.
 func validateCloseArgs(code CloseCode, reason string) error {
 	if !ValidCloseCode(code) {
-		return &CloseError{Code: code, Reason: "invalid close code", Sent: true}
+		return fmt.Errorf("%w (%d)", ErrInvalidCloseCode, code)
 	}
 	if !utf8x.Valid([]byte(reason)) {
 		return ErrInvalidCloseReason
 	}
 	if 2+len(reason) > 125 {
-		return fmt.Errorf("gows: close reason too long (%d bytes, max 123)", len(reason))
+		return fmt.Errorf("%w (%d bytes, max 123)", ErrCloseReasonTooLong, len(reason))
 	}
 	return nil
 }

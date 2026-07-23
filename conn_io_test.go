@@ -992,3 +992,23 @@ func BenchmarkConnWriteMessage16KBTCP(b *testing.B) {
 	}
 	<-drained
 }
+
+// zeroNilReadConn returns (0, nil) from every Read — a misbehaving net.Conn
+// that would busy-loop a fail-open fill path.
+type zeroNilReadConn struct{}
+
+func (zeroNilReadConn) Read([]byte) (int, error)         { return 0, nil }
+func (zeroNilReadConn) Write(p []byte) (int, error)      { return len(p), nil }
+func (zeroNilReadConn) Close() error                     { return nil }
+func (zeroNilReadConn) LocalAddr() net.Addr              { return fakeAddr{} }
+func (zeroNilReadConn) RemoteAddr() net.Addr             { return fakeAddr{} }
+func (zeroNilReadConn) SetDeadline(time.Time) error      { return nil }
+func (zeroNilReadConn) SetReadDeadline(time.Time) error  { return nil }
+func (zeroNilReadConn) SetWriteDeadline(time.Time) error { return nil }
+
+func TestFillOnceNoProgress(t *testing.T) {
+	c := NewServerConn(zeroNilReadConn{})
+	if err := c.fillOnce(); !errors.Is(err, io.ErrNoProgress) {
+		t.Fatalf("fillOnce = %v, want io.ErrNoProgress", err)
+	}
+}

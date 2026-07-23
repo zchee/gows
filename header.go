@@ -19,7 +19,47 @@ import (
 	"net/http"
 	"slices"
 	"strings"
+
+	"github.com/zchee/gows/internal/httpx"
 )
+
+// wsHandshakeHeaders holds the WebSocket-relevant fields collected from a
+// request or response header block. Request-only and response-only fields
+// share one type so Upgrade and Dial scan through a single classify loop.
+type wsHandshakeHeaders struct {
+	hostSeen, upgradeOK, connectionOK, versionOK bool
+	key, origin, protocol, extensions, accept    []byte
+}
+
+// scanWSHandshakeHeaders classifies the opening-handshake headers both
+// [Upgrader.Upgrade] (request) and [Dialer.Dial] (response) need.
+func scanWSHandshakeHeaders(headers []byte) (wsHandshakeHeaders, error) {
+	var f wsHandshakeHeaders
+	sc := httpx.NewHeaderScanner(headers)
+	for sc.Next() {
+		switch {
+		case httpx.EqualFold(sc.Key(), "host"):
+			f.hostSeen = true
+		case httpx.EqualFold(sc.Key(), "upgrade"):
+			f.upgradeOK = f.upgradeOK || httpx.ContainsToken(sc.Value(), "websocket")
+		case httpx.EqualFold(sc.Key(), "connection"):
+			f.connectionOK = f.connectionOK || httpx.ContainsToken(sc.Value(), "upgrade")
+		case httpx.EqualFold(sc.Key(), "sec-websocket-version"):
+			f.versionOK = f.versionOK || string(sc.Value()) == "13"
+		case httpx.EqualFold(sc.Key(), "sec-websocket-key"):
+			f.key = sc.Value()
+		case httpx.EqualFold(sc.Key(), "origin"):
+			f.origin = sc.Value()
+		case httpx.EqualFold(sc.Key(), "sec-websocket-protocol"):
+			f.protocol = sc.Value()
+		case httpx.EqualFold(sc.Key(), "sec-websocket-extensions"):
+			f.extensions = sc.Value()
+		case httpx.EqualFold(sc.Key(), "sec-websocket-accept"):
+			f.accept = sc.Value()
+		}
+	}
+	return f, sc.Err()
+}
 
 // secWebSocketPrefix is the case-insensitive prefix shared by every
 // Sec-WebSocket-* header (RFC 6455 §11.3). The whole family is reserved
