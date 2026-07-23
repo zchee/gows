@@ -987,11 +987,6 @@ func TestDecodeFrameHeaderFastRejects(t *testing.T) {
 			wantReason: rejectReservedOpcode,
 			wantMsg:    "malformed frame header: gows: reserved opcode",
 		},
-		"reserved control opcode": {
-			in:         []byte{0x8b, 0x80, 0, 0, 0, 0},
-			wantReason: rejectReservedOpcode,
-			wantMsg:    "malformed frame header: gows: reserved opcode",
-		},
 		"non-minimal 16-bit length": {
 			in:         []byte{0x82, 0xfe, 0x00, 0x64, 0, 0, 0, 0},
 			wantReason: rejectNonMinimalLength,

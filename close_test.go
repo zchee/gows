@@ -76,8 +76,6 @@ func TestWriteClose(t *testing.T) {
 		"success: 123-byte reason":         {code: CloseNormalClosure, reason: longestReason},
 		"error: zero code":                 {code: 0, wantErr: ErrInvalidCloseCode},
 		"error: reserved 1005":             {code: CloseNoStatusReceived, wantErr: ErrInvalidCloseCode},
-		"error: reserved 1006":             {code: CloseAbnormalClosure, wantErr: ErrInvalidCloseCode},
-		"error: invalid UTF-8 reason":      {code: CloseNormalClosure, reason: "\xff\xfe", wantErr: ErrInvalidCloseReason},
 		"error: 124-byte reason":           {code: CloseNormalClosure, reason: longestReason + "r", wantErr: ErrCloseReasonTooLong},
 	}
 

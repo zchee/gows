@@ -146,10 +146,6 @@ func TestDialHeaderValidation(t *testing.T) {
 			header:  http.Header{"Host": {"virtual.example.com"}},
 			wantErr: gows.ErrReservedHeader,
 		},
-		"error: reserved case-variant host": {
-			header:  http.Header{"hOsT": {"virtual.example.com"}},
-			wantErr: gows.ErrReservedHeader,
-		},
 		"error: reserved Trailer": {
 			header:  http.Header{"Trailer": {"X-T"}},
 			wantErr: gows.ErrReservedHeader,

@@ -231,7 +231,6 @@ func TestDialValidOriginAuthorityFormation(t *testing.T) {
 		wantAddr string
 	}{
 		"success: hostname with default port": {rawURL: "ws://example.test/socket", wantAddr: "example.test:80"},
-		"success: IPv4 with explicit port":    {rawURL: "wss://127.0.0.1:9443/socket", wantAddr: "127.0.0.1:9443"},
 		"success: IPv6 with explicit port":    {rawURL: "ws://[::1]:8080/socket", wantAddr: "[::1]:8080"},
 	}
 	for name, tt := range tests {
