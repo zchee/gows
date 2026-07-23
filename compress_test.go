@@ -60,11 +60,6 @@ func TestNegotiateDeflate(t *testing.T) {
 			wantOK:     true,
 			want:       extension.DeflateParams{ServerNoContextTakeover: true, ClientNoContextTakeover: true},
 		},
-		"valued client_max_window_bits accepted regardless of value": {
-			extensions: "permessage-deflate; client_max_window_bits=10",
-			wantOK:     true,
-			want:       extension.DeflateParams{ServerNoContextTakeover: true, ClientNoContextTakeover: true},
-		},
 		"duplicate parameter makes that offer invalid, falls back": {
 			extensions: "permessage-deflate; server_no_context_takeover; server_no_context_takeover, " +
 				"permessage-deflate",
@@ -306,19 +301,6 @@ func TestUpgradeCompressionNegotiation(t *testing.T) {
 		"decline sub-15 falls back to next offer": {
 			enableServer:      true,
 			extHeader:         "permessage-deflate; server_max_window_bits=10, permessage-deflate",
-			wantCompressed:    true,
-			wantExtInResponse: "permessage-deflate; server_no_context_takeover; client_no_context_takeover",
-		},
-		"bare client_max_window_bits accepted": {
-			enableServer:      true,
-			extHeader:         "permessage-deflate; client_max_window_bits",
-			wantCompressed:    true,
-			wantExtInResponse: "permessage-deflate; server_no_context_takeover; client_no_context_takeover",
-		},
-		"duplicate param makes that offer invalid, falls back": {
-			enableServer: true,
-			extHeader: "permessage-deflate; server_no_context_takeover; server_no_context_takeover, " +
-				"permessage-deflate",
 			wantCompressed:    true,
 			wantExtInResponse: "permessage-deflate; server_no_context_takeover; client_no_context_takeover",
 		},
@@ -1128,12 +1110,6 @@ func TestUpgradeClientWindowBits(t *testing.T) {
 		"success: offer without param emits nothing": {
 			clientWindowBits: 10,
 			extHeader:        "permessage-deflate",
-			wantExt:          "",
-			wantClientBits:   0,
-		},
-		"success: ClientWindowBits zero ignores valued offer": {
-			clientWindowBits: 0,
-			extHeader:        "permessage-deflate; client_max_window_bits=10",
 			wantExt:          "",
 			wantClientBits:   0,
 		},

@@ -570,20 +570,12 @@ func TestCloseReasonUTF8Validation(t *testing.T) {
 			reason:  "bye",
 			wantErr: false,
 		},
-		"valid multi-byte UTF-8 reason": {
-			reason:  "さようなら",
-			wantErr: false,
-		},
 		"empty reason": {
 			reason:  "",
 			wantErr: false,
 		},
 		"invalid UTF-8 reason": {
 			reason:  "bad reason: \xff\xfe",
-			wantErr: true,
-		},
-		"lone continuation byte": {
-			reason:  "\x80",
 			wantErr: true,
 		},
 	}

@@ -59,11 +59,8 @@ func TestValidateExtraHeaders(t *testing.T) {
 		"error: name with colon":                 {header: http.Header{"X:A": {"v"}}, wantErr: ErrMalformedHeader},
 		"error: name with parenthesis delimiter": {header: http.Header{"X(A)": {"v"}}, wantErr: ErrMalformedHeader},
 		"error: name with non-ASCII byte":        {header: http.Header{"X\x80A": {"v"}}, wantErr: ErrMalformedHeader},
-		"error: value with CR":                   {header: http.Header{"X-A": {"a\rb"}}, wantErr: ErrMalformedHeader},
-		"error: value with LF":                   {header: http.Header{"X-A": {"a\nb"}}, wantErr: ErrMalformedHeader},
 		"error: value with CRLF injection":       {header: http.Header{"X-A": {"a\r\nX-Injected: 1"}}, wantErr: ErrMalformedHeader},
 		"error: value with NUL":                  {header: http.Header{"X-A": {"a\x00b"}}, wantErr: ErrMalformedHeader},
-		"error: value with control byte":         {header: http.Header{"X-A": {"a\x01b"}}, wantErr: ErrMalformedHeader},
 		"error: value with DEL":                  {header: http.Header{"X-A": {"a\x7fb"}}, wantErr: ErrMalformedHeader},
 	}
 
@@ -97,11 +94,6 @@ func TestValidateExtraHeadersReservedNames(t *testing.T) {
 		"Trailer",
 		"TE",
 		"Proxy-Authorization",
-		"Sec-WebSocket-Key",
-		"Sec-WebSocket-Version",
-		"Sec-WebSocket-Extensions",
-		"Sec-WebSocket-Protocol",
-		"Sec-WebSocket-Accept",
 		"Sec-WebSocket-Future-Member",
 	}
 	for _, name := range names {

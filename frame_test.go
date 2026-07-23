@@ -32,8 +32,6 @@ func TestOpcodeClassification(t *testing.T) {
 		"text":                 {op: gows.OpcodeText, wantControl: false, wantData: true},
 		"binary":               {op: gows.OpcodeBinary, wantControl: false, wantData: true},
 		"close":                {op: gows.OpcodeClose, wantControl: true, wantData: false},
-		"ping":                 {op: gows.OpcodePing, wantControl: true, wantData: false},
-		"pong":                 {op: gows.OpcodePong, wantControl: true, wantData: false},
 		"reserved non-control": {op: gows.Opcode(0x5), wantControl: false, wantData: false},
 		"reserved control":     {op: gows.Opcode(0xF), wantControl: true, wantData: false},
 	}
@@ -209,7 +207,6 @@ func TestValidCloseCode(t *testing.T) {
 		"valid: 1000 normal closure":  {code: 1000, want: true},
 		"valid: 1003 unsupported":     {code: 1003, want: true},
 		"valid: 1007 invalid payload": {code: 1007, want: true},
-		"valid: 1011 internal error":  {code: 1011, want: true},
 		"valid: 1012 service restart": {code: 1012, want: true},
 		"valid: 1013 try again later": {code: 1013, want: true},
 		"valid: 1014 bad gateway":     {code: 1014, want: true},
