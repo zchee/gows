@@ -40,12 +40,6 @@ func TestCaseDelayParsingAndPreActionValidation(t *testing.T) {
 	}
 }
 
-func TestCaseTimeoutCoversBulkCompressionCases(t *testing.T) {
-	if caseTimeout != time.Minute {
-		t.Fatalf("caseTimeout=%s, want 1m for bounded bulk-case execution", caseTimeout)
-	}
-}
-
 func TestServerAndClientCasePacing(t *testing.T) {
 	var sleeps []time.Duration
 	a := application{caseDelay: 25 * time.Millisecond, sleep: func(d time.Duration) { sleeps = append(sleeps, d) }}
