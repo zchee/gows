@@ -234,9 +234,9 @@ func ValidateDeflateResponse(offered DeflateParams, response []byte) (DeflatePar
 // window-bits values are always rejected. The one difference between
 // offer- and response-side validity -- whether a bare
 // client_max_window_bits is acceptable -- is left to the caller
-	// ([ParseDeflateOffer] accepts it as [ClientMaxWindowBitsBare];
-	// [ValidateDeflateResponse] rejects a bare result itself), since this
-	// function has no way to know which side is calling it.
+// ([ParseDeflateOffer] accepts it as [ClientMaxWindowBitsBare];
+// [ValidateDeflateResponse] rejects a bare result itself), since this
+// function has no way to know which side is calling it.
 func parseDeflateParams(params ParamScanner) (DeflateParams, bool) {
 	var p DeflateParams
 	var haveServerNCT, haveClientNCT, haveServerBits, haveClientBits bool
