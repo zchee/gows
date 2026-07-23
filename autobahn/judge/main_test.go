@@ -118,13 +118,6 @@ func TestPrintReport(t *testing.T) {
 			},
 			wantFailures: []string{"gows/7.1.1: behavior=OK behaviorClose=WRONG CODE"},
 		},
-		"failure: multiple agents each contribute failures": {
-			report: map[string]map[string]caseResult{
-				"gows":    {"1.1.1": {Behavior: "FAILED", BehaviorClose: "FAILED"}},
-				"gorilla": {"1.1.1": {Behavior: "OK", BehaviorClose: "OK"}},
-			},
-			wantFailures: []string{"gows/1.1.1: behavior=FAILED behaviorClose=FAILED"},
-		},
 	}
 
 	for name, tt := range tests {

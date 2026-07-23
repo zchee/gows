@@ -448,10 +448,6 @@ func number(v any) int {
 	switch v := v.(type) {
 	case float64:
 		return int(v)
-	case int:
-		return v
-	case int64:
-		return int(v)
 	default:
 		return 0
 	}
