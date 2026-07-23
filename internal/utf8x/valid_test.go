@@ -265,26 +265,18 @@ func TestExhaustiveLeadingBytePairs(t *testing.T) {
 }
 
 // TestValidRejectsInvalidContinuations exercises malformed leading and
-// continuation bytes that are not covered by the overlong/surrogate/
-// out-of-range categories above.
+// continuation bytes in the 3- and 4-byte length classes plus a
+// multi-sequence stream, none of which the overlong/surrogate/
+// out-of-range categories above cover; 1- and 2-byte malformations are
+// exhausted by TestExhaustiveOneAndTwoByteSequences.
 func TestValidRejectsInvalidContinuations(t *testing.T) {
 	tests := map[string][]byte{
-		"lone continuation byte 0x80":                           {0x80},
-		"lone continuation byte 0xBF":                           {0xBF},
-		"invalid leading byte 0xC0":                             {0xC0, 0x80},
-		"invalid leading byte 0xC1":                             {0xC1, 0x80},
-		"invalid leading byte 0xF5":                             {0xF5, 0x80, 0x80, 0x80},
-		"invalid leading byte 0xFF":                             {0xFF},
-		"2-byte lead, ASCII instead of cont":                    {0xC2, 0x41},
-		"3-byte lead, bad 2nd byte":                             {0xE1, 0xFF, 0x80},
-		"3-byte lead, bad 3rd byte":                             {0xE1, 0x80, 0xFF},
-		"4-byte lead, bad 2nd byte":                             {0xF1, 0xFF, 0x80, 0x80},
-		"4-byte lead, bad 4th byte":                             {0xF1, 0x80, 0x80, 0xFF},
-		"valid rune followed by lone 0x80":                      append([]byte("ok"), 0x80),
-		"E0 followed by generic-range 0x80 (overlong boundary)": {0xE0, 0x80, 0x80},
-		"ED followed by A0 (surrogate boundary)":                {0xED, 0xA0, 0x80},
-		"F0 followed by generic-range 0x80 (overlong boundary)": {0xF0, 0x80, 0x80, 0x80},
-		"F4 followed by 0x90 (out-of-range boundary)":           {0xF4, 0x90, 0x80, 0x80},
+		"invalid leading byte 0xF5":        {0xF5, 0x80, 0x80, 0x80},
+		"3-byte lead, bad 2nd byte":        {0xE1, 0xFF, 0x80},
+		"3-byte lead, bad 3rd byte":        {0xE1, 0x80, 0xFF},
+		"4-byte lead, bad 2nd byte":        {0xF1, 0xFF, 0x80, 0x80},
+		"4-byte lead, bad 4th byte":        {0xF1, 0x80, 0x80, 0xFF},
+		"valid rune followed by lone 0x80": append([]byte("ok"), 0x80),
 	}
 
 	for name, b := range tests {
