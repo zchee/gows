@@ -1047,6 +1047,11 @@ func TestNegotiateDeflateClientWindowBits(t *testing.T) {
 				ServerNoContextTakeover: true, ClientNoContextTakeover: true,
 			},
 		},
+		// The Upgrade-level half of this property -- that an agreed
+		// ClientMaxWindowBits of 0 emits no parameter on the wire --
+		// lives in TestUpgradeClientWindowBits ("success: offer without
+		// param emits nothing"). Neither case alone proves the
+		// end-to-end claim, so neither is redundant with the other.
 		"success: ClientWindowBits zero leaves valued offer unused (hint deliberately unused)": {
 			extensions:       "permessage-deflate; client_max_window_bits=10",
 			clientWindowBits: 0,
