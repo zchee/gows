@@ -76,7 +76,12 @@ func TestWriteClose(t *testing.T) {
 		"success: 123-byte reason":         {code: CloseNormalClosure, reason: longestReason},
 		"error: zero code":                 {code: 0, wantErr: ErrInvalidCloseCode},
 		"error: reserved 1005":             {code: CloseNoStatusReceived, wantErr: ErrInvalidCloseCode},
-		"error: 124-byte reason":           {code: CloseNormalClosure, reason: longestReason + "r", wantErr: ErrCloseReasonTooLong},
+		// validateCloseArgs is shared with Close and CloseContext, but
+		// this is the table that pins WriteClose's own call to it.
+		// Without this case its code and length checks are covered here
+		// while the UTF-8 one is reached only through Close.
+		"error: invalid UTF-8 reason": {code: CloseNormalClosure, reason: "\xff\xfe", wantErr: ErrInvalidCloseReason},
+		"error: 124-byte reason":      {code: CloseNormalClosure, reason: longestReason + "r", wantErr: ErrCloseReasonTooLong},
 	}
 
 	for name, tt := range tests {
