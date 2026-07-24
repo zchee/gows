@@ -519,8 +519,8 @@ func TestUpgradeAllocs(t *testing.T) {
 	}
 
 	avg := testing.AllocsPerRun(200, f)
-	t.Logf("Upgrade (RawPath, Release'd) steady-state allocs/op: %.2f (race build: %v)", avg, raceEnabled)
-	if avg != 0 && !raceEnabled {
+	t.Logf("Upgrade (RawPath, Release'd) steady-state allocs/op: %.2f (race build: %v)", avg, gows.RaceEnabled)
+	if avg != 0 && !gows.RaceEnabled {
 		t.Errorf("Upgrade: %.2f allocs/op, want 0 (RawPath + Release)", avg)
 	}
 }

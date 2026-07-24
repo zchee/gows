@@ -14,8 +14,12 @@
 
 //go:build race
 
-package gows_test
+package gows
 
-// raceEnabled reports whether this test binary was built with -race. Its
-// counterpart in norace_test.go defines it false for a non-race build.
-const raceEnabled = true
+// RaceEnabled reports whether this test binary was built with -race. The race
+// detector's sync.Pool instrumentation can add a phantom allocation to
+// AllocsPerRun, so the zero-alloc assertions are enforced only on non-race
+// builds; the observed value is always logged. Declared in a _test.go file of
+// package gows so the external gows_test package can consult it as
+// gows.RaceEnabled; its counterpart in norace_test.go defines it false.
+const RaceEnabled = true
