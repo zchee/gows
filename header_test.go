@@ -59,9 +59,17 @@ func TestValidateExtraHeaders(t *testing.T) {
 		"error: name with colon":                 {header: http.Header{"X:A": {"v"}}, wantErr: ErrMalformedHeader},
 		"error: name with parenthesis delimiter": {header: http.Header{"X(A)": {"v"}}, wantErr: ErrMalformedHeader},
 		"error: name with non-ASCII byte":        {header: http.Header{"X\x80A": {"v"}}, wantErr: ErrMalformedHeader},
-		"error: value with CRLF injection":       {header: http.Header{"X-A": {"a\r\nX-Injected: 1"}}, wantErr: ErrMalformedHeader},
-		"error: value with NUL":                  {header: http.Header{"X-A": {"a\x00b"}}, wantErr: ErrMalformedHeader},
-		"error: value with DEL":                  {header: http.Header{"X-A": {"a\x7fb"}}, wantErr: ErrMalformedHeader},
+		// validHeaderValue returns at the first offending byte, so the
+		// CRLF-injection case stops on its CR and never reaches its LF:
+		// lone CR and lone LF each need their own case. The 0x01 case
+		// covers the rest of the C0 range, which a reject set naming
+		// only NUL, DEL and the CRLF pair would let through.
+		"error: value with CR":             {header: http.Header{"X-A": {"a\rb"}}, wantErr: ErrMalformedHeader},
+		"error: value with LF":             {header: http.Header{"X-A": {"a\nb"}}, wantErr: ErrMalformedHeader},
+		"error: value with CRLF injection": {header: http.Header{"X-A": {"a\r\nX-Injected: 1"}}, wantErr: ErrMalformedHeader},
+		"error: value with NUL":            {header: http.Header{"X-A": {"a\x00b"}}, wantErr: ErrMalformedHeader},
+		"error: value with control byte":   {header: http.Header{"X-A": {"a\x01b"}}, wantErr: ErrMalformedHeader},
+		"error: value with DEL":            {header: http.Header{"X-A": {"a\x7fb"}}, wantErr: ErrMalformedHeader},
 	}
 
 	for name, tt := range tests {
