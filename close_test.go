@@ -371,7 +371,7 @@ func TestCloseContextAlreadyCanceled(t *testing.T) {
 	if n != 0 || rerr == nil {
 		t.Fatalf("peer read = (%d, %v), want (0, closed-transport error)", n, rerr)
 	}
-	if rerr != nil && errors.Is(rerr, os.ErrDeadlineExceeded) {
+	if errors.Is(rerr, os.ErrDeadlineExceeded) {
 		t.Fatalf("peer read timed out (%v): connection was not closed", rerr)
 	}
 }
