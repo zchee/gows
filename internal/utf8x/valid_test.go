@@ -94,8 +94,8 @@ func TestEncodeBitsKnownVectors(t *testing.T) {
 	}
 }
 
-// boundaryRunes are the code points named by the task at the edge of
-// every UTF-8 encoding length class and the surrogate gap.
+// boundaryRunes are the code points at the edge of every UTF-8 encoding
+// length class and the surrogate gap.
 var boundaryRunes = []rune{
 	0x007F,   // max 1-byte
 	0x0080,   // min 2-byte
