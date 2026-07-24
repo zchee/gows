@@ -1551,9 +1551,9 @@ func TestContextTakeoverWindowContinuityBothDirections(t *testing.T) {
 // TestNegotiateDeflateContextTakeoverAllCombinations confirms
 // negotiateDeflate, with AllowContextTakeover on, independently derives
 // each direction's agreed context-takeover state purely from what a
-// given offer contains -- covering all 4 combinations named in the task
-// ("server accepts client's ctx-takeover but keeps its own no-ctx and
-// vice versa").
+// given offer contains -- covering all 4 combinations, including a
+// server that accepts the client's context takeover while keeping its
+// own no-context-takeover, and the reverse.
 func TestNegotiateDeflateContextTakeoverAllCombinations(t *testing.T) {
 	tests := map[string]struct {
 		extensions string
@@ -1910,7 +1910,7 @@ func TestContextTakeoverDecompressionBombStillBounded(t *testing.T) {
 // directly) with AllowContextTakeover set on both sides, confirms both
 // ends' Handshake.CompressionParams agree, and confirms Conns built from
 // those handshakes via WithCompressionParams actually exchange messages
-// correctly -- exercising the whole pipeline named in the task
+// correctly -- exercising the whole pipeline
 // (negotiation -> Handshake -> WithCompressionParams -> live Conn), not
 // just its individual pieces in isolation.
 func TestUpgraderDialerContextTakeoverIntegration(t *testing.T) {
