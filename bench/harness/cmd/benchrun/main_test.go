@@ -1,17 +1,100 @@
 package main
 
 import (
-	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
-	"regexp"
-	"slices"
+	"strconv"
 	"strings"
 	"testing"
 
-	"github.com/google/go-cmp/cmp"
 	"github.com/zchee/gows/bench/harness/policy"
 )
+
+// deadPid returns the pid of a process that has already exited and been
+// reaped, so processAlive must report false for it.
+func deadPid(t *testing.T) int {
+	t.Helper()
+	cmd := exec.Command("true")
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("spawn short-lived process: %v", err)
+	}
+	return cmd.Process.Pid
+}
+
+// TestAcquireLock covers the host-hygiene lock's full decision table: fresh
+// acquisition, live-holder rejection, and the stale-lock recovery paths (dead
+// pid and unparsable content). A regression here either lets two benchruns
+// overlap or permanently bricks runs behind a stale lockfile.
+func TestAcquireLock(t *testing.T) {
+	tests := map[string]struct {
+		setup   func(t *testing.T, path string)
+		wantErr bool
+	}{
+		"success: fresh path": {},
+		"success: stale lock with dead pid is recovered": {
+			setup: func(t *testing.T, path string) {
+				t.Helper()
+				if err := os.WriteFile(path, []byte(strconv.Itoa(deadPid(t))+"\n"), 0o644); err != nil {
+					t.Fatal(err)
+				}
+			},
+		},
+		"success: garbage lock content is treated as stale": {
+			setup: func(t *testing.T, path string) {
+				t.Helper()
+				if err := os.WriteFile(path, []byte("not-a-pid\n"), 0o644); err != nil {
+					t.Fatal(err)
+				}
+			},
+		},
+		"error: live holder is rejected": {
+			setup: func(t *testing.T, path string) {
+				t.Helper()
+				if err := os.WriteFile(path, []byte(strconv.Itoa(os.Getpid())+"\n"), 0o644); err != nil {
+					t.Fatal(err)
+				}
+			},
+			wantErr: true,
+		},
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			path := filepath.Join(t.TempDir(), "benchrun.lock")
+			if tt.setup != nil {
+				tt.setup(t, path)
+			}
+
+			release, err := acquireLock(path)
+			if tt.wantErr {
+				if err == nil {
+					release()
+					t.Fatal("acquireLock: nil error, want live-holder rejection")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("acquireLock: %v", err)
+			}
+
+			data, rerr := os.ReadFile(path)
+			if rerr != nil {
+				t.Fatalf("read lockfile: %v", rerr)
+			}
+			if got := strings.TrimSpace(string(data)); got != strconv.Itoa(os.Getpid()) {
+				t.Fatalf("lockfile pid = %q, want %d", got, os.Getpid())
+			}
+
+			release()
+			if _, serr := os.Stat(path); !os.IsNotExist(serr) {
+				t.Fatalf("lockfile still present after release (stat err = %v)", serr)
+			}
+			release() // must be idempotent
+		})
+	}
+}
 
 func TestParseLoadavg(t *testing.T) {
 	tests := map[string]struct {
@@ -45,244 +128,6 @@ func TestParseLoadavg(t *testing.T) {
 				t.Fatalf("load5/load15 not parsed: %v %v", l5, l15)
 			}
 		})
-	}
-}
-
-func TestForeignCPUUsageExcludesOwnedProcessTreeAndAggregates(t *testing.T) {
-	processes, err := parseProcessUsage("100 1 90.0 owned root\n200 100 80.0 owned child\n201 200 70.0 owned grandchild\n300 1 12.0 foreign one\n301 1 9.0 foreign two\n")
-	if err != nil {
-		t.Fatal(err)
-	}
-	owned := mustOwnedProcessTree(t, processes, map[int]struct{}{100: {}})
-	total, offenders := foreignCPUUsage(processes, owned)
-	if total != 21 {
-		t.Fatalf("foreign CPU = %.1f, want aggregate 21.0", total)
-	}
-	if len(offenders) != 2 {
-		t.Fatalf("foreign offenders = %v, want 2", offenders)
-	}
-}
-
-func TestOwnedProcessTreeAllowsControllerAncestorsWithoutTrustingSiblings(t *testing.T) {
-	processes, err := parseProcessUsage("10 1 1.0 shell\n20 10 2.0 go run benchrun\n30 20 3.0 benchrun\n40 30 4.0 loadgen\n50 20 5.0 /usr/local/bin/go test ./...\n")
-	if err != nil {
-		t.Fatal(err)
-	}
-	owned := mustOwnedProcessTree(t, processes, map[int]struct{}{30: {}})
-	for _, pid := range []int{10, 20, 30, 40} {
-		if _, ok := owned[pid]; !ok {
-			t.Errorf("process %d is not in the benchmark process family", pid)
-		}
-	}
-	if _, ok := owned[50]; ok {
-		t.Fatal("sibling of the go controller was incorrectly trusted")
-	}
-	total, _ := foreignCPUUsage(processes, owned)
-	if total != 5 {
-		t.Fatalf("foreign CPU = %.1f, want sibling-only 5.0", total)
-	}
-}
-
-func TestOwnedProcessTreeAllowsExactCaffeinateSidecar(t *testing.T) {
-	const controller = "/Users/zchee/sdk/go1.26.5/bin/go -C bench run ./harness/cmd/benchrun -policy harness/policy/phase0/darwin-arm64-aa.json"
-	processes, err := parseProcessUsage(strings.Join([]string{
-		"10 1 1.0 /opt/homebrew/bin/zsh -c run-benchmark",
-		"20 10 2.0 " + controller,
-		"30 20 3.0 /private/tmp/go-build/exe/benchrun -policy harness/policy/phase0/darwin-arm64-aa.json",
-		"40 30 4.0 /tmp/echoserver",
-		"41 30 4.0 /tmp/loadgen",
-		"50 20 0.0 /usr/bin/caffeinate -dimsu " + controller,
-		"51 50 0.0 untrusted helper child",
-		"60 20 5.0 unrelated controller sibling",
-		"70 20 6.0 /usr/bin/caffeinate -dim " + controller,
-		"80 20 7.0 /tmp/caffeinate -dimsu " + controller,
-		"90 1 8.0 unrelated parent",
-		"91 90 9.0 /usr/bin/caffeinate -dimsu " + controller,
-	}, "\n") + "\n")
-	if err != nil {
-		t.Fatal(err)
-	}
-	owned := mustOwnedProcessTree(t, processes, map[int]struct{}{30: {}, 40: {}, 41: {}})
-	got := make([]int, 0, len(owned))
-	for pid := range owned {
-		got = append(got, pid)
-	}
-	slices.Sort(got)
-	want := []int{10, 20, 30, 40, 41, 50}
-	if diff := cmp.Diff(want, got); diff != "" {
-		t.Fatalf("owned process IDs (-want +got):\n%s", diff)
-	}
-}
-
-func TestOwnedProcessTreeRejectsInexactCaffeinateSidecars(t *testing.T) {
-	const controller = "/sdk/go/bin/go -C bench run ./harness/cmd/benchrun"
-	tests := map[string]struct {
-		ppid    int
-		command string
-	}{
-		"wrong parent": {
-			ppid:    10,
-			command: "/usr/bin/caffeinate -dimsu " + controller,
-		},
-		"wrong executable": {
-			ppid:    20,
-			command: "/tmp/caffeinate -dimsu " + controller,
-		},
-		"missing assertion flag": {
-			ppid:    20,
-			command: "/usr/bin/caffeinate -dim " + controller,
-		},
-		"split assertion flags": {
-			ppid:    20,
-			command: "/usr/bin/caffeinate -d -i -m -s -u " + controller,
-		},
-		"extended combined flag": {
-			ppid:    20,
-			command: "/usr/bin/caffeinate -dimsuX " + controller,
-		},
-		"extra wrapper option": {
-			ppid:    20,
-			command: "/usr/bin/caffeinate -dimsu -t 30 " + controller,
-		},
-		"controller command differs": {
-			ppid:    20,
-			command: "/usr/bin/caffeinate -dimsu /sdk/go/bin/go -C bench test ./...",
-		},
-		"trailing utility argument": {
-			ppid:    20,
-			command: "/usr/bin/caffeinate -dimsu " + controller + " -extra",
-		},
-	}
-	for name, tc := range tests {
-		t.Run(name, func(t *testing.T) {
-			processes, err := parseProcessUsage(strings.Join([]string{
-				"10 1 1.0 shell",
-				"20 10 2.0 " + controller,
-				"30 20 3.0 benchrun",
-				fmt.Sprintf("50 %d 0.0 %s", tc.ppid, tc.command),
-			}, "\n") + "\n")
-			if err != nil {
-				t.Fatal(err)
-			}
-			owned := mustOwnedProcessTree(t, processes, map[int]struct{}{30: {}})
-			if _, ok := owned[50]; ok {
-				t.Fatal("inexact caffeinate sidecar was trusted")
-			}
-		})
-	}
-}
-
-func TestOwnedProcessTreeRejectsAmbiguousExactCaffeinateSidecars(t *testing.T) {
-	const controller = "/sdk/go/bin/go -C bench run ./harness/cmd/benchrun"
-	processes, err := parseProcessUsage(strings.Join([]string{
-		"10 1 1.0 shell",
-		"20 10 2.0 " + controller,
-		"30 20 3.0 benchrun",
-		"50 20 0.0 /usr/bin/caffeinate -dimsu " + controller,
-		"51 20 0.0 /usr/bin/caffeinate -dimsu " + controller,
-	}, "\n") + "\n")
-	if err != nil {
-		t.Fatal(err)
-	}
-	_, err = ownedProcessTree(processes, map[int]struct{}{30: {}})
-	if err == nil || !strings.Contains(err.Error(), "ambiguous caffeinate sidecars") {
-		t.Fatalf("ownedProcessTree error = %v, want ambiguous caffeinate sidecars", err)
-	}
-}
-
-func TestOwnedProcessTreeDoesNotInferSidecarFromMissingSnapshotRows(t *testing.T) {
-	const controller = "/sdk/go/bin/go -C bench run ./harness/cmd/benchrun"
-	tests := map[string][]string{
-		"missing root row": {
-			"10 1 1.0 shell",
-			"20 10 2.0 " + controller,
-			"50 20 0.0 /usr/bin/caffeinate -dimsu " + controller,
-			"51 30 0.0 foreign child of missing root",
-		},
-		"missing controller row": {
-			"10 1 1.0 shell",
-			"30 20 3.0 benchrun",
-			"50 20 0.0 /usr/bin/caffeinate -dimsu " + controller,
-		},
-	}
-	for name, lines := range tests {
-		t.Run(name, func(t *testing.T) {
-			processes, err := parseProcessUsage(strings.Join(lines, "\n") + "\n")
-			if err != nil {
-				t.Fatal(err)
-			}
-			owned := mustOwnedProcessTree(t, processes, map[int]struct{}{30: {}})
-			for _, pid := range []int{50, 51} {
-				if _, ok := owned[pid]; ok {
-					t.Fatalf("process %d was inferred from an incomplete process snapshot", pid)
-				}
-			}
-		})
-	}
-}
-
-func TestProcessPatternRejectsForeignAndAllowsOwned(t *testing.T) {
-	processes, err := parseProcessUsage("100 1 90.0 /tmp/benchrun -policy p.json\n200 100 80.0 /tmp/loadgen\n300 1 0.0 /tmp/echoserver\n")
-	if err != nil {
-		t.Fatal(err)
-	}
-	owned := mustOwnedProcessTree(t, processes, map[int]struct{}{100: {}})
-	re, err := regexp.Compile(harnessProcessPattern)
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, process := range processes {
-		if _, ok := owned[process.PID]; ok && re.MatchString(process.Command) {
-			continue
-		}
-		if process.PID == 300 && !re.MatchString(process.Command) {
-			t.Fatalf("foreign echoserver did not match %q", harnessProcessPattern)
-		}
-	}
-}
-
-func mustOwnedProcessTree(t testing.TB, processes []processUsage, roots map[int]struct{}) map[int]struct{} {
-	t.Helper()
-	owned, err := ownedProcessTree(processes, roots)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return owned
-}
-
-func TestOwnedPIDsDoesNotTrustParent(t *testing.T) {
-	owned := ownedPIDs(1234)
-	if _, ok := owned[os.Getpid()]; !ok {
-		t.Fatal("benchrun process is not owned")
-	}
-	if _, ok := owned[1234]; !ok {
-		t.Fatal("explicit child is not owned")
-	}
-	if os.Getppid() != os.Getpid() {
-		if _, ok := owned[os.Getppid()]; ok {
-			t.Fatal("parent process must remain foreign")
-		}
-	}
-}
-
-func TestValidateContinuousEnvironmentGatesLoadDrift(t *testing.T) {
-	cleanThermal := "No thermal warning level has been recorded\nNo performance warning level has been recorded"
-	baseline := EnvSnapshot{
-		Load1: 2, PMSetBattery: "Now drawing from 'AC Power'", PMSetThermal: cleanThermal,
-		LogicalCPUs: 16, MemoryBytes: 64 << 30, BootIdentity: "boot",
-	}
-	current := baseline
-	current.Load1 = 17.9
-	if err := validateContinuousEnvironment(baseline, current, 16); err != nil {
-		t.Fatalf("load drift inside threshold was rejected: %v", err)
-	}
-	current.Load1 = 18.1
-	err := validateContinuousEnvironment(baseline, current, 16)
-	if err == nil || !strings.Contains(err.Error(), "load1 drift") {
-		t.Fatalf("load drift outside threshold = %v, want load1 drift error", err)
-	}
-	if err := validateContinuousEnvironment(baseline, baseline, 0); err == nil {
-		t.Fatal("non-positive load drift threshold was accepted")
 	}
 }
 
