@@ -987,6 +987,16 @@ func TestDecodeFrameHeaderFastRejects(t *testing.T) {
 			wantReason: rejectReservedOpcode,
 			wantMsg:    "malformed frame header: gows: reserved opcode",
 		},
+		// classifyHeaderByte spells the reserved range as two clauses --
+		// op >= 0x3 && op <= 0x7 for the non-control half, op >= 0xB for
+		// the control half -- and the case above reaches only the first.
+		// Opcode 0xB is the second clause's lower bound, so this is the
+		// case an off-by-one there would fail.
+		"reserved control opcode": {
+			in:         []byte{0x8b, 0x80, 0, 0, 0, 0},
+			wantReason: rejectReservedOpcode,
+			wantMsg:    "malformed frame header: gows: reserved opcode",
+		},
 		"non-minimal 16-bit length": {
 			in:         []byte{0x82, 0xfe, 0x00, 0x64, 0, 0, 0, 0},
 			wantReason: rejectNonMinimalLength,
