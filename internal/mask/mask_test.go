@@ -19,6 +19,7 @@ import (
 	"encoding/binary"
 	"math/bits"
 	"math/rand/v2"
+	"strconv"
 	"testing"
 )
 
@@ -292,5 +293,115 @@ func TestMaskGenericMatchesRef(t *testing.T) {
 		if gotKey != wantKey || !bytes.Equal(got, want) {
 			t.Fatalf("maskGeneric n=%d: mismatch with reference", n)
 		}
+	}
+}
+
+// NamedKernel pairs a masking kernel with a human-readable name so tests and
+// benchmarks can drive each implementation individually.
+type NamedKernel struct {
+	// Name identifies the kernel, e.g. "generic", "sse2", "avx512", "neon".
+	Name string
+	// Fn masks b in place and returns the resumable rotated key.
+	Fn func(b []byte, key uint32) uint32
+}
+
+// genericKernel returns the always-present pure-Go reference kernel.
+func genericKernel() NamedKernel {
+	return NamedKernel{Name: "generic", Fn: maskGeneric}
+}
+
+// FuzzMask differentially fuzzes the size-dispatching Mask entry point and
+// every available kernel against the longhand reference. Any payload/key that
+// produces a differing transform or returned key is a crash.
+func FuzzMask(f *testing.F) {
+	seeds := []struct {
+		b   []byte
+		key uint32
+	}{
+		{nil, 0},
+		{[]byte{}, 0xffffffff},
+		{[]byte("h"), 0x01020304},
+		{[]byte("hello, websocket"), 0x9e3779b1},
+		{bytes.Repeat([]byte{0xa5}, 63), 0xdeadbeef},
+		{bytes.Repeat([]byte{0x00}, 64), 0x80000001},
+		{bytes.Repeat([]byte{0xff}, 255), 0x12345678},
+		{bytes.Repeat([]byte{0x5a}, 4097), 0xcafebabe},
+	}
+	for _, s := range seeds {
+		f.Add(s.b, s.key)
+	}
+
+	f.Fuzz(func(t *testing.T, b []byte, key uint32) {
+		want := append([]byte(nil), b...)
+		wantKey := maskRef(want, key)
+
+		maskers := append([]NamedKernel{{Name: "dispatch", Fn: Mask}}, Kernels()...)
+		for _, m := range maskers {
+			got := append([]byte(nil), b...)
+			gotKey := m.Fn(got, key)
+			if gotKey != wantKey || !bytes.Equal(got, want) {
+				t.Fatalf("kernel %s: len=%d key=%#08x mismatch\n got=% x key=%#08x\nwant=% x key=%#08x",
+					m.Name, len(b), key, got, gotKey, want, wantKey)
+			}
+		}
+	})
+}
+
+// benchSizes spans small control frames through large data frames so the
+// size-threshold crossovers between kernels are visible in the curves.
+var benchSizes = []int{16, 64, 256, 1024, 4096, 16384, 65536, 262144}
+
+// benchCalibSizes are fine-grained sizes straddling the generic<->NEON
+// crossover. BenchmarkKernelCalib sweeps them so thresholdSIMD can be read off
+// the point where NEON first beats the generic word loop.
+var benchCalibSizes = []int{8, 16, 24, 32, 48, 64, 96, 128}
+
+func benchMask(b *testing.B, fn func([]byte, uint32) uint32, size int) {
+	buf := make([]byte, size)
+	fillRand(buf, newRNG())
+	key := uint32(0x9e3779b1)
+	b.SetBytes(int64(size))
+	for b.Loop() {
+		key = fn(buf, key)
+	}
+	_ = key
+}
+
+// BenchmarkMask measures the production size-dispatching entry point.
+func BenchmarkMask(b *testing.B) {
+	for _, size := range benchSizes {
+		b.Run(strconv.Itoa(size), func(b *testing.B) {
+			benchMask(b, Mask, size)
+		})
+	}
+}
+
+// BenchmarkKernel measures each available kernel individually so the per-kernel
+// throughput curves used to calibrate the dispatch thresholds can be compared
+// directly.
+func BenchmarkKernel(b *testing.B) {
+	for _, kern := range Kernels() {
+		b.Run(kern.Name, func(b *testing.B) {
+			for _, size := range benchSizes {
+				b.Run(strconv.Itoa(size), func(b *testing.B) {
+					benchMask(b, kern.Fn, size)
+				})
+			}
+		})
+	}
+}
+
+// BenchmarkKernelCalib sweeps each kernel across benchCalibSizes so the
+// generic<->NEON crossover that fixes thresholdSIMD can be read directly off
+// the throughput curves at fine granularity.
+func BenchmarkKernelCalib(b *testing.B) {
+	for _, kern := range Kernels() {
+		b.Run(kern.Name, func(b *testing.B) {
+			for _, size := range benchCalibSizes {
+				b.Run(strconv.Itoa(size), func(b *testing.B) {
+					benchMask(b, kern.Fn, size)
+				})
+			}
+		})
 	}
 }
