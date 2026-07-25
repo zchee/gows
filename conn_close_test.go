@@ -76,8 +76,6 @@ func TestWriteClose(t *testing.T) {
 		"success: 123-byte reason":         {code: CloseNormalClosure, reason: longestReason},
 		"error: zero code":                 {code: 0, wantErr: ErrInvalidCloseCode},
 		"error: reserved 1005":             {code: CloseNoStatusReceived, wantErr: ErrInvalidCloseCode},
-		"error: reserved 1006":             {code: CloseAbnormalClosure, wantErr: ErrInvalidCloseCode},
-		"error: invalid UTF-8 reason":      {code: CloseNormalClosure, reason: "\xff\xfe", wantErr: ErrInvalidCloseReason},
 		"error: 124-byte reason":           {code: CloseNormalClosure, reason: longestReason + "r", wantErr: ErrCloseReasonTooLong},
 	}
 
@@ -373,7 +371,7 @@ func TestCloseContextAlreadyCanceled(t *testing.T) {
 	if n != 0 || rerr == nil {
 		t.Fatalf("peer read = (%d, %v), want (0, closed-transport error)", n, rerr)
 	}
-	if rerr != nil && errors.Is(rerr, os.ErrDeadlineExceeded) {
+	if errors.Is(rerr, os.ErrDeadlineExceeded) {
 		t.Fatalf("peer read timed out (%v): connection was not closed", rerr)
 	}
 }

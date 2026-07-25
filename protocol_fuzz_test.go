@@ -89,10 +89,14 @@ func (c *fuzzNetConn) Close() error {
 	return nil
 }
 
-func (*fuzzNetConn) LocalAddr() net.Addr              { return fakeAddr{} }
-func (*fuzzNetConn) RemoteAddr() net.Addr             { return fakeAddr{} }
-func (*fuzzNetConn) SetDeadline(time.Time) error      { return nil }
-func (*fuzzNetConn) SetReadDeadline(time.Time) error  { return nil }
+func (*fuzzNetConn) LocalAddr() net.Addr { return fakeAddr{} }
+
+func (*fuzzNetConn) RemoteAddr() net.Addr { return fakeAddr{} }
+
+func (*fuzzNetConn) SetDeadline(time.Time) error { return nil }
+
+func (*fuzzNetConn) SetReadDeadline(time.Time) error { return nil }
+
 func (*fuzzNetConn) SetWriteDeadline(time.Time) error { return nil }
 
 func boundedFuzzChunk(v uint16) int { return min(int(v)+1, fuzzChunkLimit) }
@@ -987,6 +991,11 @@ func TestDecodeFrameHeaderFastRejects(t *testing.T) {
 			wantReason: rejectReservedOpcode,
 			wantMsg:    "malformed frame header: gows: reserved opcode",
 		},
+		// classifyHeaderByte spells the reserved range as two clauses --
+		// op >= 0x3 && op <= 0x7 for the non-control half, op >= 0xB for
+		// the control half -- and the case above reaches only the first.
+		// Opcode 0xB is the second clause's lower bound, so this is the
+		// case an off-by-one there would fail.
 		"reserved control opcode": {
 			in:         []byte{0x8b, 0x80, 0, 0, 0, 0},
 			wantReason: rejectReservedOpcode,

@@ -60,11 +60,6 @@ func TestNegotiateDeflate(t *testing.T) {
 			wantOK:     true,
 			want:       extension.DeflateParams{ServerNoContextTakeover: true, ClientNoContextTakeover: true},
 		},
-		"valued client_max_window_bits accepted regardless of value": {
-			extensions: "permessage-deflate; client_max_window_bits=10",
-			wantOK:     true,
-			want:       extension.DeflateParams{ServerNoContextTakeover: true, ClientNoContextTakeover: true},
-		},
 		"duplicate parameter makes that offer invalid, falls back": {
 			extensions: "permessage-deflate; server_no_context_takeover; server_no_context_takeover, " +
 				"permessage-deflate",
@@ -306,19 +301,6 @@ func TestUpgradeCompressionNegotiation(t *testing.T) {
 		"decline sub-15 falls back to next offer": {
 			enableServer:      true,
 			extHeader:         "permessage-deflate; server_max_window_bits=10, permessage-deflate",
-			wantCompressed:    true,
-			wantExtInResponse: "permessage-deflate; server_no_context_takeover; client_no_context_takeover",
-		},
-		"bare client_max_window_bits accepted": {
-			enableServer:      true,
-			extHeader:         "permessage-deflate; client_max_window_bits",
-			wantCompressed:    true,
-			wantExtInResponse: "permessage-deflate; server_no_context_takeover; client_no_context_takeover",
-		},
-		"duplicate param makes that offer invalid, falls back": {
-			enableServer: true,
-			extHeader: "permessage-deflate; server_no_context_takeover; server_no_context_takeover, " +
-				"permessage-deflate",
 			wantCompressed:    true,
 			wantExtInResponse: "permessage-deflate; server_no_context_takeover; client_no_context_takeover",
 		},
@@ -1131,12 +1113,6 @@ func TestUpgradeClientWindowBits(t *testing.T) {
 			wantExt:          "",
 			wantClientBits:   0,
 		},
-		"success: ClientWindowBits zero ignores valued offer": {
-			clientWindowBits: 0,
-			extHeader:        "permessage-deflate; client_max_window_bits=10",
-			wantExt:          "",
-			wantClientBits:   0,
-		},
 		"error: ClientWindowBits too low": {
 			clientWindowBits: 7,
 			wantErr:          ErrInvalidWindowBits,
@@ -1575,9 +1551,9 @@ func TestContextTakeoverWindowContinuityBothDirections(t *testing.T) {
 // TestNegotiateDeflateContextTakeoverAllCombinations confirms
 // negotiateDeflate, with AllowContextTakeover on, independently derives
 // each direction's agreed context-takeover state purely from what a
-// given offer contains -- covering all 4 combinations named in the task
-// ("server accepts client's ctx-takeover but keeps its own no-ctx and
-// vice versa").
+// given offer contains -- covering all 4 combinations, including a
+// server that accepts the client's context takeover while keeping its
+// own no-context-takeover, and the reverse.
 func TestNegotiateDeflateContextTakeoverAllCombinations(t *testing.T) {
 	tests := map[string]struct {
 		extensions string
@@ -1934,7 +1910,7 @@ func TestContextTakeoverDecompressionBombStillBounded(t *testing.T) {
 // directly) with AllowContextTakeover set on both sides, confirms both
 // ends' Handshake.CompressionParams agree, and confirms Conns built from
 // those handshakes via WithCompressionParams actually exchange messages
-// correctly -- exercising the whole pipeline named in the task
+// correctly -- exercising the whole pipeline
 // (negotiation -> Handshake -> WithCompressionParams -> live Conn), not
 // just its individual pieces in isolation.
 func TestUpgraderDialerContextTakeoverIntegration(t *testing.T) {

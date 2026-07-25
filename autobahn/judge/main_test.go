@@ -118,12 +118,18 @@ func TestPrintReport(t *testing.T) {
 			},
 			wantFailures: []string{"gows/7.1.1: behavior=OK behaviorClose=WRONG CODE"},
 		},
-		"failure: multiple agents each contribute failures": {
+		// Two agents, so the reported failures pin the sorted agent
+		// order printReport imposes on the report map: without it the
+		// slice order would follow Go's randomized map iteration.
+		"failure: multiple agents report in sorted agent order": {
 			report: map[string]map[string]caseResult{
-				"gows":    {"1.1.1": {Behavior: "FAILED", BehaviorClose: "FAILED"}},
-				"gorilla": {"1.1.1": {Behavior: "OK", BehaviorClose: "OK"}},
+				"gows":    {"1.1.1": {Behavior: "FAILED", BehaviorClose: "OK"}},
+				"gorilla": {"1.1.1": {Behavior: "OK", BehaviorClose: "FAILED"}},
 			},
-			wantFailures: []string{"gows/1.1.1: behavior=FAILED behaviorClose=FAILED"},
+			wantFailures: []string{
+				"gorilla/1.1.1: behavior=OK behaviorClose=FAILED",
+				"gows/1.1.1: behavior=FAILED behaviorClose=OK",
+			},
 		},
 	}
 

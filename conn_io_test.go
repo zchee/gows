@@ -64,12 +64,18 @@ func (l *loopConn) Read(p []byte) (int, error) {
 	return n, nil
 }
 
-func (l *loopConn) Write(p []byte) (int, error)        { return len(p), nil }
-func (l *loopConn) Close() error                       { return nil }
-func (l *loopConn) LocalAddr() net.Addr                { return fakeAddr{} }
-func (l *loopConn) RemoteAddr() net.Addr               { return fakeAddr{} }
-func (l *loopConn) SetDeadline(_ time.Time) error      { return nil }
-func (l *loopConn) SetReadDeadline(_ time.Time) error  { return nil }
+func (l *loopConn) Write(p []byte) (int, error) { return len(p), nil }
+
+func (l *loopConn) Close() error { return nil }
+
+func (l *loopConn) LocalAddr() net.Addr { return fakeAddr{} }
+
+func (l *loopConn) RemoteAddr() net.Addr { return fakeAddr{} }
+
+func (l *loopConn) SetDeadline(_ time.Time) error { return nil }
+
+func (l *loopConn) SetReadDeadline(_ time.Time) error { return nil }
+
 func (l *loopConn) SetWriteDeadline(_ time.Time) error { return nil }
 
 type countingConn struct {
@@ -400,10 +406,10 @@ func TestReadMessageZeroAllocs(t *testing.T) {
 	allocs := testing.AllocsPerRun(500, func() {
 		_, _, _ = c.ReadMessage()
 	})
-	t.Logf("ReadMessage allocs/op = %v (race=%v)", allocs, raceEnabledInternal)
+	t.Logf("ReadMessage allocs/op = %v (race=%v)", allocs, RaceEnabled)
 	// The race detector's sync.Pool instrumentation can add a phantom alloc;
 	// enforce the zero-alloc bound only on non-race builds.
-	if !raceEnabledInternal && allocs != 0 {
+	if !RaceEnabled && allocs != 0 {
 		t.Errorf("ReadMessage allocs/op = %v, want 0", allocs)
 	}
 }
@@ -419,8 +425,8 @@ func TestReadMessage16KBZeroAllocs(t *testing.T) {
 	allocs := testing.AllocsPerRun(500, func() {
 		_, _, _ = c.ReadMessage()
 	})
-	t.Logf("ReadMessage 16 KiB allocs/op = %v (race=%v)", allocs, raceEnabledInternal)
-	if !raceEnabledInternal && allocs != 0 {
+	t.Logf("ReadMessage 16 KiB allocs/op = %v (race=%v)", allocs, RaceEnabled)
+	if !RaceEnabled && allocs != 0 {
 		t.Errorf("ReadMessage 16 KiB allocs/op = %v, want 0", allocs)
 	}
 }
@@ -436,8 +442,8 @@ func TestWriteMessageServerAllocs(t *testing.T) {
 	allocs := testing.AllocsPerRun(500, func() {
 		_ = c.WriteMessage(OpcodeBinary, payload)
 	})
-	t.Logf("server WriteMessage allocs/op = %v (race=%v)", allocs, raceEnabledInternal)
-	if !raceEnabledInternal && allocs != 0 {
+	t.Logf("server WriteMessage allocs/op = %v (race=%v)", allocs, RaceEnabled)
+	if !RaceEnabled && allocs != 0 {
 		t.Errorf("server WriteMessage allocs/op = %v, want 0", allocs)
 	}
 }
@@ -460,8 +466,8 @@ func TestWriteMessageCompressedZeroAllocs(t *testing.T) {
 	allocs := testing.AllocsPerRun(500, func() {
 		_ = c.WriteMessage(OpcodeBinary, payload)
 	})
-	t.Logf("compressed WriteMessage allocs/op = %v (race=%v)", allocs, raceEnabledInternal)
-	if !raceEnabledInternal && allocs != 0 {
+	t.Logf("compressed WriteMessage allocs/op = %v (race=%v)", allocs, RaceEnabled)
+	if !RaceEnabled && allocs != 0 {
 		t.Errorf("compressed WriteMessage allocs/op = %v, want 0 (deflate write-path hygiene)", allocs)
 	}
 }
@@ -518,8 +524,8 @@ func TestStreamingEchoAllocs(t *testing.T) {
 		echo()
 	}
 	allocs := testing.AllocsPerRun(200, echo)
-	t.Logf("streaming echo allocs/op = %v (race=%v)", allocs, raceEnabledInternal)
-	if !raceEnabledInternal && allocs > 2 {
+	t.Logf("streaming echo allocs/op = %v (race=%v)", allocs, RaceEnabled)
+	if !RaceEnabled && allocs > 2 {
 		t.Errorf("streaming echo allocs/op = %v, want <= 2 (reader + writer handles)", allocs)
 	}
 }
@@ -801,8 +807,8 @@ func TestWriteMessageStaged16KBZeroAllocs(t *testing.T) {
 	allocs := testing.AllocsPerRun(500, func() {
 		_ = c.WriteMessage(OpcodeBinary, payload)
 	})
-	t.Logf("staged 16 KiB WriteMessage allocs/op = %v (race=%v)", allocs, raceEnabledInternal)
-	if !raceEnabledInternal && allocs != 0 {
+	t.Logf("staged 16 KiB WriteMessage allocs/op = %v (race=%v)", allocs, RaceEnabled)
+	if !RaceEnabled && allocs != 0 {
 		t.Errorf("staged 16 KiB WriteMessage allocs/op = %v, want 0", allocs)
 	}
 }
@@ -997,13 +1003,20 @@ func BenchmarkConnWriteMessage16KBTCP(b *testing.B) {
 // that would busy-loop a fail-open fill path.
 type zeroNilReadConn struct{}
 
-func (zeroNilReadConn) Read([]byte) (int, error)         { return 0, nil }
-func (zeroNilReadConn) Write(p []byte) (int, error)      { return len(p), nil }
-func (zeroNilReadConn) Close() error                     { return nil }
-func (zeroNilReadConn) LocalAddr() net.Addr              { return fakeAddr{} }
-func (zeroNilReadConn) RemoteAddr() net.Addr             { return fakeAddr{} }
-func (zeroNilReadConn) SetDeadline(time.Time) error      { return nil }
-func (zeroNilReadConn) SetReadDeadline(time.Time) error  { return nil }
+func (zeroNilReadConn) Read([]byte) (int, error) { return 0, nil }
+
+func (zeroNilReadConn) Write(p []byte) (int, error) { return len(p), nil }
+
+func (zeroNilReadConn) Close() error { return nil }
+
+func (zeroNilReadConn) LocalAddr() net.Addr { return fakeAddr{} }
+
+func (zeroNilReadConn) RemoteAddr() net.Addr { return fakeAddr{} }
+
+func (zeroNilReadConn) SetDeadline(time.Time) error { return nil }
+
+func (zeroNilReadConn) SetReadDeadline(time.Time) error { return nil }
+
 func (zeroNilReadConn) SetWriteDeadline(time.Time) error { return nil }
 
 func TestFillOnceNoProgress(t *testing.T) {

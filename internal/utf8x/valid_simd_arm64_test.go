@@ -18,7 +18,7 @@ package utf8x
 
 import "github.com/zchee/gows/internal/cpu"
 
-// Bind the shared kernel differential tests (valid_simd_kernel_test.go) to the
+// Bind the shared kernel differential tests (valid_simd_test.go) to the
 // NEON kernel.
 func init() {
 	kernelName = "neon"

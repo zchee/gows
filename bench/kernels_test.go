@@ -15,12 +15,11 @@ import (
 	"strconv"
 	"testing"
 
-	"github.com/zchee/gows/internal/mask"
-
 	tpcoder "github.com/zchee/gows/bench/internal/thirdparty/coder"
 	tpgobwas "github.com/zchee/gows/bench/internal/thirdparty/gobwas"
 	tpgorilla "github.com/zchee/gows/bench/internal/thirdparty/gorilla"
 	tpgws "github.com/zchee/gows/bench/internal/thirdparty/gws"
+	"github.com/zchee/gows/internal/mask"
 )
 
 // sizes matches the standard kernel-benchmark size sweep.

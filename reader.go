@@ -547,25 +547,26 @@ var errStreamReaderStale = errors.New("gows: stream reader superseded by a later
 // A messageReader is not safe for concurrent use, and only one may be active
 // per Conn at a time (the same single-reader contract as ReadMessage).
 type messageReader struct {
-	c   *Conn
-	op  Opcode // the message opcode (Text or Binary)
-	err error  // sticky terminal error for this reader
+	err error // sticky terminal error for this reader
+
+	c        *Conn
+	inflated []byte
 
 	// --- streaming (uncompressed) state ---
-	frameRem int64  // unconsumed payload bytes of the current frame
-	key      uint32 // resumable mask key for the current frame
-	total    int64  // total declared message bytes admitted so far (read limit)
-	masked   bool   // current frame is masked
-	fin      bool   // current frame is the message's final fragment
-	complete bool   // the final fragment has been fully consumed (Read => io.EOF)
+	frameRem    int64 // unconsumed payload bytes of the current frame
+	total       int64 // total declared message bytes admitted so far (read limit)
+	inflatedPos int
+	key         uint32 // resumable mask key for the current frame
+	op          Opcode // the message opcode (Text or Binary)
+	masked      bool   // current frame is masked
+	fin         bool   // current frame is the message's final fragment
+	complete    bool   // the final fragment has been fully consumed (Read => io.EOF)
 
 	// --- compressed fallback state ---
 	// A compressed inbound message (RSV1) cannot be streamed in place, so
 	// NextReader reassembles and inflates it eagerly (correctness kept, the
 	// streaming benefit lost) and Read serves the decoded bytes from here.
-	compressed  bool
-	inflated    []byte
-	inflatedPos int
+	compressed bool
 }
 
 // NextReader returns the opcode and an [io.Reader] streaming the next inbound
