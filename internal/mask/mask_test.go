@@ -18,7 +18,7 @@ import (
 	"bytes"
 	"encoding/binary"
 	"math/bits"
-	"math/rand/v2"
+	rand "math/rand/v2"
 	"strconv"
 	"testing"
 )

@@ -5,7 +5,7 @@ import (
 	"slices"
 	"time"
 
-	"github.com/HdrHistogram/hdrhistogram-go"
+	hdrhistogram "github.com/HdrHistogram/hdrhistogram-go"
 )
 
 // Percentiles holds the machine-readable latency tail summary reconstructed

@@ -89,10 +89,14 @@ func (c *fuzzNetConn) Close() error {
 	return nil
 }
 
-func (*fuzzNetConn) LocalAddr() net.Addr              { return fakeAddr{} }
-func (*fuzzNetConn) RemoteAddr() net.Addr             { return fakeAddr{} }
-func (*fuzzNetConn) SetDeadline(time.Time) error      { return nil }
-func (*fuzzNetConn) SetReadDeadline(time.Time) error  { return nil }
+func (*fuzzNetConn) LocalAddr() net.Addr { return fakeAddr{} }
+
+func (*fuzzNetConn) RemoteAddr() net.Addr { return fakeAddr{} }
+
+func (*fuzzNetConn) SetDeadline(time.Time) error { return nil }
+
+func (*fuzzNetConn) SetReadDeadline(time.Time) error { return nil }
+
 func (*fuzzNetConn) SetWriteDeadline(time.Time) error { return nil }
 
 func boundedFuzzChunk(v uint16) int { return min(int(v)+1, fuzzChunkLimit) }

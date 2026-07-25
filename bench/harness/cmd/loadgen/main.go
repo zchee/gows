@@ -24,6 +24,7 @@ import (
 	"github.com/go-json-experiment/json"
 	"github.com/gobwas/ws"
 	"github.com/gobwas/ws/wsutil"
+
 	"github.com/zchee/gows"
 	"github.com/zchee/gows/bench/harness/support"
 )

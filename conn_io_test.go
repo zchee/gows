@@ -64,12 +64,18 @@ func (l *loopConn) Read(p []byte) (int, error) {
 	return n, nil
 }
 
-func (l *loopConn) Write(p []byte) (int, error)        { return len(p), nil }
-func (l *loopConn) Close() error                       { return nil }
-func (l *loopConn) LocalAddr() net.Addr                { return fakeAddr{} }
-func (l *loopConn) RemoteAddr() net.Addr               { return fakeAddr{} }
-func (l *loopConn) SetDeadline(_ time.Time) error      { return nil }
-func (l *loopConn) SetReadDeadline(_ time.Time) error  { return nil }
+func (l *loopConn) Write(p []byte) (int, error) { return len(p), nil }
+
+func (l *loopConn) Close() error { return nil }
+
+func (l *loopConn) LocalAddr() net.Addr { return fakeAddr{} }
+
+func (l *loopConn) RemoteAddr() net.Addr { return fakeAddr{} }
+
+func (l *loopConn) SetDeadline(_ time.Time) error { return nil }
+
+func (l *loopConn) SetReadDeadline(_ time.Time) error { return nil }
+
 func (l *loopConn) SetWriteDeadline(_ time.Time) error { return nil }
 
 type countingConn struct {
@@ -997,13 +1003,20 @@ func BenchmarkConnWriteMessage16KBTCP(b *testing.B) {
 // that would busy-loop a fail-open fill path.
 type zeroNilReadConn struct{}
 
-func (zeroNilReadConn) Read([]byte) (int, error)         { return 0, nil }
-func (zeroNilReadConn) Write(p []byte) (int, error)      { return len(p), nil }
-func (zeroNilReadConn) Close() error                     { return nil }
-func (zeroNilReadConn) LocalAddr() net.Addr              { return fakeAddr{} }
-func (zeroNilReadConn) RemoteAddr() net.Addr             { return fakeAddr{} }
-func (zeroNilReadConn) SetDeadline(time.Time) error      { return nil }
-func (zeroNilReadConn) SetReadDeadline(time.Time) error  { return nil }
+func (zeroNilReadConn) Read([]byte) (int, error) { return 0, nil }
+
+func (zeroNilReadConn) Write(p []byte) (int, error) { return len(p), nil }
+
+func (zeroNilReadConn) Close() error { return nil }
+
+func (zeroNilReadConn) LocalAddr() net.Addr { return fakeAddr{} }
+
+func (zeroNilReadConn) RemoteAddr() net.Addr { return fakeAddr{} }
+
+func (zeroNilReadConn) SetDeadline(time.Time) error { return nil }
+
+func (zeroNilReadConn) SetReadDeadline(time.Time) error { return nil }
+
 func (zeroNilReadConn) SetWriteDeadline(time.Time) error { return nil }
 
 func TestFillOnceNoProgress(t *testing.T) {

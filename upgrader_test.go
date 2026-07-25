@@ -474,17 +474,23 @@ func (c *fakeConn) Write(p []byte) (int, error) {
 	return len(p), nil
 }
 
-func (c *fakeConn) Close() error                     { return nil }
-func (c *fakeConn) LocalAddr() net.Addr              { return fakeAddr{} }
-func (c *fakeConn) RemoteAddr() net.Addr             { return fakeAddr{} }
-func (c *fakeConn) SetDeadline(time.Time) error      { return nil }
-func (c *fakeConn) SetReadDeadline(time.Time) error  { return nil }
+func (c *fakeConn) Close() error { return nil }
+
+func (c *fakeConn) LocalAddr() net.Addr { return fakeAddr{} }
+
+func (c *fakeConn) RemoteAddr() net.Addr { return fakeAddr{} }
+
+func (c *fakeConn) SetDeadline(time.Time) error { return nil }
+
+func (c *fakeConn) SetReadDeadline(time.Time) error { return nil }
+
 func (c *fakeConn) SetWriteDeadline(time.Time) error { return nil }
 
 type fakeAddr struct{}
 
 func (fakeAddr) Network() string { return "fake" }
-func (fakeAddr) String() string  { return "fake" }
+
+func (fakeAddr) String() string { return "fake" }
 
 func (c *fakeConn) reset() {
 	c.readPos = 0

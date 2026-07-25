@@ -13,11 +13,12 @@ import (
 	"errors"
 	"fmt"
 	"math"
-	"math/rand/v2"
+	rand "math/rand/v2"
 	"os"
 	"slices"
 
 	"github.com/go-json-experiment/json"
+
 	"github.com/zchee/gows/bench/harness/support"
 )
 

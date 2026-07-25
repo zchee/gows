@@ -17,7 +17,7 @@ package utf8x_test
 import (
 	"bytes"
 	"fmt"
-	"math/rand/v2"
+	rand "math/rand/v2"
 	"slices"
 	"strconv"
 	"strings"
