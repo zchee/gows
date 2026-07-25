@@ -27,8 +27,8 @@ import (
 // request or response header block. Request-only and response-only fields
 // share one type so Upgrade and Dial scan through a single classify loop.
 type wsHandshakeHeaders struct {
-	hostSeen, upgradeOK, connectionOK, versionOK bool
 	key, origin, protocol, extensions, accept    []byte
+	hostSeen, upgradeOK, connectionOK, versionOK bool
 }
 
 // scanWSHandshakeHeaders classifies the opening-handshake headers both

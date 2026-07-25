@@ -333,12 +333,21 @@ var errWriterClosed = fmt.Errorf("gows: write on a closed message writer: %w", n
 // issued by the read path stay safe and may interleave between fragments, but
 // another WriteMessage/NextWriter is refused with [ErrWriterBusy] until Close.
 type messageWriter struct {
-	c       *Conn
-	op      Opcode // message opcode carried by the first fragment
+	err error // sticky terminal error
+
+	comp DeflateWriter
+	c    *Conn
+	sink *sliceWriter
+	// compPool is non-nil when comp is a pooled writer to return on release; nil
+	// for a per-Conn (context-takeover or sub-ceiling) writer. Carrying the
+	// bare pool pointer keeps release allocation-free where a per-message
+	// closure would heap-allocate.
+	compPool *sync.Pool
+
 	buf     []byte // pooled fragment buffer; plaintext until compressed mode
+	op      Opcode // message opcode carried by the first fragment
 	started bool   // the first fragment has been emitted (subsequent => Continuation)
 	closed  bool   // Close has been called
-	err     error  // sticky terminal error
 
 	// mayCompress is fixed at NextWriter time from the Conn's compression
 	// gate (negotiated && !outgoingDisabled); the Conn's compression fields
@@ -347,13 +356,6 @@ type messageWriter struct {
 
 	// compressed is set once the message engages DEFLATE (FILL or CLOSE-LARGE).
 	compressed bool
-	comp       DeflateWriter
-	sink       *sliceWriter
-	// compPool is non-nil when comp is a pooled writer to return on release; nil
-	// for a per-Conn (context-takeover or sub-ceiling) writer. Carrying the
-	// bare pool pointer keeps release allocation-free where a per-message
-	// closure would heap-allocate.
-	compPool *sync.Pool
 
 	// fedToCompressor is true once any plaintext has been written into the
 	// compressor. On a context-takeover Conn a terminal failure after this
