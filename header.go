@@ -27,8 +27,15 @@ import (
 // request or response header block. Request-only and response-only fields
 // share one type so Upgrade and Dial scan through a single classify loop.
 type wsHandshakeHeaders struct {
-	key, origin, protocol, extensions, accept    []byte
-	hostSeen, upgradeOK, connectionOK, versionOK bool
+	key          []byte
+	origin       []byte
+	protocol     []byte
+	extensions   []byte
+	accept       []byte
+	hostSeen     bool
+	upgradeOK    bool
+	connectionOK bool
+	versionOK    bool
 }
 
 // scanWSHandshakeHeaders classifies the opening-handshake headers both
@@ -66,7 +73,7 @@ func scanWSHandshakeHeaders(headers []byte) (wsHandshakeHeaders, error) {
 // for [Dialer.HTTPHeader]: this package computes each member itself as
 // part of the opening handshake, and future members of the family
 // belong to the protocol, not to callers.
-const secWebSocketPrefix = "Sec-WebSocket-"
+const secWebSocketPrefix = `Sec-WebSocket-`
 
 // reservedRequestHeaders lists the non-Sec-WebSocket-* header names
 // [Dialer.HTTPHeader] may never carry. Each either is computed by this
@@ -79,16 +86,16 @@ const secWebSocketPrefix = "Sec-WebSocket-"
 // of them would desynchronize the handshake state this package
 // validates against.
 var reservedRequestHeaders = [...]string{
-	"Host",
-	"Upgrade",
-	"Connection",
-	"Content-Length",
-	"Transfer-Encoding",
-	"Trailer",
-	"TE",
-	"Keep-Alive",
-	"Proxy-Authorization",
-	"Proxy-Connection",
+	`Host`,
+	`Upgrade`,
+	`Connection`,
+	`Content-Length`,
+	`Transfer-Encoding`,
+	`Trailer`,
+	`TE`,
+	`Keep-Alive`,
+	`Proxy-Authorization`,
+	`Proxy-Connection`,
 }
 
 // reservedHeaderName reports whether name is reserved for

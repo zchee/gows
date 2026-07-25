@@ -81,8 +81,10 @@ var defaultDeflateBackend = &DeflateBackend{
 		// window and needs no advance sizing hint.
 		return flate.NewReader(bytes.NewReader(nil)).(DeflateReader)
 	},
-	MinLevel: flate.HuffmanOnly, MaxLevel: flate.BestCompression,
-	MinWindowBits: deflateWindowBits, MaxWindowBits: deflateWindowBits,
+	MinLevel:      flate.HuffmanOnly,
+	MaxLevel:      flate.BestCompression,
+	MinWindowBits: deflateWindowBits,
+	MaxWindowBits: deflateWindowBits,
 }
 
 // deflateConfig is one immutable snapshot of "what compress.go's
@@ -285,7 +287,6 @@ func DefaultDeflateBackend() *DeflateBackend {
 // compliant peer using the full window. When no peer-direction bound was
 // negotiated, the 32KB default is the only correct choice.
 type deflateState struct {
-
 	// outgoing is non-nil when this Conn needs a dedicated compressor:
 	// either its own outgoing direction negotiated context takeover, or a
 	// negotiated window ceiling below the process-global windowBits. See
@@ -415,15 +416,15 @@ func newDeflateState(client bool, p CompressionParams) *deflateState {
 // into any message received so far, not just the most recent one. dict
 // must have been allocated with cap(dict) == max (see newDeflateState),
 // so appending never reallocates.
-func slideWindow(dict, add []byte, max int) []byte {
-	if len(add) >= max {
-		return append(dict[:0], add[len(add)-max:]...)
+func slideWindow(dict, add []byte, maxlength int) []byte {
+	if len(add) >= maxlength {
+		return append(dict[:0], add[len(add)-maxlength:]...)
 	}
 	total := len(dict) + len(add)
-	if total <= max {
+	if total <= maxlength {
 		return append(dict, add...)
 	}
-	drop := total - max
+	drop := total - maxlength
 	n := copy(dict, dict[drop:])
 	return append(dict[:n], add...)
 }

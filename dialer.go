@@ -68,19 +68,19 @@ func (d *Dialer) deflateOffer() (header string, params extension.DeflateParams) 
 	var b strings.Builder
 	b.WriteString(extension.DeflateExtensionName)
 	if !d.AllowContextTakeover {
-		b.WriteString("; server_no_context_takeover; client_no_context_takeover")
+		b.WriteString(`; server_no_context_takeover; client_no_context_takeover`)
 		params.ServerNoContextTakeover = true
 		params.ClientNoContextTakeover = true
 	}
 	if d.WindowBits != 0 {
-		fmt.Fprintf(&b, "; client_max_window_bits=%d", d.WindowBits)
+		fmt.Fprintf(&b, `; client_max_window_bits=%d`, d.WindowBits)
 		params.ClientMaxWindowBits = d.WindowBits
 	} else if d.OfferClientMaxWindowBits {
-		b.WriteString("; client_max_window_bits")
+		b.WriteString(`; client_max_window_bits`)
 		params.ClientMaxWindowBits = extension.ClientMaxWindowBitsBare
 	}
 	if d.ServerWindowBits != 0 {
-		fmt.Fprintf(&b, "; server_max_window_bits=%d", d.ServerWindowBits)
+		fmt.Fprintf(&b, `; server_max_window_bits=%d`, d.ServerWindowBits)
 		params.ServerMaxWindowBits = d.ServerWindowBits
 	}
 	return b.String(), params
@@ -220,8 +220,8 @@ func (d *Dialer) Dial(ctx context.Context, rawURL string) (net.Conn, Handshake, 
 			return nil, Handshake{}, ErrTooManyRedirects
 		}
 		if !sameOrigin(u, next) {
-			deleteHeaderFold(hdr, "Authorization")
-			deleteHeaderFold(hdr, "Cookie")
+			deleteHeaderFold(hdr, `Authorization`)
+			deleteHeaderFold(hdr, `Cookie`)
 		}
 		// The policy callback sees the upcoming request exactly as it
 		// will be sent -- after the credential stripping above, matching
@@ -500,9 +500,13 @@ func proxyBasicAuth(user *url.Userinfo) string {
 // [*UnexpectedStatusError], with no proxy-controlled text.
 func proxyConnect(conn net.Conn, originAddr, proxyAuth string) error {
 	var req bytes.Buffer
-	fmt.Fprintf(&req, "CONNECT %s HTTP/1.1\r\nHost: %s\r\n", originAddr, originAddr)
+	fmt.Fprintf(&req, "CONNECT %s HTTP/1.1", originAddr)
+	req.WriteString("\r\n")
+	fmt.Fprintf(&req, "Host: %s", originAddr)
+	req.WriteString("\r\n")
 	if proxyAuth != "" {
-		fmt.Fprintf(&req, "Proxy-Authorization: %s\r\n", proxyAuth)
+		fmt.Fprintf(&req, `Proxy-Authorization: %s`, proxyAuth)
+		req.WriteString("\r\n")
 	}
 	req.WriteString("\r\n")
 	if _, err := conn.Write(req.Bytes()); err != nil {
@@ -602,25 +606,34 @@ func (d *Dialer) handshake(conn net.Conn, u *url.URL, hdr http.Header, absoluteF
 		// scheme is written as "http" -- the carrying protocol of the
 		// opening handshake -- which any HTTP proxy understands, where a
 		// literal "ws" scheme is one RFC 7230 intermediaries need not.
-		fmt.Fprintf(&req, "GET http://%s%s HTTP/1.1\r\n", u.Host, requestTarget(u))
+		fmt.Fprintf(&req, `GET http://%s%s HTTP/1.1`, u.Host, requestTarget(u))
 	} else {
-		fmt.Fprintf(&req, "GET %s HTTP/1.1\r\n", requestTarget(u))
+		fmt.Fprintf(&req, `GET %s HTTP/1.1`, requestTarget(u))
 	}
-	fmt.Fprintf(&req, "Host: %s\r\n", u.Host)
-	req.WriteString("Upgrade: websocket\r\n")
-	req.WriteString("Connection: Upgrade\r\n")
+	req.WriteString("\r\n")
+
+	fmt.Fprintf(&req, `Host: %s`, u.Host)
+	req.WriteString("\r\n")
+	req.WriteString(`Upgrade: websocket`)
+	req.WriteString("\r\n")
+	req.WriteString(`Connection: Upgrade`)
+	req.WriteString("\r\n")
 	if absoluteForm && proxyAuth != "" {
 		// Proxy credentials ride the proxy leg only -- the absolute-form
 		// GET here, or the CONNECT in proxyConnect -- never an origin
 		// request inside a tunnel, and never merged into (or serialized
 		// through) the caller's header snapshot, which rejected any
 		// Proxy-Authorization entry during validation.
-		fmt.Fprintf(&req, "Proxy-Authorization: %s\r\n", proxyAuth)
+		fmt.Fprintf(&req, `Proxy-Authorization: %s`, proxyAuth)
+		req.WriteString("\r\n")
 	}
-	fmt.Fprintf(&req, "Sec-WebSocket-Key: %s\r\n", wsKey)
-	req.WriteString("Sec-WebSocket-Version: 13\r\n")
+	fmt.Fprintf(&req, `Sec-WebSocket-Key: %s`, wsKey)
+	req.WriteString("\r\n")
+	req.WriteString(`Sec-WebSocket-Version: 13`)
+	req.WriteString("\r\n")
 	if len(d.Subprotocols) > 0 {
-		fmt.Fprintf(&req, "Sec-WebSocket-Protocol: %s\r\n", joinComma(d.Subprotocols))
+		fmt.Fprintf(&req, `Sec-WebSocket-Protocol: %s`, joinComma(d.Subprotocols))
+		req.WriteString("\r\n")
 	}
 	offerHeader, offerParams := d.deflateOffer()
 	if d.EnableCompression {
