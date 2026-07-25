@@ -84,7 +84,6 @@ type DeflateReader interface {
 // level, and window bits actually used to compress/decompress -- are a
 // process-wide setting, not a per-Conn one.
 type DeflateBackend struct {
-
 	// NewWriter constructs a compressor at level, restricted to at most
 	// 2^windowBits bytes of LZ77 history (RFC 7692 §7.1.2's window-bits
 	// range, 8-15). By the time compress.go calls this, [SetDeflateBackend]
@@ -196,7 +195,6 @@ const defaultDeflateLevel = 1
 // (RFC 6455 §4.2). The zero value is a ready-to-use Upgrader with no
 // subprotocols, no Origin check, and the default header size limit.
 type Upgrader struct {
-
 	// OriginCheck, if non-nil, is called with the raw value of the
 	// handshake request's Origin header (or nil if the request had no
 	// Origin header at all) and must report whether the request should
@@ -336,7 +334,6 @@ type Upgrader struct {
 // (RFC 6455 §4.1). The zero value is a ready-to-use Dialer that dials
 // plain TCP with [net.Dialer]'s defaults and offers no subprotocols.
 type Dialer struct {
-
 	// TLSConfig configures the TLS client connection used for "wss" URLs
 	// (RFC 6455 §4.1: wss is WebSocket-over-TLS). If TLSConfig is nil, a
 	// zero-value [tls.Config] is used. If TLSConfig.ServerName is empty,
