@@ -62,8 +62,9 @@ func TestValidateExtraHeaders(t *testing.T) {
 		// validHeaderValue returns at the first offending byte, so the
 		// CRLF-injection case stops on its CR and never reaches its LF:
 		// lone CR and lone LF each need their own case. The 0x01 case
-		// covers the rest of the C0 range, which a reject set naming
-		// only NUL, DEL and the CRLF pair would let through.
+		// earns its own against a reject set enumerating NUL, DEL, CR
+		// and LF: that set passes every other row here and lets 0x01
+		// through. It pins one byte, not the whole C0 range.
 		"error: value with CR":             {header: http.Header{"X-A": {"a\rb"}}, wantErr: ErrMalformedHeader},
 		"error: value with LF":             {header: http.Header{"X-A": {"a\nb"}}, wantErr: ErrMalformedHeader},
 		"error: value with CRLF injection": {header: http.Header{"X-A": {"a\r\nX-Injected: 1"}}, wantErr: ErrMalformedHeader},
