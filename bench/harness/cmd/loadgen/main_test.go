@@ -318,10 +318,13 @@ func TestMeasureClosesClientWhenDrainDeadlineCannotBeSet(t *testing.T) {
 
 type expiredWindowClient struct{}
 
-func (expiredWindowClient) WriteMessage([]byte) error    { return nil }
+func (expiredWindowClient) WriteMessage([]byte) error { return nil }
+
 func (expiredWindowClient) ReadMessage() ([]byte, error) { return []byte{1}, nil }
-func (expiredWindowClient) SetDeadline(time.Time) error  { return nil }
-func (expiredWindowClient) Close() error                 { return nil }
+
+func (expiredWindowClient) SetDeadline(time.Time) error { return nil }
+
+func (expiredWindowClient) Close() error { return nil }
 
 type drainingEchoClient struct {
 	written chan struct{}
@@ -341,7 +344,8 @@ func (c *drainingEchoClient) ReadMessage() ([]byte, error) {
 }
 
 func (*drainingEchoClient) SetDeadline(time.Time) error { return nil }
-func (*drainingEchoClient) Close() error                { return nil }
+
+func (*drainingEchoClient) Close() error { return nil }
 
 type deadlineFailureClient struct {
 	closed chan struct{}
