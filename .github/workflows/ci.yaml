@@ -2,7 +2,8 @@ name: test
 
 on:
   push:
-    branches: [main]
+    branches:
+      - main
   pull_request:
   workflow_dispatch:
 
@@ -10,16 +11,70 @@ permissions:
   contents: read
 
 jobs:
-  lint:
-    name: lint
-    runs-on: ubuntu-latest
+  test:
+    name: test/${{ matrix.os }}-${{ matrix.variant }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - ubuntu-26.04
+          - ubuntu-26.04-arm
+          - xcode-27
+        variant:
+          - default
+          - purego
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v7
 
       - uses: actions/setup-go@v7
         with:
-          go-version: '1.26.x'
-          cache: true
+          go-version-file: go.mod
+          check-latest: true
+
+      - name: go test -race
+        if: matrix.variant == 'default'
+        run: go test -v -race ./...
+
+      - name: go test -tags=purego
+        if: matrix.variant == 'purego'
+        run: go test -v -tags=purego ./...
+
+  flatekp-test:
+    runs-on: ubuntu-26.04
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-go@v7
+        if: ${{ hashFiles('flatekp/go.mod') != '' }}
+        with:
+          go-version-file: go.mod
+          check-latest: true
+
+      - name: go build
+        if: ${{ hashFiles('flatekp/go.mod') != '' }}
+        working-directory: flatekp
+        run: go build ./...
+
+      - name: go vet
+        if: ${{ hashFiles('flatekp/go.mod') != '' }}
+        working-directory: flatekp
+        run: go vet ./...
+
+      - name: go test -race
+        if: ${{ hashFiles('flatekp/go.mod') != '' }}
+        working-directory: flatekp
+        run: go test -race ./...
+
+  lint:
+    runs-on: ubuntu-26.04
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          check-latest: true
 
       # bench/internal/thirdparty vendors verbatim upstream masking kernels
       # for benchmark comparison; they keep upstream formatting as-is.
@@ -53,41 +108,16 @@ jobs:
             exit 1
           fi
 
-  test:
-    name: test (${{ matrix.os }}, ${{ matrix.variant }})
-    runs-on: ${{ matrix.os }}
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest, ubuntu-24.04-arm, macos-latest]
-        variant: [default, purego]
-    steps:
-      - uses: actions/checkout@v7
-
-      - uses: actions/setup-go@v7
-        with:
-          go-version: '1.26.x'
-          cache: true
-
-      - name: go test -race
-        if: matrix.variant == 'default'
-        run: go test -race ./...
-
-      - name: go test -tags=purego
-        if: matrix.variant == 'purego'
-        run: go test -tags=purego ./...
-
   bench-build:
-    name: bench-build
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     steps:
       - uses: actions/checkout@v7
 
       - uses: actions/setup-go@v7
         if: ${{ hashFiles('bench/go.mod') != '' }}
         with:
-          go-version: '1.26.x'
-          cache: true
+          go-version-file: go.mod
+          check-latest: true
 
       - name: go build
         if: ${{ hashFiles('bench/go.mod') != '' }}
@@ -98,30 +128,3 @@ jobs:
         if: ${{ hashFiles('bench/go.mod') != '' }}
         working-directory: bench
         run: go vet ./...
-
-  flatekp-test:
-    name: flatekp-test
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v7
-
-      - uses: actions/setup-go@v7
-        if: ${{ hashFiles('flatekp/go.mod') != '' }}
-        with:
-          go-version: '1.26.x'
-          cache: true
-
-      - name: go build
-        if: ${{ hashFiles('flatekp/go.mod') != '' }}
-        working-directory: flatekp
-        run: go build ./...
-
-      - name: go vet
-        if: ${{ hashFiles('flatekp/go.mod') != '' }}
-        working-directory: flatekp
-        run: go vet ./...
-
-      - name: go test -race
-        if: ${{ hashFiles('flatekp/go.mod') != '' }}
-        working-directory: flatekp
-        run: go test -race ./...

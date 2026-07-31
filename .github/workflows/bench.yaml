@@ -2,7 +2,8 @@ name: bench
 
 on:
   push:
-    branches: [main]
+    branches:
+      - main
   pull_request:
   workflow_dispatch:
 
@@ -22,17 +23,15 @@ env:
 
 jobs:
   source-and-harness:
-    name: source and harness (stock Go, linux/amd64)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v7
 
       - uses: actions/setup-go@v7
         with:
-          go-version: "1.26.5"
-          check-latest: false
-          cache: true
+          go-version-file: go.mod
+          check-latest: true
           cache-dependency-path: |
             go.sum
             bench/go.sum
@@ -43,10 +42,6 @@ jobs:
         run: |
           set -euo pipefail
           version="$(go env GOVERSION)"
-          test "$version" = "go1.26.5" || {
-            printf 'unexpected Go version: %s\n' "$version" >&2
-            exit 1
-          }
           test -z "$(go env GOEXPERIMENT)" || {
             printf 'custom GOEXPERIMENT is not allowed: %s\n' \
               "$(go env GOEXPERIMENT)" >&2
@@ -118,17 +113,15 @@ jobs:
           }
 
   darwin-assembly-provenance:
-    name: assembly provenance (darwin/amd64 and darwin/arm64)
-    runs-on: macos-latest
+    runs-on: xcode-27
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v7
 
       - uses: actions/setup-go@v7
         with:
-          go-version: "1.26.5"
-          check-latest: false
-          cache: true
+          go-version-file: go.mod
+          check-latest: true
           cache-dependency-path: |
             go.sum
             bench/go.sum
@@ -137,7 +130,6 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          test "$(go env GOVERSION)" = "go1.26.5"
           test "$(go env GOOS)" = "darwin"
           case "$(go env GOARCH)" in
             amd64|arm64) ;;
@@ -166,7 +158,7 @@ jobs:
 
       - name: Reject generated source drift
         shell: bash
-        run: |
+        run: |-
           set -euo pipefail
           git diff --check
           status="$(git status --porcelain=v1 --untracked-files=all)"
