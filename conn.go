@@ -131,6 +131,9 @@ type Conn struct {
 	teardownOnce       sync.Once
 	closeTimeout       time.Duration
 	mode               atomic.Uint32 // permanent message/frame API selection.
+	frameReadMu        sync.Mutex    // coordinates frame reads and Abort.
+	frameStopOnce      sync.Once     // closes the frame-mode transport once.
+	frameRead          frameReadState
 }
 
 // ConnOption configures a [Conn] created by [NewServerConn] or
@@ -493,7 +496,11 @@ func (c *Conn) Close(code CloseCode, reason string) error {
 // later call can index the freed read buffer with stale offsets.
 func (c *Conn) teardown() {
 	c.teardownOnce.Do(func() {
-		_ = c.conn.Close()
+		if c.mode.Load() == connModeFrame {
+			c.frameStopOnce.Do(func() { _ = c.conn.Close() })
+		} else {
+			_ = c.conn.Close()
+		}
 		if c.rbuf != nil {
 			pool.Put(c.rbuf)
 			c.rbuf = nil
