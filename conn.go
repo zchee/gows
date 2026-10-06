@@ -134,7 +134,8 @@ type Conn struct {
 	frameReadMu        sync.Mutex    // coordinates frame reads and Abort.
 	frameStopOnce      sync.Once     // closes the frame-mode transport once.
 	frameRead          frameReadState
-	frameWrite         frameWriteState // guarded by wmu.
+	frameWrite         frameWriteState  // guarded by wmu.
+	frameDecode        frameDecodeState // guarded by frameReadMu.
 }
 
 // ConnOption configures a [Conn] created by [NewServerConn] or
@@ -513,6 +514,10 @@ func (c *Conn) teardown() {
 		if c.inflateBuf != nil {
 			pool.Put(c.inflateBuf)
 			c.inflateBuf = nil
+		}
+		if c.frameDecode.buf != nil {
+			pool.Put(c.frameDecode.buf)
+			c.frameDecode.buf = nil
 		}
 		c.r0, c.r1 = 0, 0
 		// Release the WriteMessageBuffered batch accumulator, if any. It is
