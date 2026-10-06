@@ -134,6 +134,7 @@ type Conn struct {
 	frameReadMu        sync.Mutex    // coordinates frame reads and Abort.
 	frameStopOnce      sync.Once     // closes the frame-mode transport once.
 	frameRead          frameReadState
+	frameWrite         frameWriteState // guarded by wmu.
 }
 
 // ConnOption configures a [Conn] created by [NewServerConn] or
@@ -522,6 +523,13 @@ func (c *Conn) teardown() {
 		// concurrent buffered write. pool.Put drops a non-class capacity,
 		// exactly as for msgBuf above.
 		c.wmu.Lock()
+		if c.mode.Load() == connModeFrame {
+			c.releaseFrameCompressor()
+			c.whdr, c.wpay, c.wclose, c.wstage, c.wcomp = nil, nil, nil, nil, nil
+			c.wiov = [2][]byte{}
+			c.wbufs = nil
+			c.wslice.b = nil
+		}
 		if c.wbatch != nil {
 			pool.Put(c.wbatch)
 			c.wbatch = nil
