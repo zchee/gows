@@ -130,6 +130,7 @@ type Conn struct {
 	outgoingWindowCeil int           // effective ceiling on this Conn's own outgoing compression window (8..15); default 15
 	teardownOnce       sync.Once
 	closeTimeout       time.Duration
+	mode               atomic.Uint32 // permanent message/frame API selection.
 }
 
 // ConnOption configures a [Conn] created by [NewServerConn] or
@@ -459,6 +460,9 @@ func (c *Conn) SetWriteDeadline(t time.Time) error {
 // deadline, use [Conn.CloseContext]; to send the Close frame from
 // another goroutine while a reader is active, use [Conn.WriteClose].
 func (c *Conn) Close(code CloseCode, reason string) error {
+	if err := c.selectMode(connModeMessage); err != nil {
+		return err
+	}
 	// Idempotent: once the connection is torn down (by a peer Close, a
 	// protocol/IO failure on the read path, or a prior Close), there is nothing
 	// left to do and, critically, nothing left to read — re-entering the read
@@ -562,6 +566,9 @@ func (c *Conn) teardown() {
 // or the connection's write deadline expires; bound it with
 // [Conn.SetWriteDeadline] against a peer that has stopped reading.
 func (c *Conn) WriteClose(code CloseCode, reason string) error {
+	if err := c.selectMode(connModeMessage); err != nil {
+		return err
+	}
 	if c.tornDown.Load() {
 		return nil
 	}
@@ -605,6 +612,9 @@ func (c *Conn) WriteClose(code CloseCode, reason string) error {
 // I/O, and like Close, CloseContext is idempotent: once the connection
 // is torn down it returns nil immediately.
 func (c *Conn) CloseContext(ctx context.Context, code CloseCode, reason string) error {
+	if err := c.selectMode(connModeMessage); err != nil {
+		return err
+	}
 	if c.tornDown.Load() {
 		return nil
 	}

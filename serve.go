@@ -83,6 +83,9 @@ const (
 // write mutex, but then its frames interleave with the buffered batch only at
 // frame boundaries.
 func (c *Conn) Serve(h func(op Opcode, p []byte) error) error {
+	if err := c.selectMode(connModeMessage); err != nil {
+		return err
+	}
 	// Entry guards, hoisted out of the per-message loop: they hold for every
 	// iteration once verified here, so the drain path below re-checks none of
 	// them (a message read that fails returns immediately, and the sticky
@@ -188,6 +191,9 @@ func (c *Conn) bufferedMessageReady() bool {
 // the accumulated batch is Conn state, so overlapping buffered writes from
 // multiple goroutines, while serialized, share one batch and should be avoided.
 func (c *Conn) WriteMessageBuffered(op Opcode, p []byte) error {
+	if err := c.selectMode(connModeMessage); err != nil {
+		return err
+	}
 	c.wmu.Lock()
 	defer c.wmu.Unlock()
 	if c.closeSent || c.tornDown.Load() {
@@ -251,6 +257,9 @@ func (c *Conn) discardBuffered() {
 // write-closed error (matching errors.Is(err, [net.ErrClosed])); a transport
 // error from the underlying write is returned verbatim.
 func (c *Conn) Flush() error {
+	if err := c.selectMode(connModeMessage); err != nil {
+		return err
+	}
 	c.wmu.Lock()
 	err := c.flushBufferedLocked()
 	c.wmu.Unlock()

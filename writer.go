@@ -18,7 +18,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"math/rand/v2"
+	rand "math/rand/v2"
 	"net"
 	"sync"
 
@@ -57,6 +57,9 @@ import (
 // (including the automatic ping/close replies issued by the read path); at
 // most one WriteMessage may be in flight at a time.
 func (c *Conn) WriteMessage(op Opcode, p []byte) error {
+	if err := c.selectMode(connModeMessage); err != nil {
+		return err
+	}
 	c.wmu.Lock()
 	// A pending WriteMessageBuffered batch must go out ahead of this frame to
 	// preserve order. wbatch is nil for a Conn that never buffers, so that
@@ -394,6 +397,9 @@ type messageWriter struct {
 // The returned writer masks each fragment on the client role as usual, and is
 // not safe for concurrent use.
 func (c *Conn) NextWriter(op Opcode) (io.WriteCloser, error) {
+	if err := c.selectMode(connModeMessage); err != nil {
+		return nil, err
+	}
 	if !op.IsData() {
 		return nil, fmt.Errorf("gows: NextWriter opcode %#x is not a data opcode (Text or Binary)", byte(op))
 	}
