@@ -60,9 +60,9 @@ const minDeflateWindowBits = 8
 // client's next offer, since the server cannot compress within a
 // smaller ceiling than what it is actually configured to use; an offer
 // requesting activeBits or more (or omitting the parameter entirely) is
-// accepted, echoing activeBits back (RFC 7692 §7.1.2.1) whenever it is
-// below 15 -- using less window than the offer's ceiling allows is
-// always RFC-compliant.
+// accepted, echoing activeBits back (RFC 7692 §7.1.2.1) whenever the offer
+// included server_max_window_bits or activeBits is below 15. Using less
+// window than the offer's ceiling allows is always RFC-compliant.
 //
 // allowContextTakeover governs server_no_context_takeover/
 // client_no_context_takeover in the response: when false (this
@@ -116,7 +116,9 @@ func (u *Upgrader) deflateNegotiatePolicy() deflateNegotiatePolicy {
 
 // negotiateDeflateWithHint additionally returns the valued offer-side
 // client_max_window_bits hint for the accepted element. It remains separate
-// from agreed, which contains response parameters only.
+// from agreed, which contains response parameters only. An accepted offer's
+// server_max_window_bits is always answered with the active compression window,
+// including when both the offered limit and active window are 15 bits.
 func negotiateDeflateWithHint(extensions []byte, policy deflateNegotiatePolicy) (extension.DeflateParams, int, bool) {
 	activeBits := deflateWindowBits
 	if policy.negotiateWindowBits {
@@ -143,7 +145,7 @@ func negotiateDeflateWithHint(extensions []byte, policy deflateNegotiatePolicy) 
 			agreed.ServerNoContextTakeover = params.ServerNoContextTakeover
 			agreed.ClientNoContextTakeover = params.ClientNoContextTakeover
 		}
-		if activeBits < deflateWindowBits {
+		if params.ServerMaxWindowBits != 0 || activeBits < deflateWindowBits {
 			agreed.ServerMaxWindowBits = activeBits
 		}
 		// Emit client_max_window_bits only when the offer included the

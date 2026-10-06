@@ -16,16 +16,161 @@ package gows
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
 	"net"
 	"net/http"
+	"strings"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/zchee/gows/internal/httpx"
 )
+
+func TestUpgradeServerWindowAcceptance(t *testing.T) {
+	const base = "GET / HTTP/1.1\r\n" +
+		"Host: example.com\r\n" +
+		"Upgrade: websocket\r\n" +
+		"Connection: Upgrade\r\n" +
+		"Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n" +
+		"Sec-WebSocket-Version: 13\r\n"
+	const noContext = "permessage-deflate; server_no_context_takeover; client_no_context_takeover"
+	tests := map[string]struct {
+		offer, response      string
+		activeBits           int
+		allowContextTakeover bool
+		want                 CompressionParams
+	}{
+		"default window without offered limit": {
+			offer: "permessage-deflate", response: noContext, activeBits: 15,
+		},
+		"explicit default window": {
+			offer: "permessage-deflate; server_max_window_bits=15", response: noContext + "; server_max_window_bits=15", activeBits: 15,
+			want: CompressionParams{ServerMaxWindowBits: 15},
+		},
+		"limit below default window declined": {
+			offer: "permessage-deflate; server_max_window_bits=12", activeBits: 15,
+		},
+		"active window below offered limit": {
+			offer: "permessage-deflate; server_max_window_bits=15", response: noContext + "; server_max_window_bits=10", activeBits: 10,
+			want: CompressionParams{ServerMaxWindowBits: 10},
+		},
+		"minimum limit declined": {
+			offer: "permessage-deflate; server_max_window_bits=8", activeBits: 15,
+		},
+		"smaller active window without offered limit": {
+			offer: "permessage-deflate", response: noContext + "; server_max_window_bits=10", activeBits: 10,
+			want: CompressionParams{ServerMaxWindowBits: 10},
+		},
+		"explicit default window with client no context only": {
+			offer:    "permessage-deflate; server_max_window_bits=15; client_no_context_takeover",
+			response: "permessage-deflate; client_no_context_takeover; server_max_window_bits=15", activeBits: 15, allowContextTakeover: true,
+			want: CompressionParams{ServerContextTakeover: true, ServerMaxWindowBits: 15},
+		},
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			if tt.activeBits < deflateWindowBits {
+				withDeflateBackend(t, fakeWindowedBackend, defaultDeflateLevel, tt.activeBits)
+			}
+			sc := &scriptConn{in: []byte(base + "Sec-WebSocket-Extensions: " + tt.offer + "\r\n\r\n")}
+			u := Upgrader{EnableCompression: true, NegotiateWindowBits: tt.activeBits < deflateWindowBits, AllowContextTakeover: tt.allowContextTakeover}
+			hs, err := u.Upgrade(sc)
+			if err != nil {
+				t.Fatalf("Upgrade offer %q: %v", tt.offer, err)
+			}
+			resp, err := http.ReadResponse(bufio.NewReader(strings.NewReader(sc.out.String())), nil)
+			if err != nil {
+				t.Fatalf("read response: %v", err)
+			}
+			defer resp.Body.Close()
+			if got := resp.Header.Get("Sec-WebSocket-Extensions"); got != tt.response {
+				t.Fatalf("response = %q, want %q", got, tt.response)
+			}
+			params, negotiated, err := ParseCompression([]string{tt.offer}, resp.Header.Values("Sec-WebSocket-Extensions"))
+			if err != nil || negotiated != (tt.response != "") || params != tt.want {
+				t.Fatalf("params=%+v negotiated=%v err=%v; want %+v negotiated=%v", params, negotiated, err, tt.want, tt.response != "")
+			}
+			if hs.Compressed != negotiated || hs.CompressionParams != params {
+				t.Fatalf("server handshake=%+v differs from parsed response=%+v negotiated=%v", hs, params, negotiated)
+			}
+		})
+	}
+}
+
+func TestDialUpgradeExplicitServerWindowRoundTrip(t *testing.T) {
+	server, client := net.Pipe()
+	var wg sync.WaitGroup
+	t.Cleanup(func() {
+		_ = server.Close()
+		_ = client.Close()
+		wg.Wait()
+	})
+	deadline := time.Now().Add(30 * time.Second)
+	if err := server.SetDeadline(deadline); err != nil {
+		t.Fatal(err)
+	}
+	if err := client.SetDeadline(deadline); err != nil {
+		t.Fatal(err)
+	}
+	payload := []byte(strings.Repeat("compressed window acceptance ", 64))
+	done := make(chan error, 1)
+	wg.Go(func() {
+		u := Upgrader{EnableCompression: true}
+		hs, err := u.Upgrade(server)
+		if err != nil {
+			done <- fmt.Errorf("Upgrade: %w", err)
+			return
+		}
+		if !hs.Compressed || hs.CompressionParams != (CompressionParams{ServerMaxWindowBits: 15}) {
+			done <- fmt.Errorf("server handshake: %+v", hs)
+			return
+		}
+		srv := NewServerConn(server, WithBuffered(hs.Buffered), WithCompressionParams(hs.CompressionParams))
+		defer srv.Abort()
+		frame, err := srv.ReadFrame()
+		if err != nil {
+			done <- fmt.Errorf("server ReadFrame: %w", err)
+			return
+		}
+		got, complete, err := srv.DecodeFrame(frame)
+		if err != nil || !complete || !frame.Compressed || frame.Header.Opcode != OpcodeText || !bytes.Equal(got, payload) {
+			done <- fmt.Errorf("server frame=%+v complete=%v payload=%q err=%v", frame.Header, complete, got, err)
+			return
+		}
+		done <- srv.WriteFrame(OpcodeText, true, got, true)
+	})
+	d := Dialer{EnableCompression: true, ServerWindowBits: 15, NetDial: func(context.Context, string, string) (net.Conn, error) { return client, nil }}
+	raw, hs, err := d.Dial(t.Context(), "ws://example.invalid/")
+	if err != nil {
+		t.Fatalf("Dial explicit server window: %v", err)
+	}
+	if !hs.Compressed || hs.CompressionParams != (CompressionParams{ServerMaxWindowBits: 15}) {
+		t.Fatalf("client handshake: %+v", hs)
+	}
+	if err := raw.SetDeadline(deadline); err != nil {
+		t.Fatal(err)
+	}
+	cli := NewClientConn(raw, WithBuffered(hs.Buffered), WithCompressionParams(hs.CompressionParams))
+	defer cli.Abort()
+	if err := cli.WriteFrame(OpcodeText, true, payload, true); err != nil {
+		t.Fatalf("client WriteFrame: %v", err)
+	}
+	frame, err := cli.ReadFrame()
+	if err != nil {
+		t.Fatalf("client ReadFrame: %v", err)
+	}
+	got, complete, err := cli.DecodeFrame(frame)
+	if err != nil || !complete || !frame.Compressed || frame.Header.Opcode != OpcodeText || !bytes.Equal(got, payload) {
+		t.Fatalf("client frame=%+v complete=%v payload=%q err=%v", frame.Header, complete, got, err)
+	}
+	if err := <-done; err != nil {
+		t.Fatalf("server exchange: %v", err)
+	}
+}
 
 func TestParseCompression(t *testing.T) {
 	tests := map[string]struct {

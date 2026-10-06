@@ -53,7 +53,11 @@ func TestNegotiateDeflate(t *testing.T) {
 		"server_max_window_bits=15 explicitly is fine": {
 			extensions: "permessage-deflate; server_max_window_bits=15",
 			wantOK:     true,
-			want:       extension.DeflateParams{ServerNoContextTakeover: true, ClientNoContextTakeover: true},
+			want:       extension.DeflateParams{ServerNoContextTakeover: true, ClientNoContextTakeover: true, ServerMaxWindowBits: 15},
+		},
+		"server_max_window_bits=12 below default window declined": {
+			extensions: "permessage-deflate; server_max_window_bits=12",
+			wantOK:     false,
 		},
 		"bare client_max_window_bits accepted": {
 			extensions: "permessage-deflate; client_max_window_bits",
