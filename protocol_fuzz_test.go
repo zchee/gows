@@ -200,7 +200,7 @@ func FuzzDialProtocolState(f *testing.F) {
 			case 8:
 				status = "HTTP/1.1 101 Switching Protocols\n"
 			case 9:
-				extra = "Sec-WebSocket-Extensions: permessage-deflate; client_max_window_bits=15\r\n"
+				extra = "Sec-WebSocket-Extensions: permessage-deflate; server_no_context_takeover; client_max_window_bits=15\r\n"
 			case 10:
 				extra = "Sec-WebSocket-Extensions: permessage-deflate; client_max_window_bits\r\n"
 			case 11:
@@ -228,7 +228,7 @@ func FuzzDialProtocolState(f *testing.F) {
 		if dialCalls != 1 {
 			t.Fatalf("NetDial calls = %d, want 1", dialCalls)
 		}
-		if mode == 0 || mode == 7 || mode == 9 {
+		if mode == 0 || mode == 9 {
 			if err != nil {
 				t.Fatalf("valid response rejected: %v", err)
 			}
@@ -256,8 +256,8 @@ func FuzzDialProtocolState(f *testing.F) {
 					t.Fatalf("reconstructed pipelined bytes = %x, want %x", got, pipelined)
 				}
 			}
-			if (mode == 7 || mode == 9) && !hs.Compressed {
-				t.Fatal("duplicate valid extension response did not negotiate compression")
+			if mode == 9 && !hs.Compressed {
+				t.Fatal("valid extension response did not negotiate compression")
 			}
 			hs.Release()
 			_ = conn.Close()

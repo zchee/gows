@@ -86,24 +86,6 @@ func (d *Dialer) deflateOffer() (header string, params extension.DeflateParams) 
 	return b.String(), params
 }
 
-// hasDeflateElement reports whether b (a Sec-WebSocket-Extensions header
-// value) names permessage-deflate at all, regardless of whether its
-// parameters are valid. It distinguishes "the server didn't negotiate
-// compression" (fine, not an error) from "the server claimed to
-// negotiate compression with an invalid response"
-// ([ErrInvalidCompressionResponse]), which [extension.ValidateDeflateResponse]
-// alone cannot: it returns the same error for both "no permessage-deflate
-// element at all" and "a present but malformed one".
-func hasDeflateElement(b []byte) bool {
-	sc := extension.NewOfferScanner(b)
-	for sc.Next() {
-		if httpx.EqualFold(sc.Name(), extension.DeflateExtensionName) {
-			return true
-		}
-	}
-	return false
-}
-
 // Dial performs the client side of a WebSocket opening handshake to
 // rawURL using the zero-value [Dialer] (no subprotocols, default TLS
 // config, [net.Dialer]'s default dialing). It is a convenience
@@ -622,7 +604,7 @@ func (d *Dialer) handshake(conn net.Conn, u *url.URL, hdr http.Header, absoluteF
 	if len(d.Subprotocols) > 0 {
 		fmt.Fprintf(&req, "Sec-WebSocket-Protocol: %s\r\n", joinComma(d.Subprotocols))
 	}
-	offerHeader, offerParams := d.deflateOffer()
+	offerHeader, _ := d.deflateOffer()
 	if d.EnableCompression {
 		fmt.Fprintf(&req, "Sec-WebSocket-Extensions: %s\r\n", offerHeader)
 	}
@@ -703,29 +685,25 @@ func (d *Dialer) handshake(conn net.Conn, u *url.URL, hdr http.Header, absoluteF
 		}
 	}
 
-	var compressed bool
-	var agreedParams extension.DeflateParams
-	if d.EnableCompression && hf.extensions != nil && hasDeflateElement(hf.extensions) {
-		respParams, verr := extension.ValidateDeflateResponse(offerParams, hf.extensions)
-		if verr != nil {
-			return Handshake{}, "", fmt.Errorf("%w: %w", ErrInvalidCompressionResponse, verr)
-		}
-		agreedParams = respParams
-		compressed = true
+	var offer []string
+	if d.EnableCompression {
+		offer = []string{offerHeader}
+	}
+	cp, compressed, err := ParseCompression(offer, []string{string(hf.extensions)})
+	if err != nil {
+		return Handshake{}, "", err
 	}
 
 	h := Handshake{Subprotocol: selected, Compressed: compressed}
 	if compressed {
-		cp := compressionParamsFromDeflate(agreedParams)
-		// Client's own outgoing ceiling: response value if present, else the
-		// self-imposed offer (WindowBits); when both present, take the min.
-		switch {
-		case agreedParams.ClientMaxWindowBits > 0 && d.WindowBits != 0:
-			cp.ClientMaxWindowBits = min(agreedParams.ClientMaxWindowBits, d.WindowBits)
-		case agreedParams.ClientMaxWindowBits > 0:
-			cp.ClientMaxWindowBits = agreedParams.ClientMaxWindowBits
-		case d.WindowBits != 0:
-			cp.ClientMaxWindowBits = d.WindowBits
+		// A valued client offer remains a self-imposed outgoing ceiling,
+		// even when the response omits it or returns a larger value.
+		if d.WindowBits != 0 {
+			if cp.ClientMaxWindowBits == 0 {
+				cp.ClientMaxWindowBits = d.WindowBits
+			} else {
+				cp.ClientMaxWindowBits = min(cp.ClientMaxWindowBits, d.WindowBits)
+			}
 		}
 		// A response may tighten the ceiling below what the offer-time check
 		// already accepted (e.g. we offered 10, server replied 8).

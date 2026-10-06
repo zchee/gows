@@ -402,6 +402,7 @@ func TestDialCompressionNegotiation(t *testing.T) {
 		"server response names unrelated extension only": {
 			enableClient:    true,
 			serverExtHeader: "x-foo",
+			wantErr:         ErrInvalidCompressionResponse,
 		},
 		"server accepts": {
 			enableClient:    true,
@@ -427,6 +428,7 @@ func TestDialCompressionNegotiation(t *testing.T) {
 			enableClient:    false,
 			serverExtHeader: "permessage-deflate",
 			wantCompressed:  false,
+			wantErr:         ErrInvalidCompressionResponse,
 		},
 	}
 
