@@ -130,6 +130,12 @@ type Conn struct {
 	outgoingWindowCeil int           // effective ceiling on this Conn's own outgoing compression window (8..15); default 15
 	teardownOnce       sync.Once
 	closeTimeout       time.Duration
+	mode               atomic.Uint32 // permanent message/frame API selection.
+	frameReadMu        sync.Mutex    // coordinates frame reads and Abort.
+	frameStopOnce      sync.Once     // closes the frame-mode transport once.
+	frameRead          frameReadState
+	frameWrite         frameWriteState  // guarded by wmu.
+	frameDecode        frameDecodeState // guarded by frameReadMu.
 }
 
 // ConnOption configures a [Conn] created by [NewServerConn] or
@@ -459,6 +465,9 @@ func (c *Conn) SetWriteDeadline(t time.Time) error {
 // deadline, use [Conn.CloseContext]; to send the Close frame from
 // another goroutine while a reader is active, use [Conn.WriteClose].
 func (c *Conn) Close(code CloseCode, reason string) error {
+	if err := c.selectMode(connModeMessage); err != nil {
+		return err
+	}
 	// Idempotent: once the connection is torn down (by a peer Close, a
 	// protocol/IO failure on the read path, or a prior Close), there is nothing
 	// left to do and, critically, nothing left to read — re-entering the read
@@ -489,7 +498,11 @@ func (c *Conn) Close(code CloseCode, reason string) error {
 // later call can index the freed read buffer with stale offsets.
 func (c *Conn) teardown() {
 	c.teardownOnce.Do(func() {
-		_ = c.conn.Close()
+		if c.mode.Load() == connModeFrame {
+			c.frameStopOnce.Do(func() { _ = c.conn.Close() })
+		} else {
+			_ = c.conn.Close()
+		}
 		if c.rbuf != nil {
 			pool.Put(c.rbuf)
 			c.rbuf = nil
@@ -502,6 +515,10 @@ func (c *Conn) teardown() {
 			pool.Put(c.inflateBuf)
 			c.inflateBuf = nil
 		}
+		if c.frameDecode.buf != nil {
+			pool.Put(c.frameDecode.buf)
+			c.frameDecode.buf = nil
+		}
 		c.r0, c.r1 = 0, 0
 		// Release the WriteMessageBuffered batch accumulator, if any. It is
 		// write-side state guarded by wmu, and an in-flight WriteMessage MAY
@@ -511,6 +528,13 @@ func (c *Conn) teardown() {
 		// concurrent buffered write. pool.Put drops a non-class capacity,
 		// exactly as for msgBuf above.
 		c.wmu.Lock()
+		if c.mode.Load() == connModeFrame {
+			c.releaseFrameCompressor()
+			c.whdr, c.wpay, c.wclose, c.wstage, c.wcomp = nil, nil, nil, nil, nil
+			c.wiov = [2][]byte{}
+			c.wbufs = nil
+			c.wslice.b = nil
+		}
 		if c.wbatch != nil {
 			pool.Put(c.wbatch)
 			c.wbatch = nil
@@ -562,6 +586,9 @@ func (c *Conn) teardown() {
 // or the connection's write deadline expires; bound it with
 // [Conn.SetWriteDeadline] against a peer that has stopped reading.
 func (c *Conn) WriteClose(code CloseCode, reason string) error {
+	if err := c.selectMode(connModeMessage); err != nil {
+		return err
+	}
 	if c.tornDown.Load() {
 		return nil
 	}
@@ -605,6 +632,9 @@ func (c *Conn) WriteClose(code CloseCode, reason string) error {
 // I/O, and like Close, CloseContext is idempotent: once the connection
 // is torn down it returns nil immediately.
 func (c *Conn) CloseContext(ctx context.Context, code CloseCode, reason string) error {
+	if err := c.selectMode(connModeMessage); err != nil {
+		return err
+	}
 	if c.tornDown.Load() {
 		return nil
 	}

@@ -18,7 +18,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"math/rand/v2"
+	rand "math/rand/v2"
 	"net"
 	"sync"
 
@@ -57,6 +57,9 @@ import (
 // (including the automatic ping/close replies issued by the read path); at
 // most one WriteMessage may be in flight at a time.
 func (c *Conn) WriteMessage(op Opcode, p []byte) error {
+	if err := c.selectMode(connModeMessage); err != nil {
+		return err
+	}
 	c.wmu.Lock()
 	// A pending WriteMessageBuffered batch must go out ahead of this frame to
 	// preserve order. wbatch is nil for a Conn that never buffers, so that
@@ -224,8 +227,7 @@ func (c *Conn) emitFrameLocked(op Opcode, fin bool, rsv byte, payload []byte) er
 		if len(payload) <= maxCoalescedWriteSize {
 			c.wpay = append(c.wpay[:0], c.whdr...)
 			c.wpay = append(c.wpay, payload...)
-			_, err := c.conn.Write(c.wpay)
-			return err
+			return c.writeFrameBytes(c.wpay)
 		}
 		return c.writeFrame(c.whdr, payload)
 	}
@@ -250,8 +252,7 @@ func (c *Conn) emitFrameLocked(op Opcode, fin bool, rsv byte, payload []byte) er
 // there. The caller must hold wmu.
 func (c *Conn) writeFrame(a, b []byte) error {
 	if len(b) == 0 {
-		_, err := c.conn.Write(a)
-		return err
+		return c.writeFrameBytes(a)
 	}
 	if c.vectored {
 		return c.writev(a, b)
@@ -271,7 +272,10 @@ func (c *Conn) writev(a, b []byte) error {
 	// the heap-resident Conn.
 	c.wiov[0], c.wiov[1] = a, b
 	c.wbufs = c.wiov[:]
-	_, err := c.wbufs.WriteTo(c.conn)
+	n, err := c.wbufs.WriteTo(c.conn)
+	if err == nil && n != int64(len(a)+len(b)) {
+		return io.ErrShortWrite
+	}
 	return err
 }
 
@@ -289,8 +293,7 @@ func (c *Conn) stageWrite(a, b []byte) error {
 	if len(a)+len(b) <= maxBufferedWriteSize {
 		c.wstage = append(c.wstage[:0], a...)
 		c.wstage = append(c.wstage, b...)
-		_, err := c.conn.Write(c.wstage)
-		return err
+		return c.writeFrameBytes(c.wstage)
 	}
 	// Fill the staged buffer to the cap with the header and the payload prefix,
 	// write that, then write the payload remainder directly (len(a) is at most
@@ -298,10 +301,17 @@ func (c *Conn) stageWrite(a, b []byte) error {
 	room := maxBufferedWriteSize - len(a)
 	c.wstage = append(c.wstage[:0], a...)
 	c.wstage = append(c.wstage, b[:room]...)
-	if _, err := c.conn.Write(c.wstage); err != nil {
+	if err := c.writeFrameBytes(c.wstage); err != nil {
 		return err
 	}
-	_, err := c.conn.Write(b[room:])
+	return c.writeFrameBytes(b[room:])
+}
+
+func (c *Conn) writeFrameBytes(p []byte) error {
+	n, err := c.conn.Write(p)
+	if err == nil && n != len(p) {
+		return io.ErrShortWrite
+	}
 	return err
 }
 
@@ -394,6 +404,9 @@ type messageWriter struct {
 // The returned writer masks each fragment on the client role as usual, and is
 // not safe for concurrent use.
 func (c *Conn) NextWriter(op Opcode) (io.WriteCloser, error) {
+	if err := c.selectMode(connModeMessage); err != nil {
+		return nil, err
+	}
 	if !op.IsData() {
 		return nil, fmt.Errorf("gows: NextWriter opcode %#x is not a data opcode (Text or Binary)", byte(op))
 	}

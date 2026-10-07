@@ -115,6 +115,9 @@ func NewPreparedMessage(op Opcode, payload []byte) (*PreparedMessage, error) {
 // mask every outbound frame with a fresh key. Calling it on a client-role
 // Conn returns [ErrPreparedMessageClientRole] without writing anything.
 func (c *Conn) WritePreparedMessage(pm *PreparedMessage) error {
+	if err := c.selectMode(connModeMessage); err != nil {
+		return err
+	}
 	if c.client {
 		return ErrPreparedMessageClientRole
 	}

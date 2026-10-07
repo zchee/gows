@@ -49,6 +49,9 @@ import (
 //
 // At most one goroutine may call ReadMessage at a time.
 func (c *Conn) ReadMessage() (Opcode, []byte, error) {
+	if err := c.selectMode(connModeMessage); err != nil {
+		return 0, nil, err
+	}
 	if c.readErr != nil {
 		return 0, nil, c.readErr
 	}
@@ -611,6 +614,9 @@ type messageReader struct {
 //
 // At most one goroutine may call NextReader at a time.
 func (c *Conn) NextReader() (Opcode, io.Reader, error) {
+	if err := c.selectMode(connModeMessage); err != nil {
+		return 0, nil, err
+	}
 	if c.readErr != nil {
 		return 0, nil, c.readErr
 	}
