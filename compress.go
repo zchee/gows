@@ -81,8 +81,10 @@ var defaultDeflateBackend = &DeflateBackend{
 		// window and needs no advance sizing hint.
 		return flate.NewReader(bytes.NewReader(nil)).(DeflateReader)
 	},
-	MinLevel: flate.HuffmanOnly, MaxLevel: flate.BestCompression,
-	MinWindowBits: deflateWindowBits, MaxWindowBits: deflateWindowBits,
+	MinLevel:      flate.HuffmanOnly,
+	MaxLevel:      flate.BestCompression,
+	MinWindowBits: deflateWindowBits,
+	MaxWindowBits: deflateWindowBits,
 }
 
 // deflateConfig is one immutable snapshot of "what compress.go's
@@ -95,11 +97,11 @@ var defaultDeflateBackend = &DeflateBackend{
 // writers/readers from an old backend are simply dropped (left for GC)
 // instead of resurfacing from a Get call under the new configuration.
 type deflateConfig struct {
+	writers    sync.Pool
+	readers    sync.Pool
 	backend    *DeflateBackend
 	level      int
 	windowBits int
-	writers    sync.Pool
-	readers    sync.Pool
 }
 
 // newDeflateConfig builds a deflateConfig backed by b at level/windowBits,
@@ -285,30 +287,6 @@ func DefaultDeflateBackend() *DeflateBackend {
 // compliant peer using the full window. When no peer-direction bound was
 // negotiated, the 32KB default is the only correct choice.
 type deflateState struct {
-	// outgoingWindowBits is the window bits outgoing's own compressor was
-	// constructed with; see the doc above for why this must never also
-	// govern incomingDict's capacity.
-	outgoingWindowBits int
-
-	// outgoingTakeover is true when outgoing was constructed for context
-	// takeover (never Reset between messages). When false and outgoing is
-	// non-nil, outgoing is a sub-ceiling per-message writer that Reset is
-	// called on before every compress (fresh window at the per-Conn size).
-	outgoingTakeover bool
-
-	// incomingWindowBits is the cap exponent for incomingDict: the ceiling
-	// negotiated for the peer's direction, else 15. Always set when this
-	// deflateState is non-nil (even if incomingDict is nil).
-	incomingWindowBits int
-
-	// outgoingDisabled is set when construction-time backend could not
-	// honor the outgoing ceiling (race with SetDeflateBackend after Dial's
-	// fail-fast), or when a context-takeover compress-or-emit step failed
-	// after advancing the persistent compressor's window. WriteMessage
-	// then sends everything uncompressed (always legal per RFC 7692 §6);
-	// receiving compressed still works independently.
-	outgoingDisabled bool
-
 	// outgoing is non-nil when this Conn needs a dedicated compressor:
 	// either its own outgoing direction negotiated context takeover, or a
 	// negotiated window ceiling below the process-global windowBits. See
@@ -326,6 +304,29 @@ type deflateState struct {
 	// outgoing, and the doc above for why its cap is the peer-direction
 	// negotiated ceiling (else 32KB), never outgoingWindowBits.
 	incomingDict []byte
+	// outgoingWindowBits is the window bits outgoing's own compressor was
+	// constructed with; see the doc above for why this must never also
+	// govern incomingDict's capacity.
+	outgoingWindowBits int
+
+	// incomingWindowBits is the cap exponent for incomingDict: the ceiling
+	// negotiated for the peer's direction, else 15. Always set when this
+	// deflateState is non-nil (even if incomingDict is nil).
+	incomingWindowBits int
+
+	// outgoingTakeover is true when outgoing was constructed for context
+	// takeover (never Reset between messages). When false and outgoing is
+	// non-nil, outgoing is a sub-ceiling per-message writer that Reset is
+	// called on before every compress (fresh window at the per-Conn size).
+	outgoingTakeover bool
+
+	// outgoingDisabled is set when construction-time backend could not
+	// honor the outgoing ceiling (race with SetDeflateBackend after Dial's
+	// fail-fast), or when a context-takeover compress-or-emit step failed
+	// after advancing the persistent compressor's window. WriteMessage
+	// then sends everything uncompressed (always legal per RFC 7692 §6);
+	// receiving compressed still works independently.
+	outgoingDisabled bool
 }
 
 // newDeflateState builds the deflateState a Conn with the given role and
@@ -415,15 +416,15 @@ func newDeflateState(client bool, p CompressionParams) *deflateState {
 // into any message received so far, not just the most recent one. dict
 // must have been allocated with cap(dict) == max (see newDeflateState),
 // so appending never reallocates.
-func slideWindow(dict, add []byte, max int) []byte {
-	if len(add) >= max {
-		return append(dict[:0], add[len(add)-max:]...)
+func slideWindow(dict, add []byte, maxlength int) []byte {
+	if len(add) >= maxlength {
+		return append(dict[:0], add[len(add)-maxlength:]...)
 	}
 	total := len(dict) + len(add)
-	if total <= max {
+	if total <= maxlength {
 		return append(dict, add...)
 	}
-	drop := total - max
+	drop := total - maxlength
 	n := copy(dict, dict[drop:])
 	return append(dict[:n], add...)
 }

@@ -14,6 +14,7 @@ import (
 	"testing"
 
 	kpflate "github.com/klauspost/compress/flate"
+
 	"github.com/zchee/gows/bench/harness/support"
 )
 

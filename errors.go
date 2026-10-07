@@ -212,14 +212,14 @@ var (
 // [ErrProxyConnectFailed], a proxy CONNECT response other than 200.
 // errors.Is(err, [ErrUnexpectedStatus]) matches it.
 type UnexpectedStatusError struct {
-	// StatusCode is the numeric HTTP status the peer sent (e.g. 403).
-	StatusCode int
 	// Reason is the peer-controlled reason phrase, verbatim. It is
 	// carried for callers that explicitly inspect it and deliberately
 	// excluded from Error's text, so peer-reflected content (which may
 	// echo credentials or other request material) never reaches logs
 	// through the error chain.
 	Reason string
+	// StatusCode is the numeric HTTP status the peer sent (e.g. 403).
+	StatusCode int
 }
 
 // Error implements the error interface. The text carries only the

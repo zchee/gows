@@ -84,10 +84,6 @@ type DeflateReader interface {
 // level, and window bits actually used to compress/decompress -- are a
 // process-wide setting, not a per-Conn one.
 type DeflateBackend struct {
-	// Name identifies the backend for diagnostics (e.g. "compress/flate",
-	// "klauspost/compress/flate"). Optional.
-	Name string
-
 	// NewWriter constructs a compressor at level, restricted to at most
 	// 2^windowBits bytes of LZ77 history (RFC 7692 §7.1.2's window-bits
 	// range, 8-15). By the time compress.go calls this, [SetDeflateBackend]
@@ -105,6 +101,10 @@ type DeflateBackend struct {
 	// unused by a NewReader implementation; it is still passed through
 	// for backends that do size an internal buffer from it.
 	NewReader func(windowBits int) DeflateReader
+
+	// Name identifies the backend for diagnostics (e.g. "compress/flate",
+	// "klauspost/compress/flate"). Optional.
+	Name string
 
 	// MinLevel and MaxLevel report the inclusive range of compression
 	// levels NewWriter accepts when windowBits requests the full,
@@ -195,16 +195,6 @@ const defaultDeflateLevel = 1
 // (RFC 6455 §4.2). The zero value is a ready-to-use Upgrader with no
 // subprotocols, no Origin check, and the default header size limit.
 type Upgrader struct {
-	// Subprotocols lists the server's supported subprotocols in order of
-	// preference (RFC 6455 §4.1). When negotiating, [Upgrader.Upgrade]
-	// and [Upgrader.UpgradeHTTP] select the first entry here that also
-	// appears in the client's Sec-WebSocket-Protocol request header, and
-	// report it as the string value already present in this slice (no
-	// new string is allocated for the match). A nil or empty
-	// Subprotocols never selects a subprotocol, even if the client
-	// offered some.
-	Subprotocols []string
-
 	// OriginCheck, if non-nil, is called with the raw value of the
 	// handshake request's Origin header (or nil if the request had no
 	// Origin header at all) and must report whether the request should
@@ -217,6 +207,16 @@ type Upgrader struct {
 	// [Upgrader.UpgradeHTTP]); OriginCheck must not retain it.
 	OriginCheck func(origin []byte) bool
 
+	// Subprotocols lists the server's supported subprotocols in order of
+	// preference (RFC 6455 §4.1). When negotiating, [Upgrader.Upgrade]
+	// and [Upgrader.UpgradeHTTP] select the first entry here that also
+	// appears in the client's Sec-WebSocket-Protocol request header, and
+	// report it as the string value already present in this slice (no
+	// new string is allocated for the match). A nil or empty
+	// Subprotocols never selects a subprotocol, even if the client
+	// offered some.
+	Subprotocols []string
+
 	// MaxHeaderBytes caps the size of the request line plus header block
 	// [Upgrader.Upgrade] will read before giving up with
 	// [ErrHeaderTooLarge]. Zero means [defaultMaxHeaderBytes] (8KB).
@@ -224,6 +224,25 @@ type Upgrader struct {
 	// server already enforces its http.Server.MaxHeaderBytes before an
 	// http.Handler ever runs.
 	MaxHeaderBytes int
+
+	// ClientWindowBits, when 8-15 (and EnableCompression is also true),
+	// makes [Upgrader.Upgrade] and [Upgrader.UpgradeHTTP] emit
+	// client_max_window_bits in the permessage-deflate response whenever
+	// the client's offer included that parameter at all (bare or valued),
+	// restricting the client's own outgoing compression to
+	// min(ClientWindowBits, offeredValue) where offeredValue only
+	// participates when the offer was valued (RFC 7692 §7.1.2.2: the
+	// response must be equal-or-smaller). When the offer lacks the
+	// parameter entirely, nothing is emitted regardless of this field
+	// (RFC 7692 §7.1.2.2 forbids introducing it unsolicited) and the
+	// server's incoming sliding-window bound stays the RFC default 15.
+	//
+	// The zero value preserves this package's original behavior exactly:
+	// nothing is emitted, even when the offer had the parameter. Any other
+	// non-zero value outside 8-15 is a configuration bug:
+	// Upgrade/UpgradeHTTP fail with [ErrInvalidWindowBits] before reading
+	// from the connection.
+	ClientWindowBits int
 
 	// RawPath, when true, makes [Upgrader.Upgrade] skip allocating
 	// Handshake.Path and Handshake.Query as strings; the caller must use
@@ -309,37 +328,12 @@ type Upgrader struct {
 	// to negotiate a binding wire ceiling when that risk is unacceptable.
 	// The zero value preserves the RFC-strict 32KB incoming ceiling.
 	TrustClientWindowBitsHint bool
-
-	// ClientWindowBits, when 8-15 (and EnableCompression is also true),
-	// makes [Upgrader.Upgrade] and [Upgrader.UpgradeHTTP] emit
-	// client_max_window_bits in the permessage-deflate response whenever
-	// the client's offer included that parameter at all (bare or valued),
-	// restricting the client's own outgoing compression to
-	// min(ClientWindowBits, offeredValue) where offeredValue only
-	// participates when the offer was valued (RFC 7692 §7.1.2.2: the
-	// response must be equal-or-smaller). When the offer lacks the
-	// parameter entirely, nothing is emitted regardless of this field
-	// (RFC 7692 §7.1.2.2 forbids introducing it unsolicited) and the
-	// server's incoming sliding-window bound stays the RFC default 15.
-	//
-	// The zero value preserves this package's original behavior exactly:
-	// nothing is emitted, even when the offer had the parameter. Any other
-	// non-zero value outside 8-15 is a configuration bug:
-	// Upgrade/UpgradeHTTP fail with [ErrInvalidWindowBits] before reading
-	// from the connection.
-	ClientWindowBits int
 }
 
 // Dialer performs the client side of a WebSocket opening handshake
 // (RFC 6455 §4.1). The zero value is a ready-to-use Dialer that dials
 // plain TCP with [net.Dialer]'s defaults and offers no subprotocols.
 type Dialer struct {
-	// Subprotocols lists the subprotocols this client supports, sent as
-	// the Sec-WebSocket-Protocol request header (RFC 6455 §4.1). If the
-	// server's response selects a value not in this list, [Dialer.Dial]
-	// fails with [ErrUnrequestedSubprotocol].
-	Subprotocols []string
-
 	// TLSConfig configures the TLS client connection used for "wss" URLs
 	// (RFC 6455 §4.1: wss is WebSocket-over-TLS). If TLSConfig is nil, a
 	// zero-value [tls.Config] is used. If TLSConfig.ServerName is empty,
@@ -443,15 +437,11 @@ type Dialer struct {
 	// like any other non-101 response, with a [*UnexpectedStatusError].
 	CheckRedirect func(req *http.Request, via []*http.Request) error
 
-	// EnableCompression, when true, makes [Dialer.Dial] offer
-	// permessage-deflate (RFC 7692) in its handshake request, requesting
-	// both server_no_context_takeover and client_no_context_takeover
-	// (context takeover is a later opt-in) and no particular window size.
-	// If the server declines (no Sec-WebSocket-Extensions in its
-	// response), that is not a Dial failure: [Handshake.Compressed] is
-	// simply false. If the server's response is present but invalid (see
-	// [ErrInvalidCompressionResponse]), Dial fails.
-	EnableCompression bool
+	// Subprotocols lists the subprotocols this client supports, sent as
+	// the Sec-WebSocket-Protocol request header (RFC 6455 §4.1). If the
+	// server's response selects a value not in this list, [Dialer.Dial]
+	// fails with [ErrUnrequestedSubprotocol].
+	Subprotocols []string
 
 	// WindowBits, if non-zero, must be 8-15 (RFC 7692 §7.1.2.2) and adds
 	// a client_max_window_bits=WindowBits parameter to [Dialer.Dial]'s
@@ -470,6 +460,30 @@ type Dialer struct {
 	// The zero value adds no window-bits restriction to the offer,
 	// matching this package's original behavior exactly.
 	WindowBits int
+
+	// ServerWindowBits, if non-zero, must be 8-15 (RFC 7692 §7.1.2.1) and
+	// adds a server_max_window_bits=ServerWindowBits parameter to
+	// [Dialer.Dial]'s permessage-deflate offer, requesting that the
+	// server's own outgoing compression stay within 2^N bytes of LZ77
+	// history. A server that cannot compress within that ceiling must
+	// decline permessage-deflate (or this offer element); the connection
+	// then simply proceeds uncompressed — never a handshake failure from
+	// this Dialer's side. [Dial] fails with [ErrInvalidWindowBits] before
+	// dialing anything if ServerWindowBits is out of range.
+	//
+	// The zero value adds no server_max_window_bits restriction to the
+	// offer, matching this package's original behavior exactly.
+	ServerWindowBits int
+
+	// EnableCompression, when true, makes [Dialer.Dial] offer
+	// permessage-deflate (RFC 7692) in its handshake request, requesting
+	// both server_no_context_takeover and client_no_context_takeover
+	// (context takeover is a later opt-in) and no particular window size.
+	// If the server declines (no Sec-WebSocket-Extensions in its
+	// response), that is not a Dial failure: [Handshake.Compressed] is
+	// simply false. If the server's response is present but invalid (see
+	// [ErrInvalidCompressionResponse]), Dial fails.
+	EnableCompression bool
 
 	// OfferClientMaxWindowBits, when true, adds one bare
 	// client_max_window_bits parameter to the permessage-deflate offer,
@@ -498,20 +512,6 @@ type Dialer struct {
 	// behavior exactly: the offer always requests no-context-takeover on
 	// both directions.
 	AllowContextTakeover bool
-
-	// ServerWindowBits, if non-zero, must be 8-15 (RFC 7692 §7.1.2.1) and
-	// adds a server_max_window_bits=ServerWindowBits parameter to
-	// [Dialer.Dial]'s permessage-deflate offer, requesting that the
-	// server's own outgoing compression stay within 2^N bytes of LZ77
-	// history. A server that cannot compress within that ceiling must
-	// decline permessage-deflate (or this offer element); the connection
-	// then simply proceeds uncompressed — never a handshake failure from
-	// this Dialer's side. [Dial] fails with [ErrInvalidWindowBits] before
-	// dialing anything if ServerWindowBits is out of range.
-	//
-	// The zero value adds no server_max_window_bits restriction to the
-	// offer, matching this package's original behavior exactly.
-	ServerWindowBits int
 }
 
 // Handshake describes a completed WebSocket opening handshake, returned
@@ -550,15 +550,13 @@ type Handshake struct {
 	// preceding anything subsequently read from the connection itself,
 	// or those bytes are lost.
 	Buffered []byte
-	// Compressed reports whether permessage-deflate (RFC 7692) was
-	// negotiated for this connection, via [Upgrader.EnableCompression] or
-	// [Dialer.EnableCompression]. Prefer
-	// [WithCompressionParams](hs.CompressionParams) when constructing the
-	// [Conn]; [WithCompression](hs.Compressed) is only equivalent when
-	// context-takeover policy does not matter (see [WithCompression]).
-	// Passing a hardcoded value instead of this field risks a Conn that
-	// disagrees with what the peer actually agreed to.
-	Compressed bool
+
+	// buf, if non-nil, is the pooled read buffer backing rawPath and
+	// rawQuery (only ever set by [Upgrader.Upgrade] with
+	// [Upgrader.RawPath] set). It must not be returned to the pool until
+	// the caller is done with those slices; see [Handshake.Release].
+	buf               []byte
+	rawPath, rawQuery []byte
 
 	// CompressionParams reports the negotiated context-takeover
 	// configuration when Compressed is true (the zero value -- both
@@ -572,12 +570,15 @@ type Handshake struct {
 	// this field reports.
 	CompressionParams CompressionParams
 
-	// buf, if non-nil, is the pooled read buffer backing rawPath and
-	// rawQuery (only ever set by [Upgrader.Upgrade] with
-	// [Upgrader.RawPath] set). It must not be returned to the pool until
-	// the caller is done with those slices; see [Handshake.Release].
-	buf               []byte
-	rawPath, rawQuery []byte
+	// Compressed reports whether permessage-deflate (RFC 7692) was
+	// negotiated for this connection, via [Upgrader.EnableCompression] or
+	// [Dialer.EnableCompression]. Prefer
+	// [WithCompressionParams](hs.CompressionParams) when constructing the
+	// [Conn]; [WithCompression](hs.Compressed) is only equivalent when
+	// context-takeover policy does not matter (see [WithCompression]).
+	// Passing a hardcoded value instead of this field risks a Conn that
+	// disagrees with what the peer actually agreed to.
+	Compressed bool
 }
 
 // RawPath returns the handshake request-target's path component as a

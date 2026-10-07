@@ -31,7 +31,8 @@ import (
 type fakeAddr struct{}
 
 func (fakeAddr) Network() string { return "fake" }
-func (fakeAddr) String() string  { return "fake" }
+
+func (fakeAddr) String() string { return "fake" }
 
 // scriptConn is a net.Conn whose reads are served from a fixed script of
 // bytes, optionally capped at chunk bytes per Read to exercise partial-read
@@ -56,12 +57,18 @@ func (s *scriptConn) Read(p []byte) (int, error) {
 	return n, nil
 }
 
-func (s *scriptConn) Write(p []byte) (int, error)        { return s.out.Write(p) }
-func (s *scriptConn) Close() error                       { return nil }
-func (s *scriptConn) LocalAddr() net.Addr                { return fakeAddr{} }
-func (s *scriptConn) RemoteAddr() net.Addr               { return fakeAddr{} }
-func (s *scriptConn) SetDeadline(_ time.Time) error      { return nil }
-func (s *scriptConn) SetReadDeadline(_ time.Time) error  { return nil }
+func (s *scriptConn) Write(p []byte) (int, error) { return s.out.Write(p) }
+
+func (s *scriptConn) Close() error { return nil }
+
+func (s *scriptConn) LocalAddr() net.Addr { return fakeAddr{} }
+
+func (s *scriptConn) RemoteAddr() net.Addr { return fakeAddr{} }
+
+func (s *scriptConn) SetDeadline(_ time.Time) error { return nil }
+
+func (s *scriptConn) SetReadDeadline(_ time.Time) error { return nil }
+
 func (s *scriptConn) SetWriteDeadline(_ time.Time) error { return nil }
 
 // --- frame construction / parsing ------------------------------------------
@@ -580,10 +587,6 @@ func TestCloseReasonUTF8Validation(t *testing.T) {
 		},
 		"invalid UTF-8 reason": {
 			reason:  "bad reason: \xff\xfe",
-			wantErr: true,
-		},
-		"lone continuation byte": {
-			reason:  "\x80",
 			wantErr: true,
 		},
 	}

@@ -17,8 +17,10 @@ package utf8x_test
 import (
 	"bytes"
 	"fmt"
-	"math/rand/v2"
+	rand "math/rand/v2"
 	"slices"
+	"strconv"
+	"strings"
 	"testing"
 	"unicode/utf8"
 
@@ -92,8 +94,8 @@ func TestEncodeBitsKnownVectors(t *testing.T) {
 	}
 }
 
-// boundaryRunes are the code points named by the task at the edge of
-// every UTF-8 encoding length class and the surrogate gap.
+// boundaryRunes are the code points at the edge of every UTF-8 encoding
+// length class and the surrogate gap.
 var boundaryRunes = []rune{
 	0x007F,   // max 1-byte
 	0x0080,   // min 2-byte
@@ -265,26 +267,18 @@ func TestExhaustiveLeadingBytePairs(t *testing.T) {
 }
 
 // TestValidRejectsInvalidContinuations exercises malformed leading and
-// continuation bytes that are not covered by the overlong/surrogate/
-// out-of-range categories above.
+// continuation bytes in the 3- and 4-byte length classes plus a
+// multi-sequence stream, none of which the overlong/surrogate/
+// out-of-range categories above cover; 1- and 2-byte malformations are
+// exhausted by TestExhaustiveOneAndTwoByteSequences.
 func TestValidRejectsInvalidContinuations(t *testing.T) {
 	tests := map[string][]byte{
-		"lone continuation byte 0x80":                           {0x80},
-		"lone continuation byte 0xBF":                           {0xBF},
-		"invalid leading byte 0xC0":                             {0xC0, 0x80},
-		"invalid leading byte 0xC1":                             {0xC1, 0x80},
-		"invalid leading byte 0xF5":                             {0xF5, 0x80, 0x80, 0x80},
-		"invalid leading byte 0xFF":                             {0xFF},
-		"2-byte lead, ASCII instead of cont":                    {0xC2, 0x41},
-		"3-byte lead, bad 2nd byte":                             {0xE1, 0xFF, 0x80},
-		"3-byte lead, bad 3rd byte":                             {0xE1, 0x80, 0xFF},
-		"4-byte lead, bad 2nd byte":                             {0xF1, 0xFF, 0x80, 0x80},
-		"4-byte lead, bad 4th byte":                             {0xF1, 0x80, 0x80, 0xFF},
-		"valid rune followed by lone 0x80":                      append([]byte("ok"), 0x80),
-		"E0 followed by generic-range 0x80 (overlong boundary)": {0xE0, 0x80, 0x80},
-		"ED followed by A0 (surrogate boundary)":                {0xED, 0xA0, 0x80},
-		"F0 followed by generic-range 0x80 (overlong boundary)": {0xF0, 0x80, 0x80, 0x80},
-		"F4 followed by 0x90 (out-of-range boundary)":           {0xF4, 0x90, 0x80, 0x80},
+		"invalid leading byte 0xF5":        {0xF5, 0x80, 0x80, 0x80},
+		"3-byte lead, bad 2nd byte":        {0xE1, 0xFF, 0x80},
+		"3-byte lead, bad 3rd byte":        {0xE1, 0x80, 0xFF},
+		"4-byte lead, bad 2nd byte":        {0xF1, 0xFF, 0x80, 0x80},
+		"4-byte lead, bad 4th byte":        {0xF1, 0x80, 0x80, 0xFF},
+		"valid rune followed by lone 0x80": append([]byte("ok"), 0x80),
 	}
 
 	for name, b := range tests {
@@ -601,4 +595,165 @@ func splice(prefix string, middle []byte, suffix string) []byte {
 	b = append(b, middle...)
 	b = append(b, suffix...)
 	return b
+}
+
+// simdDensityUnits are repeated to build buffers large enough to engage the
+// SIMD bulk path (>= the entry threshold) at several multibyte densities.
+var simdDensityUnits = map[string]string{
+	"ascii":  "The quick brown fox jumps over the lazy dog. ",
+	"2-byte": "µßöäüàá£çñ",
+	"3-byte": "日本語のテスト文字",
+	"4-byte": "🎉😀😁🎊🥳🚀",
+	"mixed":  "Hello-µ@ßöäüàá 日本語 🎉 UTF-8!! ",
+}
+
+// TestSIMDIntegrationDifferential drives the public Valid (hence Feed's SIMD
+// bulk path) against stdlib for every length 0..2048 and start offsets 0..7,
+// per density. Slicing valid content this way regularly starts or ends
+// mid-sequence, so the SIMD/scalar hand-off at both ends is what is under test.
+func TestSIMDIntegrationDifferential(t *testing.T) {
+	for name, unit := range simdDensityUnits {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			big := []byte(strings.Repeat(unit, 2048/len(unit)+8))
+			for off := 0; off <= 7; off++ {
+				for n := 0; off+n <= len(big) && n <= 2048; n++ {
+					b := big[off : off+n]
+					if want, got := utf8.Valid(b), utf8x.Valid(b); got != want {
+						t.Fatalf("off=%d n=%d: Valid=%v want=%v\n% X", off, n, got, want, b)
+					}
+				}
+			}
+		})
+	}
+}
+
+// TestSIMDSplitSweep splits SIMD-sized buffers (valid, invalid, and truncated)
+// at every byte boundary and confirms the streaming verdict always equals the
+// one-shot verdict. With buffers well over the SIMD threshold, split points
+// routinely land inside a vector block mid-multibyte sequence.
+func TestSIMDSplitSweep(t *testing.T) {
+	surrogate := []byte{0xED, 0xA0, 0x80} // encoded U+D800, invalid
+	inputs := map[string][]byte{
+		"dense 3-byte valid":        []byte(strings.Repeat("日本語のテスト", 20)),
+		"dense 4-byte valid":        []byte(strings.Repeat("🎉😀", 40)),
+		"mixed valid":               []byte(strings.Repeat("Hello-µ@ß 日本 🎉 ", 20)),
+		"dense with embedded error": splice(strings.Repeat("日本語", 30), surrogate, strings.Repeat("テスト", 30)),
+		"dense truncated tail":      []byte(strings.Repeat("日本語", 40) + "\xe6\x97"),
+	}
+
+	for name, b := range inputs {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			want := utf8.Valid(b)
+			if got := utf8x.Valid(b); got != want {
+				t.Fatalf("one-shot Valid = %v, want %v (stdlib)", got, want)
+			}
+			for i := 0; i <= len(b); i++ {
+				if got := verdict(splitAt(b, i)); got != want {
+					t.Errorf("split at %d/%d: verdict = %v, want %v", i, len(b), got, want)
+				}
+			}
+		})
+	}
+}
+
+// FuzzValidator differentially fuzzes [utf8x.Valid] and the streaming
+// Feed/Done contract against [unicode/utf8.Valid]. chunkSeed derives how
+// data is split across Feed calls (via the same randomChunks helper
+// TestStreamingChunkingMatchesOneShot uses), so the fuzzer can discover
+// chunk-boundary bugs over an open-ended input space rather than only
+// the fixed corpus that test covers.
+func FuzzValidator(f *testing.F) {
+	seeds := [][]byte{
+		nil,
+		{},
+		[]byte("hello, world"),
+		[]byte("Hello-µ@ßöäüàá-UTF-8!!"),
+		{0x80},
+		{0xBF},
+		{0xC0, 0x80},
+		{0xC2, 0x80},
+		{0xE0, 0x80, 0x80},
+		{0xED, 0xA0, 0x80},
+		{0xED, 0xBF, 0xBF},
+		{0xF0, 0x80, 0x80, 0x80},
+		{0xF4, 0x8F, 0xBF, 0xBF},
+		{0xF4, 0x90, 0x80, 0x80},
+		{0xE2, 0x82}, // Truncated EURO SIGN.
+		{0xF0, 0x9F},
+		[]byte("日本語のテスト"),
+		[]byte("\U0001F600\U0001F601\U0001F602"),
+	}
+	for _, s := range seeds {
+		for _, seed := range []uint64{0, 1, 12345} {
+			f.Add(s, seed)
+		}
+	}
+
+	f.Fuzz(func(t *testing.T, data []byte, chunkSeed uint64) {
+		want := utf8.Valid(data)
+
+		if got := utf8x.Valid(data); got != want {
+			t.Fatalf("Valid(one-shot, % X) = %v, want %v", data, got, want)
+		}
+
+		rng := rand.New(rand.NewPCG(chunkSeed, chunkSeed^0x9e3779b97f4a7c15))
+		chunks := randomChunks(data, rng)
+
+		streamed := verdict(chunks)
+		if streamed != want {
+			t.Fatalf("streamed verdict (data=% X, chunks=%v) = %v, want %v", data, chunkLens(chunks), streamed, want)
+		}
+	})
+}
+
+// benchBuffer returns a buffer of exactly size bytes built by repeating
+// unit, so every benchmarked size exercises the same byte pattern.
+func benchBuffer(unit string, size int) []byte {
+	b := bytes.Repeat([]byte(unit), size/len(unit)+1)
+	return b[:size]
+}
+
+// benchSizes spans a small control-frame-sized payload through a large
+// data-frame payload.
+var benchSizes = []int{64, 1024, 65536}
+
+func benchFeed(b *testing.B, unit string) {
+	for _, size := range benchSizes {
+		buf := benchBuffer(unit, size)
+		b.Run(strconv.Itoa(size), func(b *testing.B) {
+			b.SetBytes(int64(size))
+			for b.Loop() {
+				var v utf8x.Validator
+				if !v.Feed(buf) {
+					b.Fatal("Feed: unexpected rejection")
+				}
+			}
+		})
+	}
+}
+
+// BenchmarkValidatorFeedASCII measures the ASCII word fast path in
+// isolation: this is the case the scalar baseline should already be
+// close to memory-bandwidth-bound on, since it never leaves the accept
+// state.
+func BenchmarkValidatorFeedASCII(b *testing.B) {
+	benchFeed(b, "The quick brown fox jumps over the lazy dog. ")
+}
+
+// BenchmarkValidatorFeedMixed measures a realistic i18n workload: mostly
+// ASCII punctuation and spacing with scattered 2- and 3-byte runes, the
+// same shape as the Autobahn 6.x-style corpus used in the correctness
+// tests.
+func BenchmarkValidatorFeedMixed(b *testing.B) {
+	benchFeed(b, "Hello-µ@ßöäüàá-UTF-8!! ")
+}
+
+// BenchmarkValidatorFeedDenseMultibyte measures the worst case for this
+// scalar implementation: every byte is part of a multi-byte sequence, so
+// the ASCII fast path never triggers and every byte goes through step.
+// This is the number Phase 3's SIMD interior loop most needs to beat.
+func BenchmarkValidatorFeedDenseMultibyte(b *testing.B) {
+	benchFeed(b, "日本語のテスト文字列です")
 }

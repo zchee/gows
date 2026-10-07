@@ -14,8 +14,8 @@
 
 //go:build !race
 
-package gows_test
+package gows
 
-// raceEnabled reports whether this test binary was built with -race. Its
-// counterpart in race_test.go defines it true for a -race build.
-const raceEnabled = false
+// RaceEnabled is false on a non-race build; see its counterpart in
+// race_test.go for why the zero-alloc assertions consult it.
+const RaceEnabled = false

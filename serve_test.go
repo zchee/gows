@@ -563,8 +563,8 @@ func TestServeEchoZeroAllocs(t *testing.T) {
 	}
 
 	allocs := testing.AllocsPerRun(200, round)
-	t.Logf("Serve echo allocs/round = %v (%v msgs, race=%v)", allocs, perRound, raceEnabledInternal)
-	if !raceEnabledInternal && allocs != 0 {
+	t.Logf("Serve echo allocs/round = %v (%v msgs, race=%v)", allocs, perRound, RaceEnabled)
+	if !RaceEnabled && allocs != 0 {
 		t.Errorf("Serve echo allocs/round = %v, want 0", allocs)
 	}
 }

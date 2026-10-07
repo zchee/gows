@@ -1308,11 +1308,16 @@ func (c *choppyConn) Write(p []byte) (int, error) {
 	return c.out.Write(p)
 }
 
-func (c *choppyConn) Close() error                       { return nil }
-func (c *choppyConn) LocalAddr() net.Addr                { return fakeAddr{} }
-func (c *choppyConn) RemoteAddr() net.Addr               { return fakeAddr{} }
-func (c *choppyConn) SetDeadline(_ time.Time) error      { return nil }
-func (c *choppyConn) SetReadDeadline(_ time.Time) error  { return nil }
+func (c *choppyConn) Close() error { return nil }
+
+func (c *choppyConn) LocalAddr() net.Addr { return fakeAddr{} }
+
+func (c *choppyConn) RemoteAddr() net.Addr { return fakeAddr{} }
+
+func (c *choppyConn) SetDeadline(_ time.Time) error { return nil }
+
+func (c *choppyConn) SetReadDeadline(_ time.Time) error { return nil }
+
 func (c *choppyConn) SetWriteDeadline(_ time.Time) error { return nil }
 
 // choppedInvalidTextFrame builds a single masked Text frame of total bytes
