@@ -31,6 +31,7 @@ import (
 	"time"
 
 	"github.com/go-json-experiment/json"
+
 	"github.com/zchee/gows/bench/harness/artifact"
 	"github.com/zchee/gows/bench/harness/paired"
 	"github.com/zchee/gows/bench/harness/policy"

@@ -10,6 +10,7 @@ import (
 
 	jsonv2 "github.com/go-json-experiment/json"
 	"github.com/go-json-experiment/json/jsontext"
+
 	"github.com/zchee/gows/bench/harness/artifact"
 	"github.com/zchee/gows/bench/harness/evidence"
 	"github.com/zchee/gows/bench/harness/phase0"

@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
+
 	"github.com/zchee/gows/bench/harness/artifact"
 	"github.com/zchee/gows/bench/harness/evidence"
 )
