@@ -437,42 +437,6 @@ func TestIntegrationBareClientMaxWindowBitsSub15(t *testing.T) {
 	<-done
 }
 
-// TestMixedBackendWireCompatibility is this task's "mixed
-// (flatekp server <-> stdlib-default client)" scenario, at the level
-// the claim actually needs proving at: gows.SetDeflateBackend is a
-// process-wide switch (see its doc) -- a single process cannot run a
-// server-role Conn on klauspost and a client-role Conn on stdlib
-// simultaneously, since both share the one active backend. What "mixed"
-// is really asserting -- that either peer's compressed bytes are
-// ordinary, standards-compliant DEFLATE the *other* backend can decode
-// regardless of which one produced them -- is exactly
-// TestRoundTripCrossBackend's cross-decode assertions, run again here
-// framed explicitly as "server compresses with flatekp, client
-// decompresses with stdlib" and vice versa, so the scenario named in the
-// task is traceable to a concrete test by name.
-func TestMixedBackendWireCompatibility(t *testing.T) {
-	backend := flatekp.Backend()
-	payload := jsonlikePayload(2048)
-
-	t.Run("flatekp server compresses, stdlib client decompresses", func(t *testing.T) {
-		w, err := backend.NewWriter(6, 15)
-		if err != nil {
-			t.Fatalf("backend.NewWriter: %v", err)
-		}
-		compressed := compressVia(t, w, payload)
-		if got := decompressVia(t, stdlibReader(), compressed); !bytes.Equal(got, payload) {
-			t.Fatalf("stdlib client could not decode flatekp server's output")
-		}
-	})
-
-	t.Run("stdlib server compresses, flatekp client decompresses", func(t *testing.T) {
-		compressed := compressVia(t, stdlibWriter(t, 1), payload)
-		if got := decompressVia(t, backend.NewReader(15), compressed); !bytes.Equal(got, payload) {
-			t.Fatalf("flatekp client could not decode stdlib server's output")
-		}
-	})
-}
-
 // TestIntegrationEchoMixedNegotiation drives a live handshake where the
 // server has flatekp installed and negotiates a sub-15 window, while the
 // client's own Dialer never sets WindowBits (the zero-value, "no

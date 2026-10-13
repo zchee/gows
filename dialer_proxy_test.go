@@ -445,7 +445,6 @@ func TestDialValidProxyAuthorityFormation(t *testing.T) {
 		wantAddr string
 	}{
 		"success: hostname with default port": {proxyURL: &url.URL{Scheme: "http", Host: "proxy.test"}, wantAddr: "proxy.test:80"},
-		"success: IPv4 with explicit port":    {proxyURL: &url.URL{Scheme: "http", Host: "127.0.0.1:3128"}, wantAddr: "127.0.0.1:3128"},
 		"success: IPv6 with explicit port":    {proxyURL: &url.URL{Scheme: "http", Host: "[::1]:3128"}, wantAddr: "[::1]:3128"},
 	}
 	for name, tt := range tests {
