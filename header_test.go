@@ -103,6 +103,10 @@ func TestValidateExtraHeadersReservedNames(t *testing.T) {
 		"Trailer",
 		"TE",
 		"Proxy-Authorization",
+		"Sec-WebSocket-Version",
+		"Sec-WebSocket-Extensions",
+		"Sec-WebSocket-Protocol",
+		"Sec-WebSocket-Accept",
 		"Sec-WebSocket-Future-Member",
 	}
 	for _, name := range names {

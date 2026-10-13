@@ -76,6 +76,7 @@ func TestWriteClose(t *testing.T) {
 		"success: 123-byte reason":         {code: CloseNormalClosure, reason: longestReason},
 		"error: zero code":                 {code: 0, wantErr: ErrInvalidCloseCode},
 		"error: reserved 1005":             {code: CloseNoStatusReceived, wantErr: ErrInvalidCloseCode},
+		"error: invalid UTF-8 reason":      {code: CloseNormalClosure, reason: "\xff\xfe", wantErr: ErrInvalidCloseReason},
 		"error: 124-byte reason":           {code: CloseNormalClosure, reason: longestReason + "r", wantErr: ErrCloseReasonTooLong},
 	}
 
@@ -85,6 +86,15 @@ func TestWriteClose(t *testing.T) {
 			defer a.Close()
 			defer b.Close()
 			c := NewServerConn(a)
+
+			if tt.wantErr != nil {
+				// Nothing reads b on this path, so a frame that wrongly
+				// reaches the wire would block in Write forever; the
+				// deadline turns that into an error the assertion reports.
+				if err := a.SetWriteDeadline(time.Now().Add(2 * time.Second)); err != nil {
+					t.Fatalf("SetWriteDeadline: %v", err)
+				}
+			}
 
 			errCh := make(chan error, 1)
 			go func() { errCh <- c.WriteClose(tt.code, tt.reason) }()

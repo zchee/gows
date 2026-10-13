@@ -589,6 +589,10 @@ func TestCloseReasonUTF8Validation(t *testing.T) {
 			reason:  "bad reason: \xff\xfe",
 			wantErr: true,
 		},
+		"lone continuation byte": {
+			reason:  "\x80",
+			wantErr: true,
+		},
 	}
 
 	for name, tt := range tests {
