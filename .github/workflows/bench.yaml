@@ -107,13 +107,15 @@ jobs:
       # flatekp requires the published gows tag; the workspace binds it to
       # this checkout for the gate without editing a tracked file, and is
       # scoped to the step so the toolchain-identity gate's GOWORK=off
-      # stays in force everywhere else.
+      # stays in force everywhere else. Workspace mode accepts only
+      # -mod=readonly or -mod=vendor, so the job-wide -mod=mod is replaced
+      # for this step.
       - name: Flatekp unit and vet gates
         run: |
           printf 'go %s\n\nuse (\n\t%s\n\t%s/flatekp\n)\n' \
             "${{ steps.go.outputs.version }}" "${GITHUB_WORKSPACE}" "${GITHUB_WORKSPACE}" \
             >"${RUNNER_TEMP}/gows.work"
-          export GOWORK="${RUNNER_TEMP}/gows.work"
+          export GOWORK="${RUNNER_TEMP}/gows.work" GOFLAGS=-mod=readonly
           go -C flatekp test ./... -count=1
           go -C flatekp vet ./...
 
