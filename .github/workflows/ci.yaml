@@ -72,6 +72,16 @@ jobs:
         with:
           go-version: ${{ steps.go.outputs.version }}
           cache-key-prefix: flatekp-test
+      # flatekp requires the published gows tag, so on its own it would
+      # test the vendored release rather than this checkout. A workspace
+      # outside the tree binds it to the root module here without editing
+      # a tracked file.
+      - name: Bind flatekp to the working-tree root module
+        run: |
+          printf 'go %s\n\nuse (\n\t%s\n\t%s/flatekp\n)\n' \
+            "${{ steps.go.outputs.version }}" "${GITHUB_WORKSPACE}" "${GITHUB_WORKSPACE}" \
+            >"${RUNNER_TEMP}/gows.work"
+          echo "GOWORK=${RUNNER_TEMP}/gows.work" >> "${GITHUB_ENV}"
       - name: go build
         working-directory: flatekp
         run: go build ./...
