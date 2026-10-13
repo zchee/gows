@@ -219,7 +219,7 @@ func (v *Validator) Feed(b []byte) bool {
 				break
 			}
 
-			// SIMD bulk fast path (Phase 3): from a sequence boundary, a
+			// SIMD bulk fast path: from a sequence boundary, a
 			// vector kernel validates the largest prefix it can own and
 			// reports how many bytes to advance while staying at a boundary,
 			// leaving the trailing partial sequence to the scalar DFA below.

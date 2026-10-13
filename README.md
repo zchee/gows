@@ -85,10 +85,10 @@ WebSocket library for Go, engineered for performance and conformance.
   takeover. The root module defaults to stdlib `compress/flate`; the optional
   klauspost backend lives in the separate zero-impact `flatekp/` module (see
   [`options.go`](options.go)'s "permessage-deflate backend seam" comment).
-- **Autobahn|Testsuite evidence**: the full 517-case matrix ran in both
-  directions ("All cases passed") on 2026-07-14 at two commits; earlier
-  dated runs from the v0.1-v0.3 gates are preserved as historical
-  evidence. See [Conformance](#conformance).
+- **Autobahn|Testsuite conformance**: the full 517-case matrix passes in
+  both directions ("All cases passed"), most recently on 2026-10-13 on
+  GitHub-hosted linux/amd64 and on darwin/arm64. See
+  [Conformance](#conformance).
 - **93.9% statement coverage** across the core module and `internal/*`
   packages (≥85% required), and **1,461,410,711 combined fuzz executions**
   across four targets (`FuzzMask`, `FuzzValidator`, `FuzzDecodeHeader`,
@@ -461,37 +461,43 @@ module (`go build`/`go vet`, clean) as part of writing this document.
 
 ## Conformance
 
-The signed v0.4 baseline is commit
-`87fa6330c9bbe1de642a9da6defb5e1ff2a73619`. Its active implementation
-includes:
+gows is run against the full [Autobahn|Testsuite](https://github.com/crossbario/autobahn-testsuite)
+517-case matrix in both directions, with the pinned image digest and the
+case-generator hash recorded in each run's `provenance.json` by
+[`autobahn/run.sh`](autobahn/run.sh). The verdict is "All cases passed"
+in both directions; the per-direction counts are:
 
-- `NextReader` and `NextWriter` streaming message APIs;
-- opt-in context takeover;
+| Direction | OK | UNIMPLEMENTED | INFORMATIONAL | NON-CONFORMANT |
+|---|---:|---:|---:|---:|
+| server (gows accepts the suite's fuzzingclient) | 478 | 36 | 3 | 0 |
+| client (gows dials the suite's fuzzingserver) | 442 | 72 | 3 | 0 |
+
+UNIMPLEMENTED entries are the optional permessage-deflate parameter
+offers the suite probes; INFORMATIONAL cases carry no verdict by design.
+
+Most recent runs, both on the library code of commit `f9d6f0a`:
+
+- 2026-10-13, GitHub-hosted `ubuntu-26.04` with stock Go 1.26.8
+  (linux/amd64, host network mode), both directions:
+  [workflow run 38400935857](https://github.com/zchee/gows/actions/runs/38400935857).
+  The report trees are attached to that run as artifacts.
+- 2026-10-13, darwin/arm64 (Apple M3 Max) against Docker Desktop (bridge
+  network mode), both directions, identical counts.
+
+Earlier full-matrix runs on 2026-07-14 at commits `44c8417` and `324b7b8`
+produced the same counts. The `autobahn` workflow is dispatched by hand
+because a full run takes several minutes per direction on a hosted
+runner; `ci.yaml` covers the unit, race, purego and fuzz gates on every
+push and pull request.
+
+The implementation covers:
+
+- the `NextReader` / `NextWriter` streaming message APIs;
+- opt-in permessage-deflate context takeover;
 - valued and bare `client_max_window_bits` offers, including the trusted
   server hint path; and
-- a zero-dependency core module with the optional klauspost backend isolated
-  in the separate `github.com/zchee/gows/flatekp` module.
-
-Canonical Autobahn reports from the earlier v0.1-v0.3 gates were recorded
-as dated historical evidence during those phases; their 517-case counts
-and verdicts describe those recorded runs, and they are not evidence that
-the v0.4 feature-specific matrix ran.
-
-The v0.4 feature server/client 517-case matrix was **SKIPPED-RESIDUAL** at
-the signed v0.4 delivery (Docker, OrbStack, and those feature runs were not
-executed then; the signed delivery retains the completed non-container
-root, race, purego, `flatekp`, benchmark, review, and UltraQA evidence
-under the local, uncommitted `.omx/artifacts/`).
-
-That residual has since been retired: the full Autobahn|Testsuite
-**517-case matrix ran in both directions ("All cases passed") on
-2026-07-14**, twice — once at commit `44c8417` (after the drain/serving,
-transport-aware write, and header-table changes) and once at the then-current
-head `324b7b8` (after the calibration and allocation-hygiene changes) —
-server leg OK 478 / UNIMPLEMENTED 36 / INFORMATIONAL 3, client leg OK 442
-/ UNIMPLEMENTED 72 / INFORMATIONAL 3, zero non-conformant cases
-(UNIMPLEMENTED entries are optional permessage-deflate parameter offers
-the suite probes; INFORMATIONAL cases carry no verdict by design).
+- a zero-dependency core module, with the optional klauspost backend
+  isolated in the separate `github.com/zchee/gows/flatekp` module.
 
 ## Non-goals and deferred work
 
