@@ -2,16 +2,27 @@ name: bench
 
 on:
   push:
-    branches: [main]
+    branches:
+      - main
   pull_request:
   workflow_dispatch:
 
 permissions:
   contents: read
 
-# Phase 0 evidence is produced only by controlled local benchmark sessions.
-# This workflow gates the source, harness, and supported assembly-provenance
-# implementation; it never promotes CI timings to benchmark evidence.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+defaults:
+  run:
+    # Every step is written for bash, whatever the runner's default shell.
+    shell: bash
+
+# Benchmark evidence is produced only by controlled local benchmark
+# sessions. This workflow gates the source, harness, and supported
+# assembly-provenance implementation; it never promotes CI timings to
+# benchmark evidence.
 env:
   GOENV: "off"
   GOFIPS140: "latest"
@@ -22,31 +33,23 @@ env:
 
 jobs:
   source-and-harness:
-    name: source and harness (stock Go, linux/amd64)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v7
-
-      - uses: actions/setup-go@v7
+      - name: Read the Go version from go.mod
+        id: go
+        run: echo "version=$(sed -n 's/^go \([0-9][0-9.]*\)$/\1/p' go.mod)" >> "$GITHUB_OUTPUT"
+      # The default cache-dependency-path glob covers the root, bench and
+      # flatekp go.sum files.
+      - uses: cloudx-io/setup-go@v1
         with:
-          go-version: "1.26.5"
-          check-latest: false
-          cache: true
-          cache-dependency-path: |
-            go.sum
-            bench/go.sum
-            flatekp/go.sum
+          go-version: ${{ steps.go.outputs.version }}
+          cache-key-prefix: bench-source-and-harness
 
       - name: Verify stock toolchain identity
-        shell: bash
         run: |
           set -euo pipefail
-          version="$(go env GOVERSION)"
-          test "$version" = "go1.26.5" || {
-            printf 'unexpected Go version: %s\n' "$version" >&2
-            exit 1
-          }
           test -z "$(go env GOEXPERIMENT)" || {
             printf 'custom GOEXPERIMENT is not allowed: %s\n' \
               "$(go env GOEXPERIMENT)" >&2
@@ -80,7 +83,7 @@ jobs:
       - name: Root race gate
         run: go test -race ./... -count=1
 
-      - name: Phase 0 harness adversarial gates
+      - name: Harness adversarial gates
         run: |
           go -C bench test \
             ./harness/artifact \
@@ -107,7 +110,6 @@ jobs:
           go -C flatekp vet ./...
 
       - name: Reject generated source drift
-        shell: bash
         run: |
           set -euo pipefail
           git diff --check
@@ -118,26 +120,21 @@ jobs:
           }
 
   darwin-assembly-provenance:
-    name: assembly provenance (darwin/amd64 and darwin/arm64)
-    runs-on: macos-latest
+    runs-on: xcode-27
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v7
-
-      - uses: actions/setup-go@v7
+      - name: Read the Go version from go.mod
+        id: go
+        run: echo "version=$(sed -n 's/^go \([0-9][0-9.]*\)$/\1/p' go.mod)" >> "$GITHUB_OUTPUT"
+      - uses: cloudx-io/setup-go@v1
         with:
-          go-version: "1.26.5"
-          check-latest: false
-          cache: true
-          cache-dependency-path: |
-            go.sum
-            bench/go.sum
+          go-version: ${{ steps.go.outputs.version }}
+          cache-key-prefix: bench-darwin-assembly-provenance
 
       - name: Verify supported native stock toolchain
-        shell: bash
         run: |
           set -euo pipefail
-          test "$(go env GOVERSION)" = "go1.26.5"
           test "$(go env GOOS)" = "darwin"
           case "$(go env GOARCH)" in
             amd64|arm64) ;;
@@ -165,8 +162,7 @@ jobs:
         run: go -C bench test ./harness/assembly -count=1 -v
 
       - name: Reject generated source drift
-        shell: bash
-        run: |
+        run: |-
           set -euo pipefail
           git diff --check
           status="$(git status --porcelain=v1 --untracked-files=all)"
