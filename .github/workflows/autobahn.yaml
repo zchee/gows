@@ -1,8 +1,8 @@
 name: autobahn
 
-# The Autobahn suite runs the echo server under examples/autobahn through
-# the full conformance case list, which takes far longer than the unit
-# gates in ci.yaml, so it stays a manual trigger.
+# The Autobahn suite runs the echo application under examples/autobahn
+# through the full conformance case list in both directions, which takes
+# far longer than the unit gates in ci.yaml, so it stays a manual trigger.
 on:
   workflow_dispatch:
 
@@ -18,6 +18,11 @@ defaults:
     # Every step is written for bash, whatever the runner's default shell.
     shell: bash
 
+env:
+  # The runner shares its network namespace with the container, so the
+  # suite and the application both see 127.0.0.1:9001.
+  AUTOBAHN_NETWORK_MODE: host
+
 jobs:
   conformance-server:
     runs-on: ubuntu-26.04
@@ -32,21 +37,111 @@ jobs:
           go-version: ${{ steps.go.outputs.version }}
           cache-key-prefix: autobahn-conformance-server
 
-      - name: Start example echo server
+      - name: Build the example application
+        run: go build -o "${RUNNER_TEMP}/autobahn-app" ./examples/autobahn
+
+      # A process started inside a step loses the step's stdio when the
+      # step ends, so the server is detached and logs to a file; the
+      # readiness loop fails the job instead of letting the suite dial a
+      # port nothing listens on.
+      - name: Start the echo server
         run: |
-          go run ./examples/autobahn &
-          echo $! > server.pid
+          nohup "${RUNNER_TEMP}/autobahn-app" -mode server -addr :9001 \
+            >"${RUNNER_TEMP}/autobahn-server.log" 2>&1 &
+          echo $! > "${RUNNER_TEMP}/server.pid"
           for _ in $(seq 1 30); do
+            if (exec 3<>/dev/tcp/127.0.0.1/9001) 2>/dev/null; then
+              exec 3<&- 3>&-
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "::error::the echo server did not listen on :9001 within 30s"
+          cat "${RUNNER_TEMP}/autobahn-server.log"
+          exit 1
+
+      - name: Run Autobahn conformance (server mode)
+        env:
+          AUTOBAHN_REPORTS_DIR: ${{ runner.temp }}/reports
+          AUTOBAHN_SERVER_TIMEOUT: "2400"
+        run: ./autobahn/run.sh server ws://127.0.0.1:9001
+
+      - name: Stop the echo server
+        if: always()
+        run: |
+          kill "$(cat "${RUNNER_TEMP}/server.pid")" 2>/dev/null || true
+          cat "${RUNNER_TEMP}/autobahn-server.log"
+
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: autobahn-server-${{ github.sha }}
+          path: ${{ runner.temp }}/reports
+          if-no-files-found: warn
+
+  conformance-client:
+    runs-on: ubuntu-26.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v7
+      - name: Read the Go version from go.mod
+        id: go
+        run: echo "version=$(sed -n 's/^go \([0-9][0-9.]*\)$/\1/p' go.mod)" >> "$GITHUB_OUTPUT"
+      - uses: cloudx-io/setup-go@v1
+        with:
+          go-version: ${{ steps.go.outputs.version }}
+          cache-key-prefix: autobahn-conformance-client
+
+      - name: Build the example application
+        run: go build -o "${RUNNER_TEMP}/autobahn-app" ./examples/autobahn
+
+      # Strict-evidence mode records which case generator produced the
+      # report, as the pinned image's own copy of the generator plus its
+      # hash; the path has to be canonical, which RUNNER_TEMP is.
+      - name: Record the case generator evidence
+        run: |
+          image="$(sed -n 's/^IMAGE=.*:-\(.*\)}"$/\1/p' autobahn/run.sh)"
+          docker run --rm --entrypoint cat "${image}" \
+            /opt/pypy/site-packages/autobahntestsuite/case/case12_x_x.py \
+            >"${RUNNER_TEMP}/case12_x_x.py"
+          sum="$(sha256sum "${RUNNER_TEMP}/case12_x_x.py" | awk '{print $1}')"
+          echo "AUTOBAHN_GENERATOR_EVIDENCE=${RUNNER_TEMP}/case12_x_x.py@sha256:${sum}" >> "${GITHUB_ENV}"
+
+      # run.sh client keeps the fuzzingserver container up until the
+      # completion sentinel appears or the timeout passes, so it runs
+      # detached while this job drives the client through every case.
+      # The sentinel is only accepted in strict-evidence mode, which wants
+      # a report root that carries the run ID and does not exist yet.
+      - name: Run Autobahn conformance (client mode)
+        env:
+          AUTOBAHN_STRICT_EVIDENCE: "1"
+          AUTOBAHN_RUN_ID: ci-${{ github.run_id }}-${{ github.run_attempt }}
+          AUTOBAHN_REPORTS_DIR: ${{ runner.temp }}/reports-ci-${{ github.run_id }}-${{ github.run_attempt }}
+          AUTOBAHN_CLIENT_TIMEOUT: "2400"
+          AUTOBAHN_COMPLETION_FILE: ${{ runner.temp }}/reports-ci-${{ github.run_id }}-${{ github.run_attempt }}/client-complete
+        run: |
+          nohup ./autobahn/run.sh client >"${RUNNER_TEMP}/autobahn-runner.log" 2>&1 &
+          runner=$!
+          for _ in $(seq 1 60); do
             if (exec 3<>/dev/tcp/127.0.0.1/9001) 2>/dev/null; then
               exec 3<&- 3>&-
               break
             fi
             sleep 1
           done
+          # The port opens before the fuzzingserver finishes loading its
+          # spec; a short grace period avoids a refused first case.
+          sleep 5
+          status=0
+          "${RUNNER_TEMP}/autobahn-app" -mode client -server ws://127.0.0.1:9001 || status=$?
+          touch "${AUTOBAHN_COMPLETION_FILE}"
+          wait "${runner}" || status=$?
+          cat "${RUNNER_TEMP}/autobahn-runner.log"
+          exit "${status}"
 
-      - name: Run Autobahn conformance (server mode)
-        run: ./autobahn/run.sh server ws://127.0.0.1:9001
-
-      - name: Stop example echo server
+      - uses: actions/upload-artifact@v7
         if: always()
-        run: kill "$(cat server.pid)" 2>/dev/null || true
+        with:
+          name: autobahn-client-${{ github.sha }}
+          path: ${{ runner.temp }}/reports-ci-*
+          if-no-files-found: warn
