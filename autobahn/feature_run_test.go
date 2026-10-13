@@ -206,7 +206,11 @@ func TestFeatureRunInterruptWritesFailureReceipt(t *testing.T) {
 	if err := cmd.Start(); err != nil {
 		t.Fatal(err)
 	}
-	time.Sleep(500 * time.Millisecond)
+	// The script installs its cleanup trap only after the prerequisite
+	// checks, and the failure receipt needs the application PID it records
+	// at launch. The application writes its own PID first thing, so that
+	// file appearing proves both are in place before the interrupt lands.
+	waitForFile(t, filepath.Join(dir, "app.pid"), 10*time.Second)
 	if err := cmd.Process.Signal(os.Interrupt); err != nil {
 		t.Fatal(err)
 	}
@@ -475,6 +479,21 @@ func writeFeatureApp(t *testing.T, bin, name, body string) string {
 	p := filepath.Join(bin, name)
 	writeExecutable(t, p, "#!/bin/sh\necho $$ >\"$APP_PID_LOG\"\n"+body+"\n")
 	return p
+}
+
+// waitForFile polls until path exists or the deadline passes.
+func waitForFile(t *testing.T, path string, timeout time.Duration) {
+	t.Helper()
+	deadline := time.Now().Add(timeout)
+	for {
+		if _, err := os.Stat(path); err == nil {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("%s did not appear within %s", path, timeout)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
 }
 
 func readJSONFile(t *testing.T, path string, dst any) {
