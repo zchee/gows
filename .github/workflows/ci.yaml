@@ -101,6 +101,44 @@ jobs:
         working-directory: bench
         run: go vet ./...
 
+  gotip:
+    name: build and test (gotip)
+    runs-on: ubuntu-26.04
+    # The development toolchain may break for reasons outside this module;
+    # a failure here is a warning, not a gate.
+    continue-on-error: true
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          # Bootstrap toolchain that builds gotip from source.
+          go-version: stable
+      - name: Install gotip
+        run: |
+          go install golang.org/dl/gotip@latest
+          echo "$(go env GOPATH)/bin" >> "${GITHUB_PATH}"
+      - name: Date for the toolchain cache key
+        id: date
+        run: echo "today=$(date -u '+%Y-%m-%d')" >> "${GITHUB_OUTPUT}"
+      # The development toolchain changes daily. gotip download always
+      # refetches and reruns make.bash, so on a same-day hit the restored
+      # build is used as is: the gotip wrapper only needs bin/go to exist.
+      - uses: actions/cache@v6
+        id: gotip-cache
+        with:
+          path: ~/sdk/gotip
+          key: gotip-${{ runner.os }}-${{ steps.date.outputs.today }}
+      - name: Download and build the development toolchain
+        if: steps.gotip-cache.outputs.cache-hit != 'true'
+        run: gotip download
+      - name: gotip build, vet and test
+        run: |
+          gotip version
+          gotip build ./...
+          gotip vet ./...
+          gotip test -race -count=1 ./...
+
   lint:
     runs-on: ubuntu-26.04
     timeout-minutes: 15
@@ -139,3 +177,68 @@ jobs:
             echo "::error::asmfmt found unformatted assembly files (run: asmfmt -w <file>.s)"
             exit 1
           fi
+
+  fuzz-smoke:
+    name: fuzz-smoke (shard ${{ matrix.shard }})
+    strategy:
+      fail-fast: false
+      matrix:
+        shard:
+          - 0
+          - 1
+          - 2
+          - 3
+    runs-on: ubuntu-26.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+      - name: Read the Go version from go.mod
+        id: go
+        run: echo "version=$(sed -n 's/^go \([0-9][0-9.]*\)$/\1/p' go.mod)" >> "$GITHUB_OUTPUT"
+      - uses: cloudx-io/setup-go@v1
+        with:
+          go-version: ${{ steps.go.outputs.version }}
+          cache-key-prefix: fuzz-smoke
+      - name: Verify required protocol fuzz targets
+        if: matrix.shard == 0
+        run: |
+          set -euo pipefail
+          while read -r pkg target; do
+            listed="$(go test -list "^${target}$" "${pkg}")"
+            grep -Fx -- "${target}" <<<"${listed}" || {
+              echo "required fuzz target ${pkg} ${target} is absent" >&2
+              exit 1
+            }
+          done <<'TARGETS'
+          . FuzzDecodeHeader
+          . FuzzConnReadState
+          ./internal/mask FuzzMask
+          ./internal/utf8x FuzzValidator
+          TARGETS
+      - name: Run every fuzz target for 30 seconds
+        env:
+          SHARD: ${{ matrix.shard }}
+          SHARDS: 4
+        run: |
+          set -euo pipefail
+          # go test -fuzz accepts one package and one target per run, so
+          # loop over the targets each package lists. Assigning the output
+          # to a variable first makes a compile error fail the job. Targets
+          # are dealt round-robin across the shards so each runner takes a
+          # quarter of the 30-second runs.
+          pkgs="$(go list ./...)"
+          count=0
+          index=0
+          for pkg in ${pkgs}; do
+            listed="$(go test -list '^Fuzz' "${pkg}")"
+            for target in $(grep '^Fuzz' <<<"${listed}" || true); do
+              if [ $((index % SHARDS)) -eq "${SHARD}" ]; then
+                echo "::group::${pkg} ${target}"
+                go test -run '^$' -fuzz "^${target}\$" -fuzztime 30s "${pkg}"
+                echo "::endgroup::"
+                count=$((count + 1))
+              fi
+              index=$((index + 1))
+            done
+          done
+          echo "shard ${SHARD}/${SHARDS} ran ${count} of ${index} fuzz target(s)"
