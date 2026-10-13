@@ -1,28 +1,38 @@
 name: autobahn
 
-# Phase 0: manual trigger only, since gows itself has no server/client yet
-# (Phase 2). Once examples/autobahn lands this will be wired to push/PR
-# alongside test.yaml.
+# The Autobahn suite runs the echo server under examples/autobahn through
+# the full conformance case list, which takes far longer than the unit
+# gates in ci.yaml, so it stays a manual trigger.
 on:
   workflow_dispatch:
 
 permissions:
   contents: read
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+defaults:
+  run:
+    # Every step is written for bash, whatever the runner's default shell.
+    shell: bash
+
 jobs:
   conformance-server:
     runs-on: ubuntu-26.04
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v7
-
-      - uses: actions/setup-go@v7
-        if: ${{ hashFiles('examples/autobahn/**/*.go') != '' }}
+      - name: Read the Go version from go.mod
+        id: go
+        run: echo "version=$(sed -n 's/^go \([0-9][0-9.]*\)$/\1/p' go.mod)" >> "$GITHUB_OUTPUT"
+      - uses: cloudx-io/setup-go@v1
         with:
-          go-version-file: go.mod
-          check-latest: true
+          go-version: ${{ steps.go.outputs.version }}
+          cache-key-prefix: autobahn-conformance-server
 
       - name: Start example echo server
-        if: ${{ hashFiles('examples/autobahn/**/*.go') != '' }}
         run: |
           go run ./examples/autobahn &
           echo $! > server.pid
@@ -35,13 +45,8 @@ jobs:
           done
 
       - name: Run Autobahn conformance (server mode)
-        if: ${{ hashFiles('examples/autobahn/**/*.go') != '' }}
         run: ./autobahn/run.sh server ws://127.0.0.1:9001
 
       - name: Stop example echo server
-        if: ${{ always() && hashFiles('examples/autobahn/**/*.go') != '' }}
+        if: always()
         run: kill "$(cat server.pid)" 2>/dev/null || true
-
-      - name: No example server yet
-        if: ${{ hashFiles('examples/autobahn/**/*.go') == '' }}
-        run: echo "::notice::examples/autobahn does not exist yet (Phase 2) — nothing to test. This job will exercise the gows server automatically once the example lands."
