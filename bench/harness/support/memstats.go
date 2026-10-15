@@ -52,8 +52,9 @@ func ReadMemSnapshot() MemSnapshot {
 // profiling only run when this endpoint is polled/hit by loadgen or an
 // operator, never on the per-message code path.
 //
-// It returns the *http.Server so the caller can Shutdown it; the caller is
-// responsible for running Serve in a goroutine.
+// It listens and serves on its own goroutine and returns at once with the
+// *http.Server, so the caller can Shutdown it, and a channel that receives
+// either the listen error or the value Serve returns.
 func StartDebugServer(addr string) (*http.Server, <-chan error) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/debug/memstats", func(w http.ResponseWriter, _ *http.Request) {

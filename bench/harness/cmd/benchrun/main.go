@@ -109,7 +109,7 @@ func run() (resultErr error) {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	// 1. Host guard: exclusive lock, load average, foreign processes.
+	// Host guard: exclusive lock, load average, foreign processes.
 	release, err := acquireLock(lockPath)
 	if err != nil {
 		return err
@@ -123,7 +123,6 @@ func run() (resultErr error) {
 		return err
 	}
 
-	// 2. Provenance.
 	commit, err := gitOutput(moduleRoot, "rev-parse", "HEAD")
 	if err != nil {
 		return err
@@ -360,12 +359,10 @@ func run() (resultErr error) {
 		return err
 	}
 
-	// 3. Environment snapshot (start).
 	if err := support.WriteJSONFile(filepath.Join(out, "env-start.json"), environmentStart); err != nil {
 		return err
 	}
 
-	// 4. Paired randomized execution.
 	stage = "measurement"
 	samplesPath := filepath.Join(out, "samples.jsonl")
 	errorsPath := filepath.Join(out, "errors.log")
@@ -393,7 +390,6 @@ func run() (resultErr error) {
 		return err
 	}
 
-	// 5. Run-complete marker.
 	done := support.Done{FinishedAt: nowRFC(), Samples: samplesWritten, Scenarios: len(pol.Scenarios)}
 	if err := support.WriteJSONFile(filepath.Join(out, "done.json"), done); err != nil {
 		return err
