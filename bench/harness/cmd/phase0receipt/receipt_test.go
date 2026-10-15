@@ -260,10 +260,10 @@ func TestWriteNewFileAtomicNeverOverwrites(t *testing.T) {
 	root := canonicalTempDir(t)
 	path := filepath.Join(root, "nested", "receipt.json")
 	first := []byte("first\n")
-	if err := writeNewFileAtomic(root, path, first, 0o644); err != nil {
+	if err := writeNewFileAtomic(root, path, first); err != nil {
 		t.Fatalf("first write: %v", err)
 	}
-	if err := writeNewFileAtomic(root, path, []byte("second\n"), 0o644); err == nil || !strings.Contains(err.Error(), "already exists") {
+	if err := writeNewFileAtomic(root, path, []byte("second\n")); err == nil || !strings.Contains(err.Error(), "already exists") {
 		t.Fatalf("second write error = %v", err)
 	}
 	got, err := os.ReadFile(path)

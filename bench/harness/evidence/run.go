@@ -149,7 +149,6 @@ type moduleRecord struct {
 }
 
 type resolvedRun struct {
-	Reference artifact.Ref
 	Receipt   artifact.RunReceipt
 	Files     map[string]string
 	Manifest  runManifest
@@ -222,7 +221,7 @@ func resolveRun(store artifact.Store, ref artifact.Ref, repository RepositoryIde
 	}
 
 	run := resolvedRun{
-		Reference: ref, Receipt: receipt, Files: files, Manifest: manifest,
+		Receipt: receipt, Files: files, Manifest: manifest,
 		Policy: policyValue, PolicyRaw: append([]byte(nil), policyRaw...), Samples: samples, Started: started, Ended: ended,
 	}
 	if err := validateRunIdentity(run, repository, policySum, done, envStart, envEnd, root); err != nil {

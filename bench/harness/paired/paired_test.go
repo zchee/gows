@@ -7,13 +7,13 @@ import (
 	"github.com/zchee/gows/bench/harness/support"
 )
 
-func mkSample(scenario, lib string, rep int, throughput float64, p99 int64) Sample {
+// mkSample builds a scenario "s" sample carrying only the throughput metric.
+func mkSample(lib string, rep int, throughput float64) Sample {
 	return Sample{
 		LoadgenResult: support.LoadgenResult{
 			ThroughputMessagesPerSecond: throughput,
-			P99Nanoseconds:              p99,
 		},
-		Scenario:   scenario,
+		Scenario:   "s",
 		Library:    lib,
 		Repetition: rep,
 	}
@@ -25,10 +25,10 @@ func TestRatios(t *testing.T) {
 	// Samples deliberately out of repetition order to prove Ratios sorts
 	// before pairing.
 	samples := []Sample{
-		mkSample("s", "cand", 1, 120, 0),
-		mkSample("s", "cand", 0, 110, 0),
-		mkSample("s", "comp", 0, 100, 0),
-		mkSample("s", "comp", 1, 100, 0),
+		mkSample("cand", 1, 120),
+		mkSample("cand", 0, 110),
+		mkSample("comp", 0, 100),
+		mkSample("comp", 1, 100),
 	}
 	got, err := Ratios(samples, "s", "cand", "comp", MetricThroughput)
 	if err != nil {
@@ -52,29 +52,29 @@ func TestRatiosErrors(t *testing.T) {
 	}{
 		"count mismatch": {
 			samples: []Sample{
-				mkSample("s", "cand", 0, 110, 0),
-				mkSample("s", "cand", 1, 120, 0),
-				mkSample("s", "comp", 0, 100, 0),
+				mkSample("cand", 0, 110),
+				mkSample("cand", 1, 120),
+				mkSample("comp", 0, 100),
 			},
 			metric: MetricThroughput,
 		},
 		"missing candidate": {
 			samples: []Sample{
-				mkSample("s", "comp", 0, 100, 0),
+				mkSample("comp", 0, 100),
 			},
 			metric: MetricThroughput,
 		},
 		"comparator zero": {
 			samples: []Sample{
-				mkSample("s", "cand", 0, 110, 0),
-				mkSample("s", "comp", 0, 0, 0),
+				mkSample("cand", 0, 110),
+				mkSample("comp", 0, 0),
 			},
 			metric: MetricThroughput,
 		},
 		"unknown metric": {
 			samples: []Sample{
-				mkSample("s", "cand", 0, 110, 0),
-				mkSample("s", "comp", 0, 100, 0),
+				mkSample("cand", 0, 110),
+				mkSample("comp", 0, 100),
 			},
 			metric: "no_such_metric",
 		},

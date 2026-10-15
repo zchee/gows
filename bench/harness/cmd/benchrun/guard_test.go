@@ -190,10 +190,7 @@ func TestProcessPatternRejectsForeignAndAllowsOwned(t *testing.T) {
 		t.Fatal(err)
 	}
 	owned := mustOwnedProcessTree(t, processes, map[int]struct{}{100: {}})
-	re, err := regexp.Compile(harnessProcessPattern)
-	if err != nil {
-		t.Fatal(err)
-	}
+	re := regexp.MustCompile(harnessProcessPattern)
 	for _, process := range processes {
 		if _, ok := owned[process.PID]; ok && re.MatchString(process.Command) {
 			continue

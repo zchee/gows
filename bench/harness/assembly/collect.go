@@ -365,7 +365,7 @@ func resolveTargetGoRoot(explicit string) (string, string, error) {
 		return "", "", fmt.Errorf("absolute Go tool %q: %w", goTool, err)
 	}
 	if canonicalTool != goTool {
-		return "", "", fmt.Errorf("Go tool %q is not symlink-canonical (want %q)", goTool, canonicalTool)
+		return "", "", fmt.Errorf("go tool %q is not symlink-canonical (want %q)", goTool, canonicalTool)
 	}
 	return canonicalRoot, canonicalTool, nil
 }
