@@ -424,18 +424,12 @@ func (c *Conn) handleControl(h Header) error {
 func (c *Conn) handleClose(payload []byte) error {
 	c.closeRcvd.Store(true)
 
-	code, reason, err := ParseCloseBody(payload)
-	if err != nil {
-		return c.failClose(CloseProtocolError, "malformed close frame body")
+	code, reason, perr := validateCloseBody(payload, !c.skipUTF8)
+	if perr != nil {
+		return c.failClose(perr.Code, perr.Reason)
 	}
 
 	if code != CloseNoStatusReceived {
-		if !ValidCloseCode(code) {
-			return c.failClose(CloseProtocolError, "invalid close code")
-		}
-		if !c.skipUTF8 && !utf8x.Valid(reason) {
-			return c.failClose(CloseInvalidFramePayloadData, "invalid UTF-8 in close reason")
-		}
 		_ = c.sendClose(code, nil)
 	} else {
 		// The peer sent no status code; reply with an empty Close body

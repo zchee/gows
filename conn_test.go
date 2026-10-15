@@ -363,6 +363,16 @@ func TestReadMessageProtocolErrors(t *testing.T) {
 			in:       clientFrame(true, OpcodeClose, []byte{0x03}),
 			wantCode: CloseProtocolError,
 		},
+		// 1005 means "no status code present" (RFC 6455 §7.4.1) and must
+		// never appear on the wire; only an empty body signals it.
+		"close explicit 1005 code": {
+			in:       clientFrame(true, OpcodeClose, []byte{0x03, 0xED}),
+			wantCode: CloseProtocolError,
+		},
+		"close explicit 1005 code with reason": {
+			in:       clientFrame(true, OpcodeClose, []byte{0x03, 0xED, 'b', 'y', 'e'}),
+			wantCode: CloseProtocolError,
+		},
 		"close invalid utf8 reason": {
 			in:       clientFrame(true, OpcodeClose, append(AppendCloseBody(nil, CloseNormalClosure, nil), badUTF8...)),
 			wantCode: CloseInvalidFramePayloadData,
@@ -887,5 +897,17 @@ func TestSkipUTF8Validation(t *testing.T) {
 	op, got, err := c.ReadMessage()
 	if err != nil || op != OpcodeText || !bytes.Equal(got, bad) {
 		t.Fatalf("skip: op=%v got=% x err=%v, want text % x", op, got, err, bad)
+	}
+
+	// Skipped: a Close reason is not validated either; the peer's code is
+	// accepted and echoed instead of failing the connection with 1007.
+	sc3 := &scriptConn{in: clientFrame(true, OpcodeClose, append(AppendCloseBody(nil, CloseNormalClosure, nil), bad...))}
+	_, _, err = NewServerConn(sc3, WithSkipUTF8Validation(true)).ReadMessage()
+	var ce *CloseError
+	if !errors.As(err, &ce) || ce.Code != CloseNormalClosure || ce.Reason != string(bad) {
+		t.Fatalf("skip: Close with invalid UTF-8 reason: err = %v, want CloseError 1000 with the raw reason", err)
+	}
+	if code, _, ok := firstClose(t, parseFrames(t, sc3.out.Bytes())); !ok || code != CloseNormalClosure {
+		t.Fatalf("skip: reply close code = %d ok=%v, want 1000", code, ok)
 	}
 }
