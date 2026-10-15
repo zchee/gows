@@ -1,0 +1,14 @@
+{
+  "run_id": "feature-server",
+  "direction": "server",
+  "agent": "gows-v04-feature-server",
+  "command": "/bin/app -mode server",
+  "started_utc": "2026-01-02T03:04:05Z",
+  "ended_utc": "2026-01-02T03:14:05Z",
+  "termination": "owned-cleanup",
+  "pid": 4242,
+  "exit_status": 143,
+  "executable": "/bin/app",
+  "executable_sha256": "2222222222222222222222222222222222222222222222222222222222222222",
+  "expected_executable_sha256": "2222222222222222222222222222222222222222222222222222222222222222"
+}

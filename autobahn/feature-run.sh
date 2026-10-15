@@ -4,6 +4,8 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" &>/dev/null && pwd)"
 ROOT_DIR="${SCRIPT_DIR}/.."
+# shellcheck source-path=SCRIPTDIR source=evidence.sh
+source "${SCRIPT_DIR}/evidence.sh"
 DIRECTION="${1:-}"
 [[ "$DIRECTION" == server || "$DIRECTION" == client ]] || { echo "usage: feature-run.sh server|client -- <prebuilt-app> [args...]" >&2; exit 2; }
 shift
@@ -39,9 +41,7 @@ for value in "$APP_TIMEOUT" "$READY_TIMEOUT" "$CLIENT_TIMEOUT" "$SERVER_TIMEOUT"
 OBSERVED_APP_SHA="$(shasum -a 256 "$APP_EXECUTABLE" | awk '{print $1}')"
 [[ "$OBSERVED_APP_SHA" == "$EXPECTED_APP_SHA" ]] || { echo "feature-run.sh: application SHA-256 does not match reviewed binary" >&2; exit 1; }
 GENERATOR_EVIDENCE="${AUTOBAHN_GENERATOR_EVIDENCE:?AUTOBAHN_GENERATOR_EVIDENCE is required}"
-[[ "$GENERATOR_EVIDENCE" =~ ^(/.*)@sha256:([0-9a-f]{64})$ ]] || { echo "feature-run.sh: generator evidence must be <absolute-path>@sha256:<64 lowercase hex>" >&2; exit 1; }
-GENERATOR_PATH="${BASH_REMATCH[1]}"; GENERATOR_SHA="${BASH_REMATCH[2]}"
-[[ -f "$GENERATOR_PATH" && "$(realpath "$GENERATOR_PATH")" == "$GENERATOR_PATH" && "$(shasum -a 256 "$GENERATOR_PATH" | awk '{print $1}')" == "$GENERATOR_SHA" ]] || { echo "feature-run.sh: generator evidence file/hash mismatch" >&2; exit 1; }
+verify_generator_evidence "feature-run.sh: generator evidence" "$GENERATOR_EVIDENCE" || exit 1
 EFFECTIVE_CASE_DELAY="$(cd "$ROOT_DIR" && go run ./autobahn/provenance -normalize-duration "$CASE_DELAY")" || { echo "feature-run.sh: AUTOBAHN_CASE_DELAY must be a nonnegative duration" >&2; exit 1; }
 nc -z 127.0.0.1 9001 >/dev/null 2>&1 && { echo "feature-run.sh: port 9001 is already occupied" >&2; exit 1; }
 RUN_STARTED="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
@@ -56,9 +56,8 @@ cleanup() {
     if wait "$APP_PID" >/dev/null 2>&1; then observed=0; else observed=$?; fi
     APP_OWNED=0
     if [[ $status -ne 0 && -n "$APP_STARTED" ]]; then
-      mkdir -p "$REPORTS_DIR"
       receipt_status="$APP_STATUS"; [[ "$receipt_status" -ne 0 ]] || receipt_status="$observed"
-      (cd "$ROOT_DIR" && go run ./autobahn/appreceipt -run-id "$RUN_ID" -direction "$DIRECTION" -agent "$AGENT" -command "$APP_COMMAND" -executable "$APP_EXECUTABLE" -expected-executable-sha256 "$EXPECTED_APP_SHA" -started "$APP_STARTED" -ended "$(date -u +%Y-%m-%dT%H:%M:%SZ)" -termination failure -pid "$APP_PID" -status "$receipt_status" -output "${REPORTS_DIR}/application-failure-receipt.json") || true
+      write_application_failure_receipt "$receipt_status" || true
     fi
   fi
   if [[ "$RUNNER_OWNED" == 1 ]]; then

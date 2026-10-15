@@ -25,6 +25,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/zchee/gows/internal/autobahnreport"
 )
 
 func TestFeatureCheck(t *testing.T) {
@@ -71,29 +73,29 @@ func TestFeatureCheck(t *testing.T) {
 		}, "hash-mismatched"},
 		{"target-unimplemented-generic-judge-pass", func(o *options) {
 			cases := makeCases(mm, true)
-			cases[mm.Targets[0]] = caseResult{Behavior: "UNIMPLEMENTED", BehaviorClose: "OK"}
+			cases[mm.Targets[0]] = autobahnreport.CaseResult{Behavior: "UNIMPLEMENTED", BehaviorClose: "OK"}
 			o.AfterPath, o.AfterProvenance = writeEvidence(t, dir, "unimplemented", "feature", "server", "gows-v04-feature-server", cases, featureConfig)
 		}, "want OK"},
 		{"non-strict", func(o *options) {
 			cases := makeCases(mm, true)
-			cases["1.1.1"] = caseResult{Behavior: "NON-STRICT", BehaviorClose: "OK"}
+			cases["1.1.1"] = autobahnreport.CaseResult{Behavior: "NON-STRICT", BehaviorClose: "OK"}
 			o.AfterPath, o.AfterProvenance = writeEvidence(t, dir, "nonstrict", "feature", "server", "gows-v04-feature-server", cases, featureConfig)
 		}, "NON-STRICT"},
 		{"missing-target", func(o *options) {
 			cases := makeCases(mm, true)
 			delete(cases, mm.Targets[0])
-			cases["1.1.999"] = caseResult{Behavior: "OK", BehaviorClose: "OK"}
+			cases["1.1.999"] = autobahnreport.CaseResult{Behavior: "OK", BehaviorClose: "OK"}
 			o.AfterPath, o.AfterProvenance = writeEvidence(t, dir, "missing", "feature", "server", "gows-v04-feature-server", cases, featureConfig)
 		}, "missing inventory case"},
 		{"extra-inventory", func(o *options) {
 			cases := makeCases(mm, true)
 			delete(cases, "1.1.1")
-			cases["13.3.999"] = caseResult{Behavior: "OK", BehaviorClose: "OK"}
+			cases["13.3.999"] = autobahnreport.CaseResult{Behavior: "OK", BehaviorClose: "OK"}
 			o.AfterPath, o.AfterProvenance = writeEvidence(t, dir, "extra", "feature", "server", "gows-v04-feature-server", cases, featureConfig)
 		}, "extra inventory case"},
 		{"stale-canonical", func(o *options) {
 			cases := makeCases(mm, false)
-			cases[mm.Targets[0]] = caseResult{Behavior: "OK", BehaviorClose: "OK"}
+			cases[mm.Targets[0]] = autobahnreport.CaseResult{Behavior: "OK", BehaviorClose: "OK"}
 			o.BeforePath, o.BeforeProvenance = writeEvidence(t, dir, "stale", "canonical", "server", "gows", cases, nil)
 		}, "stale canonical"},
 		{"missing-feature-config", func(o *options) {
@@ -101,7 +103,7 @@ func TestFeatureCheck(t *testing.T) {
 		}, "lacks flatekp"},
 		{"late-code-change", func(o *options) {
 			o.AfterPath, o.AfterProvenance = writeEvidence(t, dir, "late-change", "feature", "server", "gows-v04-feature-server", makeCases(mm, true), featureConfig)
-			var p provenance
+			var p autobahnreport.Provenance
 			if err := readJSON(o.AfterProvenance, &p); err != nil {
 				t.Fatal(err)
 			}
@@ -116,32 +118,34 @@ func TestFeatureCheck(t *testing.T) {
 		}, "different code states"},
 		{"malformed-manifest-digest", func(o *options) {
 			o.AfterPath, o.AfterProvenance = writeEvidence(t, dir, "bad-manifest-digest", "feature", "server", "gows-v04-feature-server", makeCases(mm, true), featureConfig)
-			rewriteProvenance(t, o.AfterProvenance, func(p *provenance) { p.Image = "image@sha256:short" })
+			rewriteProvenance(t, o.AfterProvenance, func(p *autobahnreport.Provenance) { p.Image = "image@sha256:short" })
 		}, "hash-mismatched provenance"},
 		{"malformed-config-digest", func(o *options) {
 			o.AfterPath, o.AfterProvenance = writeEvidence(t, dir, "bad-config-digest", "feature", "server", "gows-v04-feature-server", makeCases(mm, true), featureConfig)
-			rewriteProvenance(t, o.AfterProvenance, func(p *provenance) { p.ImageID = "sha256:not-hex" })
+			rewriteProvenance(t, o.AfterProvenance, func(p *autobahnreport.Provenance) { p.ImageID = "sha256:not-hex" })
 		}, "hash-mismatched provenance"},
 		{"missing-application-command", func(o *options) {
 			o.AfterPath, o.AfterProvenance = writeEvidence(t, dir, "missing-app-command", "feature", "server", "gows-v04-feature-server", makeCases(mm, true), featureConfig)
-			rewriteProvenance(t, o.AfterProvenance, func(p *provenance) { p.ApplicationCommand = "" })
+			rewriteProvenance(t, o.AfterProvenance, func(p *autobahnreport.Provenance) { p.ApplicationCommand = "" })
 		}, "lacks external application command"},
 		{"wrong-reviewed-application-sha", func(o *options) { o.ExpectedApplicationSHA = strings.Repeat("0", 64) }, "application receipt content mismatch"},
 
 		{"malformed-generator-evidence", func(o *options) {
-			rewriteProvenance(t, o.AfterProvenance, func(p *provenance) { p.Generator = "relative@sha256:" + strings.Repeat("a", 64) })
+			rewriteProvenance(t, o.AfterProvenance, func(p *autobahnreport.Provenance) { p.Generator = "relative@sha256:" + strings.Repeat("a", 64) })
 		}, "want <absolute-path>"},
 		{"missing-generator-evidence-file", func(o *options) {
-			rewriteProvenance(t, o.AfterProvenance, func(p *provenance) { p.Generator = "/no/such/generator@sha256:" + strings.Repeat("a", 64) })
+			rewriteProvenance(t, o.AfterProvenance, func(p *autobahnreport.Provenance) {
+				p.Generator = "/no/such/generator@sha256:" + strings.Repeat("a", 64)
+			})
 		}, "no such file"},
 		{"generator-evidence-hash-mismatch", func(o *options) {
-			rewriteProvenance(t, o.AfterProvenance, func(p *provenance) {
+			rewriteProvenance(t, o.AfterProvenance, func(p *autobahnreport.Provenance) {
 				path, _ := filepath.EvalSymlinks(filepath.Join(dir, "generator.txt"))
 				p.Generator = path + "@sha256:" + strings.Repeat("0", 64)
 			})
 		}, "artifact hash mismatch"},
 		{"network-mode-difference", func(o *options) {
-			rewriteProvenance(t, o.AfterProvenance, func(p *provenance) {
+			rewriteProvenance(t, o.AfterProvenance, func(p *autobahnreport.Provenance) {
 				p.NetworkMode = "bridge"
 				p.CaseDelay = "1s"
 				path, _ := filepath.EvalSymlinks(filepath.Join(dir, "generator.txt"))
@@ -151,7 +155,7 @@ func TestFeatureCheck(t *testing.T) {
 			})
 		}, "network modes differ"},
 		{"case-delay-difference", func(o *options) {
-			rewriteProvenance(t, o.AfterProvenance, func(p *provenance) { p.NetworkMode = "host"; p.CaseDelay = "0s" })
+			rewriteProvenance(t, o.AfterProvenance, func(p *autobahnreport.Provenance) { p.NetworkMode = "host"; p.CaseDelay = "0s" })
 		}, "case delay differs"},
 	}
 	for _, tt := range tests {
@@ -196,7 +200,7 @@ func TestFeatureCheckAllowsOldBoundReports(t *testing.T) {
 	after, afterProvenance := writeEvidence(t, dir, "old-after", "feature", "server", "gows-v04-feature-server", makeCases(mode, true), featureConfig)
 	old := time.Now().UTC().Add(-48 * time.Hour).Truncate(time.Second)
 	for _, path := range []string{beforeProvenance, afterProvenance} {
-		rewriteProvenance(t, path, func(p *provenance) {
+		rewriteProvenance(t, path, func(p *autobahnreport.Provenance) {
 			p.StartedUTC = old.Format(time.RFC3339)
 			p.EndedUTC = old.Add(time.Minute).Format(time.RFC3339)
 		})
@@ -247,17 +251,17 @@ func TestFeatureCheckAllowsExplicitNetworkModeDifference(t *testing.T) {
 	before, bp := writeEvidence(t, dir, "network-before", "canonical", "server", "gows", makeCases(mm, false), nil)
 	fc := map[string]any{"backend": "klauspost/compress/flate", "level": 6, "window_bits": 9, "allow_context_takeover": true, "negotiate_window_bits": true, "client_window_bits": 9}
 	after, ap := writeEvidence(t, dir, "network-after", "feature", "server", "gows-v04-feature-server", makeCases(mm, true), fc)
-	rewriteProvenance(t, ap, func(p *provenance) { p.NetworkMode = "bridge" })
+	rewriteProvenance(t, ap, func(p *autobahnreport.Provenance) { p.NetworkMode = "bridge" })
 	o := options{ManifestPath: mfPath, BeforePath: before, BeforeProvenance: bp, AfterPath: after, AfterProvenance: ap, Direction: "server", Agent: "gows-v04-feature-server", BeforeRunID: "canonical-server", AfterRunID: "feature-server", ExpectedHead: strings.Repeat("a", 40), ExpectedWorkspace: strings.Repeat("b", 64), ExpectedApplicationSHA: strings.Repeat("d", 64), AllowNetworkModeDifference: true, ExpectedCaseDelay: "1s"}
 	if err := run(&bytes.Buffer{}, o); err != nil {
 		t.Fatal(err)
 	}
 }
 
-func makeCases(m manifestMode, feature bool) map[string]caseResult {
-	cases := make(map[string]caseResult, 517)
+func makeCases(m manifestMode, feature bool) map[string]autobahnreport.CaseResult {
+	cases := make(map[string]autobahnreport.CaseResult, 517)
 	for i := 1; i <= 517-len(m.Inventory); i++ {
-		cases["1.1."+strconv.Itoa(i)] = caseResult{Behavior: "OK", BehaviorClose: "OK"}
+		cases["1.1."+strconv.Itoa(i)] = autobahnreport.CaseResult{Behavior: "OK", BehaviorClose: "OK"}
 	}
 	for id, result := range m.Inventory {
 		if feature {
@@ -268,7 +272,7 @@ func makeCases(m manifestMode, feature bool) map[string]caseResult {
 	return cases
 }
 
-func writeEvidence(t *testing.T, dir, stem, mode, direction, agent string, cases map[string]caseResult, fc map[string]any) (string, string) {
+func writeEvidence(t *testing.T, dir, stem, mode, direction, agent string, cases map[string]autobahnreport.CaseResult, fc map[string]any) (string, string) {
 	t.Helper()
 	reportRoot := filepath.Join(dir, stem+"-"+mode+"-"+direction+"-root")
 	subtree := "server"
@@ -279,7 +283,7 @@ func writeEvidence(t *testing.T, dir, stem, mode, direction, agent string, cases
 		t.Fatal(err)
 	}
 	index := filepath.Join(reportRoot, subtree, "index.json")
-	b, err := json.Marshal(map[string]map[string]caseResult{agent: cases})
+	b, err := json.Marshal(map[string]map[string]autobahnreport.CaseResult{agent: cases})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -300,7 +304,7 @@ func writeEvidence(t *testing.T, dir, stem, mode, direction, agent string, cases
 	}
 	generatorSum := sha256.Sum256(generatorData)
 	now := time.Now().UTC()
-	p := provenance{
+	p := autobahnreport.Provenance{
 		Version: 1, RunID: mode + "-" + direction, Mode: mode, Direction: direction, Agent: agent,
 		Branch: "test", Head: strings.Repeat("a", 40), GoVersion: "go1.26", GOOS: "test", GOARCH: "test",
 		Command: "test", Image: "image@sha256:" + strings.Repeat("a", 64), ImageID: "sha256:" + strings.Repeat("b", 64), CaseCount: 517,
@@ -322,7 +326,7 @@ func writeEvidence(t *testing.T, dir, stem, mode, direction, agent string, cases
 			p.ApplicationExitStatus = 143
 			p.ApplicationTermination = "owned-cleanup"
 		}
-		rb, _ := json.Marshal(applicationReceipt{RunID: p.RunID, Direction: direction, Agent: agent, Command: p.ApplicationCommand, Termination: p.ApplicationTermination, PID: p.ApplicationPID, ExitStatus: p.ApplicationExitStatus, Executable: "/tmp/prebuilt-autobahn", ExecutableSHA256: strings.Repeat("d", 64), ExpectedExecutableSHA256: strings.Repeat("d", 64)})
+		rb, _ := json.Marshal(autobahnreport.ApplicationReceipt{RunID: p.RunID, Direction: direction, Agent: agent, Command: p.ApplicationCommand, Termination: p.ApplicationTermination, PID: p.ApplicationPID, ExitStatus: p.ApplicationExitStatus, Executable: "/tmp/prebuilt-autobahn", ExecutableSHA256: strings.Repeat("d", 64), ExpectedExecutableSHA256: strings.Repeat("d", 64)})
 		if err := os.WriteFile(receipt, rb, 0o644); err != nil {
 			t.Fatal(err)
 		}
@@ -354,9 +358,9 @@ func writeEvidence(t *testing.T, dir, stem, mode, direction, agent string, cases
 	return index, prov
 }
 
-func rewriteProvenance(t *testing.T, path string, mutate func(*provenance)) {
+func rewriteProvenance(t *testing.T, path string, mutate func(*autobahnreport.Provenance)) {
 	t.Helper()
-	var p provenance
+	var p autobahnreport.Provenance
 	if err := readJSON(path, &p); err != nil {
 		t.Fatal(err)
 	}

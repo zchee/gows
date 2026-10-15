@@ -21,6 +21,8 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+
+	"github.com/zchee/gows/internal/autobahnreport"
 )
 
 func TestCompareAllCasesAndRejectCompensatingStatusChange(t *testing.T) {
@@ -32,8 +34,8 @@ func TestCompareAllCasesAndRejectCompensatingStatusChange(t *testing.T) {
 	if err := compare(bp, cp, "gows"); err != nil {
 		t.Fatal(err)
 	}
-	current["1.1.1"] = result{"FAILED", "OK"}
-	current["1.1.2"] = result{"OK", "FAILED"}
+	current["1.1.1"] = autobahnreport.CaseResult{Behavior: "FAILED", BehaviorClose: "OK"}
+	current["1.1.2"] = autobahnreport.CaseResult{Behavior: "OK", BehaviorClose: "FAILED"}
 	cp = write(t, dir, "compensating", current)
 	err := compare(bp, cp, "gows")
 	if err == nil || !strings.Contains(err.Error(), "case 1.1.1 changed") {
@@ -43,7 +45,7 @@ func TestCompareAllCasesAndRejectCompensatingStatusChange(t *testing.T) {
 
 func TestCompareSelectsRequestedAgentFromMultiAgentReport(t *testing.T) {
 	dir := t.TempDir()
-	reports := map[string]map[string]result{
+	reports := map[string]map[string]autobahnreport.CaseResult{
 		"gows":  cases(),
 		"other": {"1.1.1": {Behavior: "FAILED", BehaviorClose: "FAILED"}},
 	}
@@ -54,20 +56,20 @@ func TestCompareSelectsRequestedAgentFromMultiAgentReport(t *testing.T) {
 	}
 }
 
-func cases() map[string]result {
-	m := make(map[string]result, 517)
+func cases() map[string]autobahnreport.CaseResult {
+	m := make(map[string]autobahnreport.CaseResult, 517)
 	for i := 1; i <= 517; i++ {
-		m["1.1."+strconv.Itoa(i)] = result{"OK", "OK"}
+		m["1.1."+strconv.Itoa(i)] = autobahnreport.CaseResult{Behavior: "OK", BehaviorClose: "OK"}
 	}
 	return m
 }
 
-func write(t *testing.T, dir, name string, cases map[string]result) string {
+func write(t *testing.T, dir, name string, cases map[string]autobahnreport.CaseResult) string {
 	t.Helper()
-	return writeReport(t, dir, name, map[string]map[string]result{"gows": cases})
+	return writeReport(t, dir, name, map[string]map[string]autobahnreport.CaseResult{"gows": cases})
 }
 
-func writeReport(t *testing.T, dir, name string, reports map[string]map[string]result) string {
+func writeReport(t *testing.T, dir, name string, reports map[string]map[string]autobahnreport.CaseResult) string {
 	t.Helper()
 	raw := make(map[string]map[string]map[string]string, len(reports))
 	for agent, cases := range reports {
