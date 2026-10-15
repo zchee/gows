@@ -15,6 +15,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"runtime/debug"
+	"slices"
 	"strings"
 	"time"
 
@@ -195,7 +196,7 @@ func delegateToStockController() (delegated bool, code int, resultErr error) {
 		}
 		return false, 0, nil
 	}
-	goTool := controllerGoToolPath()
+	goTool := support.CompilerGoToolPath()
 	if file, err := os.Lstat(goTool); err != nil || !file.Mode().IsRegular() {
 		return true, exitUsage, fmt.Errorf("absolute Go tool %s is unavailable", goTool)
 	}
@@ -229,13 +230,6 @@ func delegateToStockController() (delegated bool, code int, resultErr error) {
 	return true, exitPass, nil
 }
 
-// controllerGoToolPath returns the exact compiler that built this controller,
-// which is the toolchain the delegated evaluator must prove and reuse.
-func controllerGoToolPath() string {
-	//lint:ignore SA1019 Exact build-toolchain identity is required by evaluator delegation.
-	return filepath.Join(runtime.GOROOT(), "bin", "go") //nolint:staticcheck // Exact build-toolchain identity is required by evaluator delegation.
-}
-
 func controlledEnvironment(base []string) []string {
 	overrides := []string{
 		"GOENV=off", "GOTOOLCHAIN=local", "GOEXPERIMENT=", "GOFLAGS=-mod=mod",
@@ -254,20 +248,13 @@ func controlledEnvironment(base []string) []string {
 	default:
 		overrides = append(overrides, "GOAMD64=", "GOARM64=")
 	}
-	keys := map[string]bool{
-		"GOENV": true, "GOTOOLCHAIN": true, "GOEXPERIMENT": true, "GOFLAGS": true,
-		"GOFIPS140": true, "GOWORK": true, "CGO_ENABLED": true,
-		"GOOS": true, "GOARCH": true, "GOAMD64": true, "GOARM64": true,
-		"GOWS_BENCHCMP_STOCK_CONTROLLER": true,
-	}
-	result := make([]string, 0, len(base)+len(overrides))
-	for _, value := range base {
-		key, _, _ := strings.Cut(value, "=")
-		if !keys[key] {
-			result = append(result, value)
-		}
-	}
-	return append(result, overrides...)
+	// The delegation marker is cleared as well: delegateToStockController sets
+	// it only on the evaluator child it starts.
+	base = slices.DeleteFunc(slices.Clone(base), func(entry string) bool {
+		key, _, _ := strings.Cut(entry, "=")
+		return key == "GOWS_BENCHCMP_STOCK_CONTROLLER"
+	})
+	return support.OverrideEnvironment(base, overrides)
 }
 
 func validateControlledController(goVersion string, settings map[string]string, getenv func(string) string) error {

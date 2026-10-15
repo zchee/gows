@@ -24,108 +24,6 @@ import (
 	"github.com/zchee/gows/bench/harness/support"
 )
 
-type provenanceArtifact struct {
-	Path      string `json:"path"`
-	SHA256    string `json:"sha256"`
-	SizeBytes int64  `json:"size_bytes"`
-}
-
-type binaryProvenance struct {
-	Path       string             `json:"path"`
-	SHA256     string             `json:"sha256"`
-	SizeBytes  int64              `json:"size_bytes"`
-	GoVersionM provenanceArtifact `json:"go_version_m"`
-}
-
-type runManifest struct {
-	SchemaVersion          int                         `json:"schema_version"`
-	SessionID              string                      `json:"session_id"`
-	GitCommit              string                      `json:"git_commit"`
-	GitDirty               bool                        `json:"git_dirty"`
-	GitRemote              string                      `json:"git_remote"`
-	GitBranch              string                      `json:"git_branch"`
-	GitStatus              string                      `json:"git_status"`
-	GitTree                string                      `json:"git_tree"`
-	SourceSHA256           string                      `json:"source_sha256"`
-	ModulePath             string                      `json:"module_path"`
-	ModuleFilesSHA256      string                      `json:"module_files_sha256"`
-	GoVersion              string                      `json:"go_version"`
-	GoBinaryPath           string                      `json:"go_binary_path"`
-	GoBinarySHA256         string                      `json:"go_binary_sha256"`
-	GoBinarySizeBytes      int64                       `json:"go_binary_size_bytes"`
-	HarnessRuntimeVersion  string                      `json:"harness_runtime_version"`
-	GOOS                   string                      `json:"goos"`
-	GOARCH                 string                      `json:"goarch"`
-	GoEnv                  provenanceArtifact          `json:"go_env"`
-	ModuleGraph            provenanceArtifact          `json:"module_graph"`
-	BinaryProvenance       map[string]binaryProvenance `json:"binary_provenance"`
-	OSVersion              provenanceArtifact          `json:"os_version"`
-	SystemProfile          provenanceArtifact          `json:"system_profile"`
-	Limits                 provenanceArtifact          `json:"limits"`
-	Hostname               string                      `json:"hostname"`
-	Kernel                 string                      `json:"kernel"`
-	BootIdentityStart      string                      `json:"boot_identity_start"`
-	BootIdentityEnd        string                      `json:"boot_identity_end"`
-	Client                 string                      `json:"client"`
-	EchoserverSHA256       string                      `json:"echoserver_sha256"`
-	LoadgenSHA256          string                      `json:"loadgen_sha256"`
-	OverrideBinariesSHA256 map[string]string           `json:"override_binaries_sha256"`
-	PolicySHA256           string                      `json:"policy_sha256"`
-	AdapterSHA256          map[string]string           `json:"adapter_sha256"`
-	LibraryBinariesSHA256  map[string]string           `json:"library_binaries_sha256"`
-	RunKind                string                      `json:"run_kind"`
-	EvidenceClass          string                      `json:"evidence_class"`
-	ToolchainSeries        string                      `json:"toolchain_series"`
-	GoExperiment           string                      `json:"go_experiment"`
-	ToolchainEnvironment   toolchainEnvironment        `json:"toolchain_environment"`
-	RuntimeEnvironment     runtimeEnvironment          `json:"runtime_environment"`
-	Seed                   uint64                      `json:"seed"`
-	Smoke                  bool                        `json:"smoke"`
-	StartedAt              string                      `json:"started_at"`
-	EndedAt                string                      `json:"ended_at"`
-}
-
-type toolchainEnvironment struct {
-	GOENV        string `json:"goenv"`
-	GOTOOLCHAIN  string `json:"gotoolchain"`
-	GOFLAGS      string `json:"goflags"`
-	GOEXPERIMENT string `json:"goexperiment"`
-	GOOS         string `json:"goos"`
-	GOARCH       string `json:"goarch"`
-	GOAMD64      string `json:"goamd64"`
-	GOARM64      string `json:"goarm64"`
-	GOFIPS140    string `json:"gofips140"`
-	CGOEnabled   string `json:"cgo_enabled"`
-}
-
-type runtimeEnvironment struct {
-	GOMAXPROCS string `json:"gomaxprocs"`
-	GOGC       string `json:"gogc"`
-	GOMEMLIMIT string `json:"gomemlimit"`
-	GODEBUG    string `json:"godebug"`
-	GOWSSIMD   string `json:"gows_simd"`
-}
-
-type doneMarker struct {
-	FinishedAt string `json:"finished_at"`
-	Samples    int    `json:"samples"`
-	Scenarios  int    `json:"scenarios"`
-}
-
-type envSnapshot struct {
-	Load1                  float64 `json:"load1"`
-	Load5                  float64 `json:"load5"`
-	Load15                 float64 `json:"load15"`
-	PMSetBattery           string  `json:"pmset_batt"`
-	PMSetThermal           string  `json:"pmset_therm"`
-	LogicalCPUs            int     `json:"logical_cpus"`
-	MemoryBytes            uint64  `json:"memory_bytes"`
-	BootIdentity           string  `json:"boot_identity"`
-	Uptime                 string  `json:"uptime"`
-	CapturedAt             string  `json:"captured_at"`
-	ObservationNanoseconds int64   `json:"observation_nanoseconds"`
-}
-
 type goEnvironment struct {
 	CGOEnabled   string `json:"CGO_ENABLED"`
 	GOARCH       string `json:"GOARCH"`
@@ -151,7 +49,7 @@ type moduleRecord struct {
 type resolvedRun struct {
 	Receipt   artifact.RunReceipt
 	Files     map[string]string
-	Manifest  runManifest
+	Manifest  support.RunManifest
 	Policy    *policy.Policy
 	PolicyRaw []byte
 	Samples   []paired.Sample
@@ -171,7 +69,7 @@ func resolveRun(store artifact.Store, ref artifact.Ref, repository RepositoryIde
 	if err != nil {
 		return resolvedRun{}, err
 	}
-	var manifest runManifest
+	var manifest support.RunManifest
 	if err := decodeStrict(manifestRaw, &manifest); err != nil {
 		return resolvedRun{}, fmt.Errorf("evidence: run manifest: %w", err)
 	}
@@ -192,14 +90,14 @@ func resolveRun(store artifact.Store, ref artifact.Ref, repository RepositoryIde
 	if err != nil {
 		return resolvedRun{}, err
 	}
-	var done doneMarker
+	var done support.Done
 	if raw, err := os.ReadFile(files["done.json"]); err != nil {
 		return resolvedRun{}, err
 	} else if err := decodeStrict(raw, &done); err != nil {
 		return resolvedRun{}, fmt.Errorf("evidence: done marker: %w", err)
 	}
-	var envStart, envEnd envSnapshot
-	for name, target := range map[string]*envSnapshot{"env-start.json": &envStart, "env-end.json": &envEnd} {
+	var envStart, envEnd support.EnvSnapshot
+	for name, target := range map[string]*support.EnvSnapshot{"env-start.json": &envStart, "env-end.json": &envEnd} {
 		raw, err := os.ReadFile(files[name])
 		if err != nil {
 			return resolvedRun{}, err
@@ -230,7 +128,7 @@ func resolveRun(store artifact.Store, ref artifact.Ref, repository RepositoryIde
 	return run, nil
 }
 
-func validateRunIdentity(run resolvedRun, repository RepositoryIdentity, policySum string, done doneMarker, envStart, envEnd envSnapshot, root string) error {
+func validateRunIdentity(run resolvedRun, repository RepositoryIdentity, policySum string, done support.Done, envStart, envEnd support.EnvSnapshot, root string) error {
 	m := run.Manifest
 	p := run.Policy
 	r := run.Receipt
@@ -302,7 +200,7 @@ func validateRunIdentity(run resolvedRun, repository RepositoryIdentity, policyS
 	if err := validateToolchainIdentity(m); err != nil {
 		return fmt.Errorf("evidence: run %s: %w", r.SessionID, err)
 	}
-	for _, provenance := range []provenanceArtifact{m.GoEnv, m.ModuleGraph, m.OSVersion, m.SystemProfile, m.Limits} {
+	for _, provenance := range []support.ProvenanceArtifact{m.GoEnv, m.ModuleGraph, m.OSVersion, m.SystemProfile, m.Limits} {
 		if err := validateProvenanceRef(run, provenance); err != nil {
 			return err
 		}
@@ -340,7 +238,7 @@ func validateRunTimeline(sessionID string, envStarted, runStarted, envEnded, run
 	return nil
 }
 
-func validateEnvSnapshot(snapshot envSnapshot, requireUptime bool) error {
+func validateEnvSnapshot(snapshot support.EnvSnapshot, requireUptime bool) error {
 	for _, load := range []float64{snapshot.Load1, snapshot.Load5, snapshot.Load15} {
 		if load < 0 || math.IsNaN(load) || math.IsInf(load, 0) {
 			return fmt.Errorf("invalid load average %g", load)
@@ -359,24 +257,24 @@ func validateEnvSnapshot(snapshot envSnapshot, requireUptime bool) error {
 	return nil
 }
 
-func validateRunEnvironment(start, end envSnapshot, guard policy.Guard) error {
+func validateRunEnvironment(start, end support.EnvSnapshot, guard policy.Guard) error {
 	if guard.MaxLoad1 <= 0 || start.Load1 > guard.MaxLoad1 {
 		return fmt.Errorf("initial load1 %.2f exceeds max %.2f", start.Load1, guard.MaxLoad1)
 	}
-	startPower, endPower := snapshotPowerSource(start.PMSetBattery), snapshotPowerSource(end.PMSetBattery)
+	startPower, endPower := support.PMSetPowerSource(start.PMSetBattery), support.PMSetPowerSource(end.PMSetBattery)
 	if startPower == "" || endPower == "" || startPower != endPower {
 		return fmt.Errorf("power source unavailable or changed from %q to %q", startPower, endPower)
 	}
-	if !snapshotThermalClean(start.PMSetThermal) || !snapshotThermalClean(end.PMSetThermal) {
+	if !support.PMSetThermalClean(start.PMSetThermal) || !support.PMSetThermalClean(end.PMSetThermal) {
 		return errors.New("thermal or performance warning recorded")
 	}
 	return nil
 }
 
-func validateGuardEvidence(run resolvedRun, baseline envSnapshot, guard policy.Guard) error {
+func validateGuardEvidence(run resolvedRun, baseline support.EnvSnapshot, guard policy.Guard) error {
 	seen := make(map[string]bool, len(run.Samples))
 	for _, sample := range run.Samples {
-		name := filepath.ToSlash(filepath.Join("logs", guardLogPrefix(sample.Scenario, sample.BlockID, sample.Library)+".guard.jsonl"))
+		name := filepath.ToSlash(filepath.Join("logs", support.RunLogPrefix(sample.Scenario, sample.BlockID, sample.Library)+".guard.jsonl"))
 		if seen[name] {
 			return fmt.Errorf("evidence: run %s duplicate guard log identity %q", run.Receipt.SessionID, name)
 		}
@@ -392,12 +290,7 @@ func validateGuardEvidence(run resolvedRun, baseline envSnapshot, guard policy.G
 	return nil
 }
 
-func guardLogPrefix(scenario, block, library string) string {
-	replacer := strings.NewReplacer("/", "-", "\\", "-", ":", "-", " ", "-")
-	return replacer.Replace(scenario) + "__" + replacer.Replace(block) + "__" + replacer.Replace(library)
-}
-
-func validateGuardLog(path string, baseline envSnapshot, guard policy.Guard) (resultErr error) {
+func validateGuardLog(path string, baseline support.EnvSnapshot, guard policy.Guard) (resultErr error) {
 	file, err := os.Open(path)
 	if err != nil {
 		return err
@@ -414,7 +307,7 @@ func validateGuardLog(path string, baseline envSnapshot, guard policy.Guard) (re
 		if len(raw) == 0 {
 			return errors.New("empty snapshot line")
 		}
-		var snapshot envSnapshot
+		var snapshot support.EnvSnapshot
 		if err := decodeStrict(raw, &snapshot); err != nil {
 			return fmt.Errorf("snapshot %d: %w", count+1, err)
 		}
@@ -424,10 +317,10 @@ func validateGuardLog(path string, baseline envSnapshot, guard policy.Guard) (re
 		if snapshot.BootIdentity != baseline.BootIdentity || snapshot.LogicalCPUs != baseline.LogicalCPUs || snapshot.MemoryBytes != baseline.MemoryBytes {
 			return fmt.Errorf("snapshot %d host identity changed", count+1)
 		}
-		if source := snapshotPowerSource(snapshot.PMSetBattery); source == "" || source != snapshotPowerSource(baseline.PMSetBattery) {
+		if source := support.PMSetPowerSource(snapshot.PMSetBattery); source == "" || source != support.PMSetPowerSource(baseline.PMSetBattery) {
 			return fmt.Errorf("snapshot %d power source changed or became unavailable", count+1)
 		}
-		if !snapshotThermalClean(snapshot.PMSetThermal) {
+		if !support.PMSetThermalClean(snapshot.PMSetThermal) {
 			return fmt.Errorf("snapshot %d thermal or performance warning recorded", count+1)
 		}
 		if guard.MaxLoad1Drift <= 0 || snapshot.Load1-baseline.Load1 > guard.MaxLoad1Drift {
@@ -449,21 +342,7 @@ func validateGuardLog(path string, baseline envSnapshot, guard policy.Guard) (re
 	return nil
 }
 
-func snapshotPowerSource(pmset string) string {
-	line, _, _ := strings.Cut(pmset, "\n")
-	const prefix = "Now drawing from '"
-	if !strings.HasPrefix(line, prefix) || !strings.HasSuffix(line, "'") {
-		return ""
-	}
-	return strings.TrimSuffix(strings.TrimPrefix(line, prefix), "'")
-}
-
-func snapshotThermalClean(pmset string) bool {
-	return strings.Contains(pmset, "No thermal warning level has been recorded") &&
-		strings.Contains(pmset, "No performance warning level has been recorded")
-}
-
-func validateProvenanceRef(run resolvedRun, provenance provenanceArtifact) error {
+func validateProvenanceRef(run resolvedRun, provenance support.ProvenanceArtifact) error {
 	if provenance.Path == "" || !filepath.IsLocal(filepath.FromSlash(provenance.Path)) || !support.ValidSHA256(provenance.SHA256) || provenance.SizeBytes < 0 {
 		return fmt.Errorf("evidence: run %s invalid provenance artifact %+v", run.Receipt.SessionID, provenance)
 	}
@@ -496,7 +375,7 @@ func validateGoEnvironment(run resolvedRun) error {
 	return nil
 }
 
-func validateToolchainIdentity(manifest runManifest) error {
+func validateToolchainIdentity(manifest support.RunManifest) error {
 	t := manifest.ToolchainEnvironment
 	if t.GOENV != "off" || t.GOTOOLCHAIN != "local" || t.GOFLAGS != "-mod=mod" || t.GOEXPERIMENT != "" ||
 		t.GOOS != manifest.GOOS || t.GOARCH != manifest.GOARCH || t.GOFIPS140 != "latest" || t.CGOEnabled != "0" {
@@ -510,7 +389,7 @@ func validateToolchainIdentity(manifest runManifest) error {
 	if r.GOMAXPROCS == "" || r.GOGC != "100" || r.GOMEMLIMIT != "off" || r.GODEBUG != "" || r.GOWSSIMD != "" {
 		return fmt.Errorf("uncontrolled runtime environment: %+v", r)
 	}
-	wantGoTool := stockGoToolPath()
+	wantGoTool := support.CompilerGoToolPath()
 	if filepath.Clean(manifest.GoBinaryPath) != wantGoTool {
 		return fmt.Errorf("go toolchain path = %q, want %q", manifest.GoBinaryPath, wantGoTool)
 	}
@@ -579,16 +458,9 @@ func validateModuleGraph(run resolvedRun, root string) (map[string]moduleRecord,
 	return modules, nil
 }
 
-func captureCurrentModuleGraph(root string, manifest runManifest) ([]byte, error) {
-	goTool := stockGoToolPath()
-	t := manifest.ToolchainEnvironment
-	environment := overrideEnv(
-		os.Environ(),
-		"GOENV="+t.GOENV, "GOTOOLCHAIN="+t.GOTOOLCHAIN, "GOFLAGS="+t.GOFLAGS,
-		"GOEXPERIMENT="+t.GOEXPERIMENT, "GOOS="+t.GOOS, "GOARCH="+t.GOARCH,
-		"GOAMD64="+t.GOAMD64, "GOARM64="+t.GOARM64, "GOFIPS140="+t.GOFIPS140,
-		"CGO_ENABLED="+t.CGOEnabled,
-	)
+func captureCurrentModuleGraph(root string, manifest support.RunManifest) ([]byte, error) {
+	goTool := support.CompilerGoToolPath()
+	environment := support.OverrideEnvironment(os.Environ(), manifest.ToolchainEnvironment.Assignments())
 	command := exec.Command(goTool, "list", "-mod=mod", "-m", "-json", "all")
 	command.Dir = filepath.Join(root, "bench")
 	command.Env = environment

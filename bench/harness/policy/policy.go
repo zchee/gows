@@ -385,7 +385,7 @@ func (p *Policy) Validate() error {
 		return errors.New("policy: thresholds.p999_center_upper_bound must be finite and > 0")
 	}
 	for field, value := range map[string]string{"series.id": p.Series.ID, "candidate": p.Candidate, "comparator": p.Comparator} {
-		if !validArtifactID(value) {
+		if !support.ValidArtifactID(value) {
 			return fmt.Errorf("policy: %s %q is not a path-safe artifact identifier", field, value)
 		}
 	}
@@ -401,7 +401,7 @@ func (p *Policy) Validate() error {
 	for i := range p.Scenarios {
 		s := &p.Scenarios[i]
 		switch {
-		case !validArtifactID(s.Name):
+		case !support.ValidArtifactID(s.Name):
 			return fmt.Errorf("policy: scenario %d name %q is not a path-safe artifact identifier", i, s.Name)
 		case !validCellClass(s.CellClass):
 			return fmt.Errorf("policy: scenario %q: invalid cell_class %q", s.Name, s.CellClass)
@@ -462,13 +462,13 @@ func (p *Policy) Validate() error {
 	}
 
 	for name, ov := range p.LibraryOverrides {
-		if !validArtifactID(name) {
+		if !support.ValidArtifactID(name) {
 			return fmt.Errorf("policy: library_overrides key %q is not a path-safe artifact identifier", name)
 		}
 		if name != p.Candidate && name != p.Comparator {
 			return fmt.Errorf("policy: library_overrides %q is unused by candidate or comparator", name)
 		}
-		if ov.Lib != "" && !validArtifactID(ov.Lib) {
+		if ov.Lib != "" && !support.ValidArtifactID(ov.Lib) {
 			return fmt.Errorf("policy: library_overrides %q lib %q is not a path-safe identifier", name, ov.Lib)
 		}
 		if p.Series.RunKind != RunKindDiagnostic && (len(ov.BuildEnv) != 0 || len(ov.ServerArgs) != 0) {
@@ -545,18 +545,6 @@ func validGoExperiment(value string) bool {
 			if (r < 'a' || r > 'z') && (r < 'A' || r > 'Z') && (r < '0' || r > '9') && r != '_' {
 				return false
 			}
-		}
-	}
-	return true
-}
-
-func validArtifactID(value string) bool {
-	if value == "" || value == "." || value == ".." {
-		return false
-	}
-	for _, r := range value {
-		if (r < 'a' || r > 'z') && (r < 'A' || r > 'Z') && (r < '0' || r > '9') && r != '-' && r != '_' && r != '.' {
-			return false
 		}
 	}
 	return true

@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/zchee/gows/bench/harness/policy"
+	"github.com/zchee/gows/bench/harness/support"
 )
 
 const harnessProcessPattern = `(^|/)(go|compile|link|asm|gows[.]test|benchrun|echoserver|loadgen)( |$)`
@@ -21,7 +22,7 @@ const harnessProcessPattern = `(^|/)(go|compile|link|asm|gows[.]test|benchrun|ec
 const hostGuardInterval = 5 * time.Second
 
 type guardResult struct {
-	Snapshots []EnvSnapshot
+	Snapshots []support.EnvSnapshot
 	Err       error
 }
 
@@ -37,7 +38,7 @@ type processUsage struct {
 	Command   string
 }
 
-func monitorHost(ctx context.Context, baseline EnvSnapshot, guard policy.Guard, excludedPIDs map[int]struct{}, immutableFiles map[string]fileStamp) guardResult {
+func monitorHost(ctx context.Context, baseline support.EnvSnapshot, guard policy.Guard, excludedPIDs map[int]struct{}, immutableFiles map[string]fileStamp) guardResult {
 	patterns := append([]string{}, guard.ForbiddenProcessPatterns...)
 	patterns = append(patterns, harnessProcessPattern)
 	ticker := time.NewTicker(hostGuardInterval)
@@ -283,17 +284,17 @@ func formatProcessUsage(process processUsage) string {
 	return fmt.Sprintf("pid=%d cpu=%.1f%% command=%s", process.PID, process.CPU, process.Command)
 }
 
-func validateContinuousEnvironment(baseline, current EnvSnapshot, maxLoad1Drift float64) error {
+func validateContinuousEnvironment(baseline, current support.EnvSnapshot, maxLoad1Drift float64) error {
 	if baseline.BootIdentity == "" || current.BootIdentity != baseline.BootIdentity {
 		return errors.New("host guard: boot identity changed or became unavailable")
 	}
 	if current.LogicalCPUs != baseline.LogicalCPUs || current.MemoryBytes != baseline.MemoryBytes {
 		return errors.New("host guard: CPU/memory topology changed")
 	}
-	if source := powerSource(current.PMSetBattery); source == "" || source != powerSource(baseline.PMSetBattery) {
+	if source := support.PMSetPowerSource(current.PMSetBattery); source == "" || source != support.PMSetPowerSource(baseline.PMSetBattery) {
 		return errors.New("host guard: power source changed or became unavailable")
 	}
-	if !thermalClean(current.PMSetThermal) {
+	if !support.PMSetThermalClean(current.PMSetThermal) {
 		return errors.New("host guard: thermal or performance warning recorded")
 	}
 	if maxLoad1Drift <= 0 || current.Load1-baseline.Load1 > maxLoad1Drift {

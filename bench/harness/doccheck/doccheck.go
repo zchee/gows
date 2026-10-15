@@ -253,19 +253,7 @@ func controlledEnvironment(base []string) []string {
 		"GOFLAGS=-mod=mod",
 		"GOTOOLCHAIN=local",
 	}
-	keys := make(map[string]bool, len(overrides))
-	for _, value := range overrides {
-		key, _, _ := strings.Cut(value, "=")
-		keys[key] = true
-	}
-	environment := make([]string, 0, len(base)+len(overrides))
-	for _, value := range base {
-		key, _, _ := strings.Cut(value, "=")
-		if !keys[key] {
-			environment = append(environment, value)
-		}
-	}
-	return append(environment, overrides...)
+	return support.OverrideEnvironment(base, overrides)
 }
 
 func markers(name string) (string, string) {

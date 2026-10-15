@@ -64,25 +64,7 @@ var gowsVariants = map[string]gowsVariant{
 // the -notsent-lowat and -trace-file accept hooks apply here identically to the
 // net/http-based backends.
 func runGoWS(ctx context.Context, addr string, cfg serverConfig) error {
-	ln, err := newListener(addr, cfg)
-	if err != nil {
-		return err
-	}
-	go func() {
-		<-ctx.Done()
-		_ = ln.Close()
-	}()
-
-	for {
-		conn, err := ln.Accept()
-		if err != nil {
-			if ctx.Err() != nil {
-				return nil
-			}
-			return err
-		}
-		go serveGoWSConn(conn, cfg)
-	}
+	return serveRaw(ctx, addr, cfg, func(conn net.Conn) { serveGoWSConn(conn, cfg) })
 }
 
 // serveGoWSConn upgrades one accepted connection and runs its echo loop until

@@ -9,6 +9,8 @@ import (
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
+
+	"github.com/zchee/gows/bench/harness/support"
 )
 
 func TestForeignCPUUsageExcludesOwnedProcessTreeAndAggregates(t *testing.T) {
@@ -227,7 +229,7 @@ func TestOwnedPIDsDoesNotTrustParent(t *testing.T) {
 
 func TestValidateContinuousEnvironmentGatesLoadDrift(t *testing.T) {
 	cleanThermal := "No thermal warning level has been recorded\nNo performance warning level has been recorded"
-	baseline := EnvSnapshot{
+	baseline := support.EnvSnapshot{
 		Load1: 2, PMSetBattery: "Now drawing from 'AC Power'", PMSetThermal: cleanThermal,
 		LogicalCPUs: 16, MemoryBytes: 64 << 30, BootIdentity: "boot",
 	}

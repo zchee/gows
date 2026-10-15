@@ -368,15 +368,11 @@ func sourceIdentity(root, revision string) (tree, sourceSum, moduleSum string, r
 	}
 	sum := sha256.Sum256(lsTree)
 	sourceSum = hex.EncodeToString(sum[:])
-	moduleSum, err = hashGitFileSet(root, revision, moduleIdentityPaths)
+	moduleSum, err = hashGitFileSet(root, revision, support.ModuleIdentityPaths())
 	if err != nil {
 		return "", "", "", err
 	}
 	return tree, sourceSum, moduleSum, nil
-}
-
-var moduleIdentityPaths = []string{
-	"go.mod", "go.sum", "bench/go.mod", "bench/go.sum", "flatekp/go.mod", "flatekp/go.sum",
 }
 
 func hashGitFileSet(root, revision string, paths []string) (string, error) {
@@ -400,9 +396,9 @@ func hashGitFileSet(root, revision string, paths []string) (string, error) {
 }
 
 func stockGoVersion() (string, error) {
-	goTool := stockGoToolPath()
+	goTool := support.CompilerGoToolPath()
 	command := exec.Command(goTool, "version")
-	command.Env = overrideEnv(os.Environ(), "GOENV=off", "GOTOOLCHAIN=local", "GOEXPERIMENT=")
+	command.Env = support.OverrideEnvironment(os.Environ(), []string{"GOENV=off", "GOTOOLCHAIN=local", "GOEXPERIMENT="})
 	raw, err := command.Output()
 	if err != nil {
 		return "", fmt.Errorf("evidence: stock go version: %w", err)
@@ -415,7 +411,7 @@ func stockGoIdentity() (version, sum string, size int64, resultErr error) {
 	if err != nil {
 		return "", "", 0, err
 	}
-	goTool := stockGoToolPath()
+	goTool := support.CompilerGoToolPath()
 	info, err := os.Lstat(goTool)
 	if err != nil {
 		return "", "", 0, fmt.Errorf("evidence: stat stock Go binary: %w", err)
@@ -428,34 +424,6 @@ func stockGoIdentity() (version, sum string, size int64, resultErr error) {
 		return "", "", 0, fmt.Errorf("evidence: read stock Go binary: %w", err)
 	}
 	return version, sum, hashedSize, nil
-}
-
-// stockGoRoot returns the compiler toolchain embedded in the evaluator. The
-// evidence contract deliberately binds that immutable compiler instead of a
-// potentially different Go launcher found through PATH.
-func stockGoRoot() string {
-	//lint:ignore SA1019 Exact build-toolchain identity is required by the evidence contract.
-	return runtime.GOROOT() //nolint:staticcheck // Exact build-toolchain identity is required by the evidence contract.
-}
-
-func stockGoToolPath() string { return filepath.Join(stockGoRoot(), "bin", "go") }
-
-func overrideEnv(base []string, overrides ...string) []string {
-	keys := make(map[string]bool, len(overrides))
-	for _, value := range overrides {
-		key, _, ok := strings.Cut(value, "=")
-		if ok {
-			keys[key] = true
-		}
-	}
-	result := make([]string, 0, len(base)+len(overrides))
-	for _, value := range base {
-		key, _, _ := strings.Cut(value, "=")
-		if !keys[key] {
-			result = append(result, value)
-		}
-	}
-	return append(result, overrides...)
 }
 
 func gitOutput(root string, args ...string) (string, error) {

@@ -87,8 +87,8 @@ func CollectVerificationCommandInputs(root, sourceHead string) (VerificationComm
 		return VerificationCommandInputs{}, err
 	}
 	toolPaths := map[string]string{
-		"go":    stockGoToolPath(),
-		"gofmt": filepath.Join(stockGoRoot(), "bin", "gofmt"),
+		"go":    support.CompilerGoToolPath(),
+		"gofmt": filepath.Join(support.CompilerGoRoot(), "bin", "gofmt"),
 	}
 	for _, name := range []string{"gopls", "git"} {
 		path, err := exec.LookPath(name)
@@ -212,7 +212,7 @@ func verificationToolIdentity(name, path, goTool string) (VerificationToolIdenti
 	} else {
 		command = exec.Command(goTool, "version", "-m", path)
 	}
-	command.Env = overrideEnv(os.Environ(), "GOENV=off", "GOTOOLCHAIN=local", "GOEXPERIMENT=", "LANG=C", "LC_ALL=C")
+	command.Env = support.OverrideEnvironment(os.Environ(), []string{"GOENV=off", "GOTOOLCHAIN=local", "GOEXPERIMENT=", "LANG=C", "LC_ALL=C"})
 	output, err := command.CombinedOutput()
 	if err != nil {
 		return VerificationToolIdentity{}, fmt.Errorf("evidence: inspect verification tool %s: %w: %s", name, err, strings.TrimSpace(string(output)))

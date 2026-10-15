@@ -190,7 +190,7 @@ func statisticalRun(pol *policy.Policy, session string, started time.Time, candi
 	const policySum = "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
 	run := resolvedRun{
 		Receipt: artifact.RunReceipt{SessionID: session, PolicySHA256: policySum},
-		Manifest: runManifest{
+		Manifest: support.RunManifest{
 			Hostname: "host", Kernel: "kernel", BootIdentityStart: "boot", BootIdentityEnd: "boot",
 			LibraryBinariesSHA256: map[string]string{pol.Candidate: binary, pol.Comparator: binary},
 			AdapterSHA256:         map[string]string{pol.Candidate: adapter, pol.Comparator: adapter},

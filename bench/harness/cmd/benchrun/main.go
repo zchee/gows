@@ -92,7 +92,7 @@ func run() (resultErr error) {
 			return err
 		}
 	}
-	if !validRunArtifactID(sessionID) {
+	if !support.ValidArtifactID(sessionID) {
 		return fmt.Errorf("session ID %q is not a path-safe artifact identifier", sessionID)
 	}
 	policySum := policy.Sum(rawPolicy)
@@ -142,7 +142,7 @@ func run() (resultErr error) {
 	goExperiment := pol.Series.GoExperiment
 	toolchainEnvironment := canonicalToolchainEnvironment(goExperiment)
 	runtimeEnvironment := canonicalRuntimeEnvironment()
-	childEnvironment := overrideEnvironment(os.Environ(), append(toolchainEnvironment.assignments(), runtimeEnvironment.assignments()...)...)
+	childEnvironment := support.OverrideEnvironment(os.Environ(), append(toolchainEnvironment.Assignments(), runtimeEnvironment.Assignments()...))
 
 	out := *outFlag
 	if out == "" {
@@ -203,7 +203,7 @@ func run() (resultErr error) {
 	if err != nil {
 		return err
 	}
-	goTool := goToolPath()
+	goTool := support.CompilerGoToolPath()
 	goToolSum, err := sha256File(goTool)
 	if err != nil {
 		return err
@@ -311,7 +311,7 @@ func run() (resultErr error) {
 		return err
 	}
 
-	manifest := RunManifest{
+	manifest := support.RunManifest{
 		SchemaVersion:          2,
 		SessionID:              sessionID,
 		GitCommit:              commit,
@@ -394,7 +394,7 @@ func run() (resultErr error) {
 	}
 
 	// 5. Run-complete marker.
-	done := Done{FinishedAt: nowRFC(), Samples: samplesWritten, Scenarios: len(pol.Scenarios)}
+	done := support.Done{FinishedAt: nowRFC(), Samples: samplesWritten, Scenarios: len(pol.Scenarios)}
 	if err := support.WriteJSONFile(filepath.Join(out, "done.json"), done); err != nil {
 		return err
 	}
@@ -414,65 +414,6 @@ func run() (resultErr error) {
 	return nil
 }
 
-// RunManifest is the provenance record written before execution starts.
-// OverrideBinariesSHA256 is present only when a policy's library_overrides
-// force a dedicated echoserver build (a build_env override); it is omitted
-// otherwise, so manifest.json stays byte-identical for override-free policies.
-type RunManifest struct {
-	SchemaVersion          int                         `json:"schema_version"`
-	SessionID              string                      `json:"session_id"`
-	GitCommit              string                      `json:"git_commit"`
-	GitDirty               bool                        `json:"git_dirty"`
-	GitRemote              string                      `json:"git_remote"`
-	GitBranch              string                      `json:"git_branch"`
-	GitStatus              string                      `json:"git_status"`
-	GitTree                string                      `json:"git_tree"`
-	SourceSHA256           string                      `json:"source_sha256"`
-	ModulePath             string                      `json:"module_path"`
-	ModuleFilesSHA256      string                      `json:"module_files_sha256"`
-	GoVersion              string                      `json:"go_version"`
-	GoBinaryPath           string                      `json:"go_binary_path"`
-	GoBinarySHA256         string                      `json:"go_binary_sha256"`
-	GoBinarySizeBytes      int64                       `json:"go_binary_size_bytes"`
-	HarnessRuntimeVersion  string                      `json:"harness_runtime_version"`
-	GOOS                   string                      `json:"goos"`
-	GOARCH                 string                      `json:"goarch"`
-	GoEnv                  ProvenanceArtifact          `json:"go_env"`
-	ModuleGraph            ProvenanceArtifact          `json:"module_graph"`
-	BinaryProvenance       map[string]BinaryProvenance `json:"binary_provenance"`
-	OSVersion              ProvenanceArtifact          `json:"os_version"`
-	SystemProfile          ProvenanceArtifact          `json:"system_profile"`
-	Limits                 ProvenanceArtifact          `json:"limits"`
-	Hostname               string                      `json:"hostname"`
-	Kernel                 string                      `json:"kernel"`
-	BootIdentityStart      string                      `json:"boot_identity_start"`
-	BootIdentityEnd        string                      `json:"boot_identity_end"`
-	Client                 string                      `json:"client"`
-	EchoserverSHA256       string                      `json:"echoserver_sha256"`
-	LoadgenSHA256          string                      `json:"loadgen_sha256"`
-	OverrideBinariesSHA256 map[string]string           `json:"override_binaries_sha256,omitzero"`
-	PolicySHA256           string                      `json:"policy_sha256"`
-	AdapterSHA256          map[string]string           `json:"adapter_sha256"`
-	LibraryBinariesSHA256  map[string]string           `json:"library_binaries_sha256"`
-	RunKind                string                      `json:"run_kind"`
-	EvidenceClass          string                      `json:"evidence_class"`
-	ToolchainSeries        string                      `json:"toolchain_series"`
-	GoExperiment           string                      `json:"go_experiment"`
-	ToolchainEnvironment   ToolchainEnvironment        `json:"toolchain_environment"`
-	RuntimeEnvironment     RuntimeEnvironment          `json:"runtime_environment"`
-	Seed                   uint64                      `json:"seed"`
-	Smoke                  bool                        `json:"smoke"`
-	StartedAt              string                      `json:"started_at"`
-	EndedAt                string                      `json:"ended_at"`
-}
-
-// Done is the run-complete marker written to done.json on success.
-type Done struct {
-	FinishedAt string `json:"finished_at"`
-	Samples    int    `json:"samples"`
-	Scenarios  int    `json:"scenarios"`
-}
-
 // Invalidated is the fail-closed marker written whenever a run aborts after
 // creating its artifact directory. Its presence permanently prevents the
 // partial samples from being promoted.
@@ -488,21 +429,8 @@ type Invalidated struct {
 	SamplesWritten int    `json:"samples_written"`
 }
 
-type ToolchainEnvironment struct {
-	GOENV        string `json:"goenv"`
-	GOTOOLCHAIN  string `json:"gotoolchain"`
-	GOFLAGS      string `json:"goflags"`
-	GOEXPERIMENT string `json:"goexperiment"`
-	GOOS         string `json:"goos"`
-	GOARCH       string `json:"goarch"`
-	GOAMD64      string `json:"goamd64"`
-	GOARM64      string `json:"goarm64"`
-	GOFIPS140    string `json:"gofips140"`
-	CGOEnabled   string `json:"cgo_enabled"`
-}
-
-func canonicalToolchainEnvironment(goExperiment string) ToolchainEnvironment {
-	environment := ToolchainEnvironment{
+func canonicalToolchainEnvironment(goExperiment string) support.ToolchainEnvironment {
+	environment := support.ToolchainEnvironment{
 		GOENV: "off", GOTOOLCHAIN: "local", GOFLAGS: "-mod=mod", GOEXPERIMENT: goExperiment,
 		GOOS: runtime.GOOS, GOARCH: runtime.GOARCH, GOFIPS140: "latest", CGOEnabled: "0",
 	}
@@ -515,59 +443,10 @@ func canonicalToolchainEnvironment(goExperiment string) ToolchainEnvironment {
 	return environment
 }
 
-func (environment ToolchainEnvironment) assignments() []string {
-	return []string{
-		"GOENV=" + environment.GOENV,
-		"GOTOOLCHAIN=" + environment.GOTOOLCHAIN,
-		"GOFLAGS=" + environment.GOFLAGS,
-		"GOEXPERIMENT=" + environment.GOEXPERIMENT,
-		"GOOS=" + environment.GOOS,
-		"GOARCH=" + environment.GOARCH,
-		"GOAMD64=" + environment.GOAMD64,
-		"GOARM64=" + environment.GOARM64,
-		"GOFIPS140=" + environment.GOFIPS140,
-		"CGO_ENABLED=" + environment.CGOEnabled,
-	}
-}
-
-type RuntimeEnvironment struct {
-	GOMAXPROCS string `json:"gomaxprocs"`
-	GOGC       string `json:"gogc"`
-	GOMEMLIMIT string `json:"gomemlimit"`
-	GODEBUG    string `json:"godebug"`
-	GOWSSIMD   string `json:"gows_simd"`
-}
-
-func canonicalRuntimeEnvironment() RuntimeEnvironment {
-	return RuntimeEnvironment{
+func canonicalRuntimeEnvironment() support.RuntimeEnvironment {
+	return support.RuntimeEnvironment{
 		GOMAXPROCS: strconv.Itoa(runtime.NumCPU()), GOGC: "100", GOMEMLIMIT: "off", GODEBUG: "", GOWSSIMD: "",
 	}
-}
-
-func (environment RuntimeEnvironment) assignments() []string {
-	return []string{
-		"GOMAXPROCS=" + environment.GOMAXPROCS,
-		"GOGC=" + environment.GOGC,
-		"GOMEMLIMIT=" + environment.GOMEMLIMIT,
-		"GODEBUG=" + environment.GODEBUG,
-		"GOWS_SIMD=" + environment.GOWSSIMD,
-	}
-}
-
-// EnvSnapshot is a point-in-time host environment reading written to
-// env-start.json and env-end.json.
-type EnvSnapshot struct {
-	Load1                  float64 `json:"load1"`
-	Load5                  float64 `json:"load5"`
-	Load15                 float64 `json:"load15"`
-	PMSetBattery           string  `json:"pmset_batt"`
-	PMSetThermal           string  `json:"pmset_therm"`
-	LogicalCPUs            int     `json:"logical_cpus"`
-	MemoryBytes            uint64  `json:"memory_bytes"`
-	BootIdentity           string  `json:"boot_identity"`
-	Uptime                 string  `json:"uptime"`
-	CapturedAt             string  `json:"captured_at"`
-	ObservationNanoseconds int64   `json:"observation_nanoseconds"`
 }
 
 // execute runs the whole scenario matrix, appending one sample line per
@@ -793,8 +672,8 @@ func runOne(ctx context.Context, echoserverBin, loadgenBin string, childEnvironm
 	return sample, nil
 }
 
-func writeRunLogs(logsDir string, identity sampleIdentity, scenario, library string, serverLog, loadgenOut, loadgenErr []byte, snapshots []EnvSnapshot) error {
-	prefix := safeName(scenario) + "__" + safeName(identity.BlockID) + "__" + safeName(library)
+func writeRunLogs(logsDir string, identity sampleIdentity, scenario, library string, serverLog, loadgenOut, loadgenErr []byte, snapshots []support.EnvSnapshot) error {
+	prefix := support.RunLogPrefix(scenario, identity.BlockID, library)
 	var guardLog bytes.Buffer
 	for _, snapshot := range snapshots {
 		line, err := json.Marshal(snapshot, json.Deterministic(true))
@@ -877,19 +756,7 @@ func newSessionID() (string, error) {
 	return fmt.Sprintf("session-%s-%x", time.Now().UTC().Format("20060102T150405Z"), entropy[:]), nil
 }
 
-func validRunArtifactID(value string) bool {
-	if value == "" || value == "." || value == ".." {
-		return false
-	}
-	for _, r := range value {
-		if (r < 'a' || r > 'z') && (r < 'A' || r > 'Z') && (r < '0' || r > '9') && r != '-' && r != '_' && r != '.' {
-			return false
-		}
-	}
-	return true
-}
-
-func validateRunIdentity(moduleRoot, out, commit, remote, branch, status, tree, sourceSum, moduleSum, policySum, goExperiment string, pol *policy.Policy, binaries map[string]string, binaryProvenance map[string]BinaryProvenance, adapterSums map[string]string) error {
+func validateRunIdentity(moduleRoot, out, commit, remote, branch, status, tree, sourceSum, moduleSum, policySum, goExperiment string, pol *policy.Policy, binaries map[string]string, binaryProvenance map[string]support.BinaryProvenance, adapterSums map[string]string) error {
 	checks := []struct {
 		name string
 		want string
@@ -917,7 +784,7 @@ func validateRunIdentity(moduleRoot, out, commit, remote, branch, status, tree, 
 	if got := sha256Bytes(rawTree); got != sourceSum {
 		return fmt.Errorf("end identity source tree SHA-256 = %s, want %s", got, sourceSum)
 	}
-	gotModuleSum, err := hashFileSet(filepath.Dir(moduleRoot), []string{"go.mod", "go.sum", "bench/go.mod", "bench/go.sum", "flatekp/go.mod", "flatekp/go.sum"})
+	gotModuleSum, err := hashFileSet(filepath.Dir(moduleRoot), support.ModuleIdentityPaths())
 	if err != nil {
 		return fmt.Errorf("end identity module files: %w", err)
 	}
@@ -1017,34 +884,15 @@ func hashFileSet(root string, paths []string) (string, error) {
 // (GOENV, GOFLAGS, GOEXPERIMENT, ...) in build_env, so extraEnv can never
 // fight the canonical toolchain environment.
 func buildBinaryEnv(ctx context.Context, moduleRoot, pkgSuffix, outPath, goExperiment string, extraEnv []string) error {
-	cmd := exec.CommandContext(ctx, goToolPath(), "build", "-mod=mod", "-o", outPath, moduleImport+pkgSuffix)
+	cmd := exec.CommandContext(ctx, support.CompilerGoToolPath(), "build", "-mod=mod", "-o", outPath, moduleImport+pkgSuffix)
 	cmd.Dir = moduleRoot
-	cmd.Env = overrideEnvironment(os.Environ(), append(canonicalToolchainEnvironment(goExperiment).assignments(), extraEnv...)...)
+	cmd.Env = support.OverrideEnvironment(os.Environ(), append(canonicalToolchainEnvironment(goExperiment).Assignments(), extraEnv...))
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 	if err := cmd.Run(); err != nil {
 		return fmt.Errorf("build %s (env %v): %w: %s", pkgSuffix, extraEnv, err, strings.TrimSpace(stderr.String()))
 	}
 	return nil
-}
-
-func overrideEnvironment(base []string, overrides ...string) []string {
-	keys := make(map[string]struct{}, len(overrides))
-	for _, override := range overrides {
-		key, _, ok := strings.Cut(override, "=")
-		if ok {
-			keys[key] = struct{}{}
-		}
-	}
-	result := make([]string, 0, len(base)+len(overrides))
-	for _, entry := range base {
-		key, _, ok := strings.Cut(entry, "=")
-		if _, replaced := keys[key]; ok && replaced {
-			continue
-		}
-		result = append(result, entry)
-	}
-	return append(result, overrides...)
 }
 
 func validateBinaryToolchain(path string, series policy.ToolchainSeries, expectedExperiment string) error {
@@ -1089,20 +937,13 @@ func canonicalExperiment(value string) string {
 }
 
 func toolchainGoVersion(goExperiment string) string {
-	cmd := exec.Command(goToolPath(), "version")
-	cmd.Env = overrideEnvironment(os.Environ(), canonicalToolchainEnvironment(goExperiment).assignments()...)
+	cmd := exec.Command(support.CompilerGoToolPath(), "version")
+	cmd.Env = support.OverrideEnvironment(os.Environ(), canonicalToolchainEnvironment(goExperiment).Assignments())
 	out, err := cmd.Output()
 	if err != nil {
 		return "unavailable: " + err.Error()
 	}
 	return strings.TrimSpace(string(out))
-}
-
-// goToolPath binds child builds and recorded provenance to this controller's
-// compiler rather than a potentially different Go launcher found through PATH.
-func goToolPath() string {
-	//lint:ignore SA1019 Exact build-toolchain identity is required by benchmark provenance.
-	return filepath.Join(runtime.GOROOT(), "bin", "go") //nolint:staticcheck // Exact build-toolchain identity is required by benchmark provenance.
 }
 
 func uniqueStrings(values []string) []string {
@@ -1119,24 +960,17 @@ func uniqueStrings(values []string) []string {
 }
 
 // sha256File returns the hex SHA-256 of a file's contents.
-func sha256File(path string) (_ string, resultErr error) {
-	f, err := os.Open(path)
+func sha256File(path string) (string, error) {
+	sum, _, err := support.FileSHA256(path)
 	if err != nil {
 		return "", fmt.Errorf("hash %s: %w", path, err)
 	}
-	defer func() {
-		resultErr = errors.Join(resultErr, f.Close())
-	}()
-	h := sha256.New()
-	if _, err := io.Copy(h, f); err != nil {
-		return "", fmt.Errorf("hash %s: %w", path, err)
-	}
-	return hex.EncodeToString(h.Sum(nil)), nil
+	return sum, nil
 }
 
 // captureEnv snapshots the host environment. Best-effort: a missing tool
 // yields a zero field rather than aborting the run.
-func captureEnv() EnvSnapshot {
+func captureEnv() support.EnvSnapshot {
 	started := time.Now()
 	l1, l5, l15, _ := readLoadavg()
 	batt, _ := commandOutput("pmset", "-g", "batt")
@@ -1144,7 +978,7 @@ func captureEnv() EnvSnapshot {
 	mem, _ := readMemsize()
 	boot, _ := support.CaptureBootIdentity()
 	uptime, _ := commandOutput("uptime")
-	snapshot := EnvSnapshot{
+	snapshot := support.EnvSnapshot{
 		Load1:        l1,
 		Load5:        l5,
 		Load15:       l15,
@@ -1164,13 +998,13 @@ func captureEnv() EnvSnapshot {
 // poll while still observing load, power, thermal, and boot identity across
 // the full measurement window. The elapsed collector time is recorded so the
 // guard's scheduling cost is machine-readable rather than hidden.
-func captureContinuousEnv(baseline EnvSnapshot) EnvSnapshot {
+func captureContinuousEnv(baseline support.EnvSnapshot) support.EnvSnapshot {
 	started := time.Now()
 	l1, l5, l15, _ := readLoadavg()
 	batt, _ := commandOutput("pmset", "-g", "batt")
 	therm, _ := commandOutput("pmset", "-g", "therm")
 	boot, _ := support.CaptureBootIdentity()
-	snapshot := EnvSnapshot{
+	snapshot := support.EnvSnapshot{
 		Load1: l1, Load5: l5, Load15: l15,
 		PMSetBattery: batt, PMSetThermal: therm,
 		LogicalCPUs: baseline.LogicalCPUs, MemoryBytes: baseline.MemoryBytes,
@@ -1180,7 +1014,7 @@ func captureContinuousEnv(baseline EnvSnapshot) EnvSnapshot {
 	return snapshot
 }
 
-func validateEnvironment(start, end EnvSnapshot, maxLoad1 float64) error {
+func validateEnvironment(start, end support.EnvSnapshot, maxLoad1 float64) error {
 	if start.BootIdentity == "" || end.BootIdentity == "" || start.Uptime == "" || end.Uptime == "" {
 		return errors.New("host guard: boot identity or uptime is unavailable")
 	}
@@ -1198,29 +1032,15 @@ func validateEnvironment(start, end EnvSnapshot, maxLoad1 float64) error {
 	if start.Load1 > maxLoad1 {
 		return fmt.Errorf("host guard: initial load1 %.2f exceeds max %.2f", start.Load1, maxLoad1)
 	}
-	startPower := powerSource(start.PMSetBattery)
-	endPower := powerSource(end.PMSetBattery)
+	startPower := support.PMSetPowerSource(start.PMSetBattery)
+	endPower := support.PMSetPowerSource(end.PMSetBattery)
 	if startPower == "" || endPower == "" || startPower != endPower {
 		return fmt.Errorf("host guard: power source unavailable or changed from %q to %q", startPower, endPower)
 	}
-	if !thermalClean(start.PMSetThermal) || !thermalClean(end.PMSetThermal) {
+	if !support.PMSetThermalClean(start.PMSetThermal) || !support.PMSetThermalClean(end.PMSetThermal) {
 		return errors.New("host guard: thermal or performance warning recorded")
 	}
 	return nil
-}
-
-func powerSource(pmset string) string {
-	line, _, _ := strings.Cut(pmset, "\n")
-	prefix := "Now drawing from '"
-	if !strings.HasPrefix(line, prefix) || !strings.HasSuffix(line, "'") {
-		return ""
-	}
-	return strings.TrimSuffix(strings.TrimPrefix(line, prefix), "'")
-}
-
-func thermalClean(pmset string) bool {
-	return strings.Contains(pmset, "No thermal warning level has been recorded") &&
-		strings.Contains(pmset, "No performance warning level has been recorded")
 }
 
 // checkLoad aborts if the one-minute load average exceeds the guard maximum.
