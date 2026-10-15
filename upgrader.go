@@ -42,7 +42,23 @@ const deflateWindowBits = 15
 // shared by server_max_window_bits and client_max_window_bits.
 const minDeflateWindowBits = 8
 
-// negotiateDeflate scans a client's Sec-WebSocket-Extensions header
+// deflateNegotiatePolicy bundles the Upgrader-side knobs that travel
+// together through negotiateDeflateWithHint.
+type deflateNegotiatePolicy struct {
+	negotiateWindowBits  bool
+	allowContextTakeover bool
+	clientWindowBits     int
+}
+
+func (u *Upgrader) deflateNegotiatePolicy() deflateNegotiatePolicy {
+	return deflateNegotiatePolicy{
+		negotiateWindowBits:  u.NegotiateWindowBits,
+		allowContextTakeover: u.AllowContextTakeover,
+		clientWindowBits:     u.ClientWindowBits,
+	}
+}
+
+// negotiateDeflateWithHint scans a client's Sec-WebSocket-Extensions header
 // value (RFC 7692 §5) for the first permessage-deflate offer this server
 // can actually honor, applying RFC 7692 §7's "first structurally valid
 // offer, otherwise fall back to the next" rule alongside this server's
@@ -84,41 +100,22 @@ const minDeflateWindowBits = 8
 // (offeredValue only participates when the offer was valued). When the
 // offer lacks the parameter, nothing is emitted regardless of this
 // value (RFC 7692 §7.1.2.2 forbids it). A valued offer's
-// client_max_window_bits is returned separately by
-// negotiateDeflateWithHint when valued. Callers may expose that value as
-// explicitly trusted server-local policy, but it is never copied into
-// agreed unless clientWindowBits actually emits a binding response value.
+// client_max_window_bits is returned separately as the hint (see
+// below); callers may expose that value as explicitly trusted
+// server-local policy, but it is never copied into agreed unless
+// clientWindowBits actually emits a binding response value.
 //
 // It reports ok=false if extensions contains no acceptable
 // permessage-deflate offer at all; per RFC 7692 §7 the caller should
 // then omit permessage-deflate from its response entirely -- this is
 // never itself a handshake failure.
-func negotiateDeflate(extensions []byte, policy deflateNegotiatePolicy) (extension.DeflateParams, bool) {
-	agreed, _, ok := negotiateDeflateWithHint(extensions, policy)
-	return agreed, ok
-}
-
-// deflateNegotiatePolicy bundles the Upgrader-side knobs that travel
-// together through negotiateDeflate / negotiateDeflateWithHint.
-type deflateNegotiatePolicy struct {
-	negotiateWindowBits  bool
-	allowContextTakeover bool
-	clientWindowBits     int
-}
-
-func (u *Upgrader) deflateNegotiatePolicy() deflateNegotiatePolicy {
-	return deflateNegotiatePolicy{
-		negotiateWindowBits:  u.NegotiateWindowBits,
-		allowContextTakeover: u.AllowContextTakeover,
-		clientWindowBits:     u.ClientWindowBits,
-	}
-}
-
-// negotiateDeflateWithHint additionally returns the valued offer-side
-// client_max_window_bits hint for the accepted element. It remains separate
-// from agreed, which contains response parameters only. An accepted offer's
-// server_max_window_bits is always answered with the active compression window,
-// including when both the offered limit and active window are 15 bits.
+//
+// Besides agreed and ok, it returns the valued offer-side
+// client_max_window_bits hint for the accepted element. The hint stays
+// separate from agreed, which contains response parameters only. An
+// accepted offer's server_max_window_bits is always answered with the
+// active compression window, including when both the offered limit and
+// the active window are 15 bits.
 func negotiateDeflateWithHint(extensions []byte, policy deflateNegotiatePolicy) (extension.DeflateParams, int, bool) {
 	activeBits := deflateWindowBits
 	if policy.negotiateWindowBits {
@@ -402,7 +399,7 @@ func splitTarget(target []byte) (path, query []byte) {
 // subprotocol if non-empty, to dst, returning the extended buffer. When
 // deflateOK is true, a Sec-WebSocket-Extensions header naming
 // permessage-deflate and deflate's agreed parameters is included too
-// (see [negotiateDeflate]).
+// (see [negotiateDeflateWithHint]).
 func appendSwitchingProtocolsResponse(dst, key []byte, subprotocol string, deflate extension.DeflateParams, deflateOK bool) []byte {
 	dst = append(dst, "HTTP/1.1 101 Switching Protocols\r\n"...)
 	dst = append(dst, "Upgrade: websocket\r\n"...)

@@ -47,10 +47,8 @@ func simdBulk(b []byte) int {
 	if !cpu.HasNEON || len(b) < simdThreshold {
 		return 0
 	}
+	// simdThreshold >= 16, so m is at least one full 16-byte block.
 	m := len(b) &^ 15
-	if m == 0 {
-		return 0
-	}
 	if !utf8ValidNEON(&b[0], m) {
 		return -1
 	}

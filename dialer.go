@@ -41,10 +41,10 @@ import (
 const maxRedirects = 10
 
 // deflateOffer builds this Dialer's permessage-deflate offer: the header
-// value for the handshake request's Sec-WebSocket-Extensions, and its
-// [extension.DeflateParams] equivalent, passed to
-// [extension.ValidateDeflateResponse] to validate the server's response
-// against what this Dialer actually offered.
+// value for the handshake request's Sec-WebSocket-Extensions. The
+// handshake later passes the same string to [ParseCompression], which
+// re-parses it to validate the server's response against what this
+// Dialer actually offered.
 //
 // Unless [Dialer.AllowContextTakeover] is set, the offer requests
 // no-context-takeover on both directions (this package's original
@@ -64,26 +64,21 @@ const maxRedirects = 10
 // that the server's own outgoing compression stay within that window
 // (RFC 7692 §7.1.2.1); a server that cannot honor it declines
 // permessage-deflate rather than failing the handshake.
-func (d *Dialer) deflateOffer() (header string, params extension.DeflateParams) {
+func (d *Dialer) deflateOffer() string {
 	var b strings.Builder
 	b.WriteString(extension.DeflateExtensionName)
 	if !d.AllowContextTakeover {
 		b.WriteString(`; server_no_context_takeover; client_no_context_takeover`)
-		params.ServerNoContextTakeover = true
-		params.ClientNoContextTakeover = true
 	}
 	if d.WindowBits != 0 {
 		fmt.Fprintf(&b, `; client_max_window_bits=%d`, d.WindowBits)
-		params.ClientMaxWindowBits = d.WindowBits
 	} else if d.OfferClientMaxWindowBits {
 		b.WriteString(`; client_max_window_bits`)
-		params.ClientMaxWindowBits = extension.ClientMaxWindowBitsBare
 	}
 	if d.ServerWindowBits != 0 {
 		fmt.Fprintf(&b, `; server_max_window_bits=%d`, d.ServerWindowBits)
-		params.ServerMaxWindowBits = d.ServerWindowBits
 	}
-	return b.String(), params
+	return b.String()
 }
 
 // Dial performs the client side of a WebSocket opening handshake to
@@ -617,7 +612,7 @@ func (d *Dialer) handshake(conn net.Conn, u *url.URL, hdr http.Header, absoluteF
 		fmt.Fprintf(&req, `Sec-WebSocket-Protocol: %s`, joinComma(d.Subprotocols))
 		req.WriteString("\r\n")
 	}
-	offerHeader, _ := d.deflateOffer()
+	offerHeader := d.deflateOffer()
 	if d.EnableCompression {
 		fmt.Fprintf(&req, "Sec-WebSocket-Extensions: %s\r\n", offerHeader)
 	}

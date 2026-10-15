@@ -247,6 +247,27 @@ func TestUpgradeRejectionPaths(t *testing.T) {
 			wantErr:        gows.ErrMissingKey,
 			wantStatusLine: "HTTP/1.1 400 Bad Request\r\n",
 		},
+		"error: empty Sec-WebSocket-Key value": {
+			request: "GET /chat HTTP/1.1\r\n" +
+				"Host: example.com\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n" +
+				"Sec-WebSocket-Key: \r\nSec-WebSocket-Version: 13\r\n\r\n",
+			wantErr:        gows.ErrMissingKey,
+			wantStatusLine: "HTTP/1.1 400 Bad Request\r\n",
+		},
+		"error: Sec-WebSocket-Key one byte short (23)": {
+			request: "GET /chat HTTP/1.1\r\n" +
+				"Host: example.com\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n" +
+				"Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ=\r\nSec-WebSocket-Version: 13\r\n\r\n",
+			wantErr:        gows.ErrMissingKey,
+			wantStatusLine: "HTTP/1.1 400 Bad Request\r\n",
+		},
+		"error: Sec-WebSocket-Key one byte long (25)": {
+			request: "GET /chat HTTP/1.1\r\n" +
+				"Host: example.com\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n" +
+				"Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==A\r\nSec-WebSocket-Version: 13\r\n\r\n",
+			wantErr:        gows.ErrMissingKey,
+			wantStatusLine: "HTTP/1.1 400 Bad Request\r\n",
+		},
 		"error: bad version": {
 			request: "GET /chat HTTP/1.1\r\n" +
 				"Host: example.com\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n" +
@@ -447,11 +468,10 @@ func TestUpgradeNoPipelinedDataLeavesBufferedNil(t *testing.T) {
 // using httpx directly, for assertions against a raw response.
 func mustAccept(t *testing.T, key string) string {
 	t.Helper()
-	accept, err := httpx.Accept([]byte(key))
-	if err != nil {
-		t.Fatalf("httpx.Accept: %v", err)
+	if len(key) != 24 {
+		t.Fatalf("mustAccept: key %q is %d bytes, want 24", key, len(key))
 	}
-	return string(accept)
+	return string(httpx.AppendAccept(nil, []byte(key)))
 }
 
 // fakeConn is a bytes-backed net.Conn for allocation/latency-sensitive
@@ -894,6 +914,24 @@ func TestUpgradeHTTPRejectionPaths(t *testing.T) {
 		"error: missing key": {
 			request: "GET / HTTP/1.1\r\nHost: h\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n" +
 				"Sec-WebSocket-Version: 13\r\n\r\n",
+			wantErr:        gows.ErrMissingKey,
+			wantStatusCode: "400",
+		},
+		"error: empty key value": {
+			request: "GET / HTTP/1.1\r\nHost: h\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n" +
+				"Sec-WebSocket-Key: \r\nSec-WebSocket-Version: 13\r\n\r\n",
+			wantErr:        gows.ErrMissingKey,
+			wantStatusCode: "400",
+		},
+		"error: key one byte short (23)": {
+			request: "GET / HTTP/1.1\r\nHost: h\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n" +
+				"Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ=\r\nSec-WebSocket-Version: 13\r\n\r\n",
+			wantErr:        gows.ErrMissingKey,
+			wantStatusCode: "400",
+		},
+		"error: key one byte long (25)": {
+			request: "GET / HTTP/1.1\r\nHost: h\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n" +
+				"Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==A\r\nSec-WebSocket-Version: 13\r\n\r\n",
 			wantErr:        gows.ErrMissingKey,
 			wantStatusCode: "400",
 		},

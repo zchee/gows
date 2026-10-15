@@ -73,16 +73,17 @@ func (c *Conn) ReadMessage() (Opcode, []byte, error) {
 }
 
 // readMessage implements ReadMessage without the sticky-error short circuit,
-// so [Conn.Close] can reuse it to drain the connection.
-func (c *Conn) readMessage() (Opcode, []byte, error) {
+// so [Conn.Close] can reuse it to drain the connection. The drain discards
+// every message, so only the error is returned.
+func (c *Conn) readMessage() error {
 	// Defense in depth: never index the freed read buffer after teardown. The
 	// Close idempotency guard already prevents the known re-entry path; this
 	// makes readMessage itself safe to call in any torn-down state.
 	if c.tornDown.Load() {
 		if c.readErr != nil {
-			return 0, nil, c.readErr
+			return c.readErr
 		}
-		return 0, nil, net.ErrClosed
+		return net.ErrClosed
 	}
 
 	// If a prior NextReader stream is still open, this new read supersedes it:
@@ -91,11 +92,12 @@ func (c *Conn) readMessage() (Opcode, []byte, error) {
 	// msgReader is always nil, so this is a single predictable nil check.
 	if c.msgReader != nil {
 		if err := c.discardStreamRemainder(); err != nil {
-			return 0, nil, err
+			return err
 		}
 	}
 
-	return c.readMessageBody()
+	_, _, err := c.readMessageBody()
+	return err
 }
 
 // readMessageBody reads one complete data message, assuming the caller has
@@ -635,13 +637,14 @@ func (c *Conn) NextReader() (Opcode, io.Reader, error) {
 
 	c.utf8v.Reset()
 
-	op, h, err := c.readDataFrameHeader()
+	h, err := c.readDataFrameHeader()
 	if err != nil {
 		return 0, nil, err
 	}
+	op := h.Opcode
 
 	if h.Rsv == RSV1 {
-		decoded, err := c.reassembleCompressed(h, op)
+		decoded, err := c.reassembleCompressed(h)
 		if err != nil {
 			return 0, nil, err
 		}
@@ -669,23 +672,23 @@ func (c *Conn) NextReader() (Opcode, io.Reader, error) {
 // readDataFrameHeader reads frame headers, auto-handling control frames, until
 // the header that opens a data message (Text or Binary) is found. A
 // Continuation frame with no message in progress is a protocol error.
-func (c *Conn) readDataFrameHeader() (Opcode, Header, error) {
+func (c *Conn) readDataFrameHeader() (Header, error) {
 	for {
 		h, err := c.readHeaderWithPartialEOF(true)
 		if err != nil {
-			return 0, Header{}, err
+			return Header{}, err
 		}
 		if h.Opcode.IsControl() {
 			if err := c.handleControl(h); err != nil {
-				return 0, Header{}, err
+				return Header{}, err
 			}
 			continue
 		}
 		switch h.Opcode {
 		case OpcodeText, OpcodeBinary:
-			return h.Opcode, h, nil
+			return h, nil
 		case OpcodeContinuation:
-			return 0, Header{}, c.failClose(CloseProtocolError, "continuation frame with no message in progress")
+			return Header{}, c.failClose(CloseProtocolError, "continuation frame with no message in progress")
 		}
 	}
 }
@@ -927,9 +930,9 @@ func (c *Conn) finishCompressedMessage() ([]byte, error) {
 // every fragment into c.msgBuf (enforcing the read limit), then finishes via
 // [Conn.finishCompressedMessage]. Used only by NextReader's compressed-inbound
 // fallback -- never the hot path.
-func (c *Conn) reassembleCompressed(first Header, op Opcode) ([]byte, error) {
+func (c *Conn) reassembleCompressed(first Header) ([]byte, error) {
 	c.msgBuf = c.msgBuf[:0]
-	c.msgIsText = op == OpcodeText
+	c.msgIsText = first.Opcode == OpcodeText
 	c.msgCompressed = true
 
 	h := first

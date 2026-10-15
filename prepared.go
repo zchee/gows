@@ -89,7 +89,7 @@ func NewPreparedMessage(op Opcode, payload []byte) (*PreparedMessage, error) {
 
 	if len(payload) >= defaultCompressMinSize {
 		cfg := activeDeflate.Load()
-		compressed, err := compressPayloadWithConfig(nil, payload, cfg)
+		compressed, err := compressPayloadWithConfig(payload, cfg)
 		if err != nil {
 			return nil, fmt.Errorf("gows: prepare compressed message: %w", err)
 		}

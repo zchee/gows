@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -30,7 +31,7 @@ import (
 	"github.com/zchee/gows/internal/httpx"
 )
 
-// --- negotiation: server side (negotiateDeflate, Upgrade) ------------------
+// --- negotiation: server side (negotiateDeflateWithHint, Upgrade) ------------------
 
 func TestNegotiateDeflate(t *testing.T) {
 	tests := map[string]struct {
@@ -86,7 +87,7 @@ func TestNegotiateDeflate(t *testing.T) {
 
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
-			got, ok := negotiateDeflate([]byte(tt.extensions), deflateNegotiatePolicy{
+			got, _, ok := negotiateDeflateWithHint([]byte(tt.extensions), deflateNegotiatePolicy{
 				negotiateWindowBits:  tt.negotiateWindowBits,
 				allowContextTakeover: tt.allowContextTakeover,
 			})
@@ -103,7 +104,7 @@ func TestNegotiateDeflate(t *testing.T) {
 // --- negotiation: windows-capable backend (SetDeflateBackend) --------------
 
 // fakeWindowedBackend reports capability for the full RFC 7692 window
-// range (8-15) so negotiateDeflate's accept/decline/echo logic can be
+// range (8-15) so negotiateDeflateWithHint's accept/decline/echo logic can be
 // exercised, but its NewWriter/NewReader ignore windowBits and always
 // compress at the full stdlib compress/flate window: this test only
 // exercises negotiation policy (does the handshake accept and correctly
@@ -227,7 +228,7 @@ func TestNegotiateDeflateWindowBits(t *testing.T) {
 
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
-			got, ok := negotiateDeflate([]byte(tt.extensions), deflateNegotiatePolicy{
+			got, _, ok := negotiateDeflateWithHint([]byte(tt.extensions), deflateNegotiatePolicy{
 				negotiateWindowBits: tt.negotiateWindowBits,
 			})
 			if ok != tt.wantOK {
@@ -243,7 +244,7 @@ func TestNegotiateDeflateWindowBits(t *testing.T) {
 // TestUpgradeCompressionNegotiationWindowBits drives the full Upgrade()
 // handshake with a windows-capable backend active, asserting the wire
 // response actually echoes the negotiated server_max_window_bits (RFC
-// 7692 §7.1.2.1), not just negotiateDeflate's return value in isolation.
+// 7692 §7.1.2.1), not just negotiateDeflateWithHint's return value in isolation.
 func TestUpgradeCompressionNegotiationWindowBits(t *testing.T) {
 	withDeflateBackend(t, fakeWindowedBackend, defaultDeflateLevel, 10)
 
@@ -621,12 +622,19 @@ func TestWriteMessageNeverCompressesControlFrames(t *testing.T) {
 
 // --- read path: round trips, fragmentation, RFC interop ---------------------
 
+// compressPayload compresses p the way [NewPreparedMessage] does: through
+// the process's active backend, onto a fresh window. Tests use it to build
+// valid permessage-deflate payloads.
+func compressPayload(p []byte) ([]byte, error) {
+	return compressPayloadWithConfig(p, activeDeflate.Load())
+}
+
 // buildCompressedFrame compresses plain with the package's own
 // compressPayload and wraps it in a single client-role (masked) wire frame
 // with RSV1 set.
 func buildCompressedFrame(t *testing.T, fin bool, op Opcode, plain []byte) []byte {
 	t.Helper()
-	compressed, err := compressPayload(nil, plain)
+	compressed, err := compressPayload(plain)
 	if err != nil {
 		t.Fatalf("compressPayload: %v", err)
 	}
@@ -717,7 +725,7 @@ func TestReadMessageFragmentedCompressed(t *testing.T) {
 	t.Parallel()
 
 	plain := []byte(strings.Repeat("fragmented compressed message content ", 50))
-	compressed, err := compressPayload(nil, plain)
+	compressed, err := compressPayload(plain)
 	if err != nil {
 		t.Fatalf("compressPayload: %v", err)
 	}
@@ -783,7 +791,7 @@ func TestDecompressRFC7692HelloExample(t *testing.T) {
 func TestReadMessageRSV1Violations(t *testing.T) {
 	t.Parallel()
 
-	validCompressed, err := compressPayload(nil, []byte("payload"))
+	validCompressed, err := compressPayload([]byte("payload"))
 	if err != nil {
 		t.Fatalf("compressPayload: %v", err)
 	}
@@ -976,7 +984,7 @@ func pseudoRandomBytes(n int) []byte {
 
 func BenchmarkConnReadMessageCompressed(b *testing.B) {
 	payload := bytes.Repeat([]byte("compressible benchmark payload "), 32) // 1024 bytes
-	compressed, err := compressPayload(nil, payload)
+	compressed, err := compressPayload(payload)
 	if err != nil {
 		b.Fatalf("compressPayload: %v", err)
 	}
@@ -1005,7 +1013,7 @@ func BenchmarkConnWriteMessageCompressed(b *testing.B) {
 
 // --- client_max_window_bits emission (Upgrader.ClientWindowBits) ----------
 
-// TestNegotiateDeflateClientWindowBits exercises negotiateDeflate's
+// TestNegotiateDeflateClientWindowBits exercises negotiateDeflateWithHint's
 // client_max_window_bits emission policy: emit only when the offer
 // included the parameter and ClientWindowBits is set; min with a valued
 // offer; never emit above a valued offer; never emit when the offer
@@ -1064,7 +1072,7 @@ func TestNegotiateDeflateClientWindowBits(t *testing.T) {
 	}
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
-			got, ok := negotiateDeflate([]byte(tt.extensions), deflateNegotiatePolicy{
+			got, _, ok := negotiateDeflateWithHint([]byte(tt.extensions), deflateNegotiatePolicy{
 				clientWindowBits: tt.clientWindowBits,
 			})
 			if ok != tt.wantOK {
@@ -1555,7 +1563,7 @@ func TestContextTakeoverWindowContinuityBothDirections(t *testing.T) {
 // --- mixed negotiation: all 4 per-direction combinations --------------------
 
 // TestNegotiateDeflateContextTakeoverAllCombinations confirms
-// negotiateDeflate, with AllowContextTakeover on, independently derives
+// negotiateDeflateWithHint, with AllowContextTakeover on, independently derives
 // each direction's agreed context-takeover state purely from what a
 // given offer contains -- covering all 4 combinations, including a
 // server that accepts the client's context takeover while keeping its
@@ -1585,11 +1593,11 @@ func TestNegotiateDeflateContextTakeoverAllCombinations(t *testing.T) {
 
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
-			got, ok := negotiateDeflate([]byte(tt.extensions), deflateNegotiatePolicy{
+			got, _, ok := negotiateDeflateWithHint([]byte(tt.extensions), deflateNegotiatePolicy{
 				allowContextTakeover: true,
 			})
 			if !ok {
-				t.Fatalf("negotiateDeflate: ok = false, want true")
+				t.Fatalf("negotiateDeflateWithHint: ok = false, want true")
 			}
 			if got != tt.want {
 				t.Fatalf("params = %+v, want %+v", got, tt.want)
@@ -1603,9 +1611,9 @@ func TestNegotiateDeflateContextTakeoverAllCombinations(t *testing.T) {
 // even for an offer that would otherwise allow context takeover on both
 // directions.
 func TestNegotiateDeflateContextTakeoverOff(t *testing.T) {
-	got, ok := negotiateDeflate([]byte("permessage-deflate"), deflateNegotiatePolicy{})
+	got, _, ok := negotiateDeflateWithHint([]byte("permessage-deflate"), deflateNegotiatePolicy{})
 	if !ok {
-		t.Fatalf("negotiateDeflate: ok = false, want true")
+		t.Fatalf("negotiateDeflateWithHint: ok = false, want true")
 	}
 	want := extension.DeflateParams{ServerNoContextTakeover: true, ClientNoContextTakeover: true}
 	if got != want {
@@ -1716,14 +1724,43 @@ func TestContextTakeoverBackendPinning(t *testing.T) {
 		t.Fatalf("c.deflate.outgoing changed identity after a later SetDeflateBackend call; a context-takeover Conn must pin its backend at construction")
 	}
 
-	// The Conn must keep working correctly (still the original backend's
-	// behavior, e.g. outgoingWindowBits pinned at construction time), not
-	// the newly active one.
-	if c.deflate.outgoingWindowBits != deflateWindowBits {
-		t.Fatalf("c.deflate.outgoingWindowBits = %d, want %d (pinned at construction)", c.deflate.outgoingWindowBits, deflateWindowBits)
+	// The Conn must keep compressing with the construction-time backend,
+	// not the newly active one. Both backends here are stdlib
+	// compress/flate and ignore windowBits, so the window is not
+	// observable on the wire; the level is. The first takeover message
+	// must therefore be byte-identical to a fresh level-6 stdlib writer's
+	// Write+Flush output with the sync-flush marker stripped, and differ
+	// from what the level-1 backend now active would emit.
+	var payload []byte
+	for i := range 2000 {
+		payload = strconv.AppendInt(payload, int64(i*i), 10)
+		payload = append(payload, ',')
 	}
-	if _, _, err := c.compressMessage(nil, []byte("still usable after SetDeflateBackend")); err != nil {
-		t.Fatalf("compressMessage after SetDeflateBackend: %v", err)
+	got, ok, err := c.compressMessage(nil, payload)
+	if err != nil || !ok {
+		t.Fatalf("compressMessage after SetDeflateBackend: ok=%v err=%v", ok, err)
+	}
+	flateSyncFlush := func(level int) []byte {
+		t.Helper()
+		var buf bytes.Buffer
+		w, err := flate.NewWriter(&buf, level)
+		if err != nil {
+			t.Fatalf("flate.NewWriter(%d): %v", level, err)
+		}
+		if _, err := w.Write(payload); err != nil {
+			t.Fatalf("flate Write: %v", err)
+		}
+		if err := w.Flush(); err != nil {
+			t.Fatalf("flate Flush: %v", err)
+		}
+		return bytes.TrimSuffix(buf.Bytes(), deflateFlushTail[:])
+	}
+	want := flateSyncFlush(6)
+	if !bytes.Equal(got, want) {
+		t.Fatalf("compressMessage output differs from the construction-time level-6 compressor:\n got  %x\n want %x", got, want)
+	}
+	if bytes.Equal(got, flateSyncFlush(1)) {
+		t.Fatal("level-1 and level-6 outputs are identical for this payload; the check cannot tell the backends apart")
 	}
 }
 
@@ -1731,11 +1768,11 @@ func TestContextTakeoverBackendPinning(t *testing.T) {
 
 // TestContextTakeoverIncomingDictNotBoundToOutgoingWindowBits is a
 // regression test for a reviewer-caught bug: an earlier revision capped
-// the incoming context-takeover sliding dict at 1<<outgoingWindowBits --
+// the incoming context-takeover sliding dict at the outgoing window size --
 // the process-wide *outgoing* compressor's window (from
 // [SetDeflateBackend]) -- even though gows negotiates no bound at all on
 // what window the *peer* actually compresses with (neither
-// negotiateDeflate nor Dialer.deflateOffer ever emits
+// negotiateDeflateWithHint nor Dialer.deflateOffer ever emits
 // client_max_window_bits/server_max_window_bits to restrict the peer's
 // own compressor; see [deflateState]'s doc). A fully RFC-7692-compliant
 // peer using the full 32KB default window can legitimately emit a
@@ -2154,7 +2191,7 @@ func TestOutgoingDisabledOnBackendRace(t *testing.T) {
 		t.Fatalf("server incomingDict nil")
 	}
 	// Compress with a peer stand-in (stdlib full window) and decode.
-	peerCompressed, err := compressPayload(nil, []byte("peer-hello"))
+	peerCompressed, err := compressPayload([]byte("peer-hello"))
 	if err != nil {
 		t.Fatalf("compressPayload: %v", err)
 	}

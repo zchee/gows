@@ -36,7 +36,7 @@ func TestFrameCompressionDirectionWindows(t *testing.T) {
 			// Each independent 64-byte DEFLATE stream is valid for every RFC window.
 			// Resetting outbound compression is legal even with takeover negotiated.
 			payload := bytes.Repeat([]byte("x"), 64)
-			compressed, err := compressPayload(nil, payload)
+			compressed, err := compressPayload(payload)
 			if err != nil {
 				t.Fatal(err)
 			}

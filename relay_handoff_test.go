@@ -30,7 +30,7 @@ import (
 
 func TestReadFrameBufferedCompressedPrefixes(t *testing.T) {
 	payload := []byte("fragmented compressed payload")
-	compressed, err := compressPayload(nil, payload)
+	compressed, err := compressPayload(payload)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -23,14 +23,6 @@ import "github.com/zchee/gows/internal/cpu"
 // Placeholder pending benchstat calibration (see utf8-simd-calibration.md).
 const simdThreshold = 32
 
-// avx2Validated gates whether the production Feed path uses the AVX2 kernel.
-// It was held false until the exhaustive differential suite (TestKernelDifferential,
-// which invokes utf8ValidAVX2 directly) ran on real AVX2 hardware. That
-// validation passed on an Intel Xeon 8481C (Sapphire Rapids) — every density ×
-// block-aligned length 0..4096 × offset, plus the corruption sweep and the full
-// Feed/Valid streaming and fuzz suites — so the AVX2 path is now enabled.
-const avx2Validated = true
-
 // utf8ValidAVX2 reports whether the n bytes at p contain no structural UTF-8
 // error, treating the buffer as if it may continue past its end (a trailing
 // incomplete sequence is NOT an error — the caller's scalar DFA owns the
@@ -46,13 +38,11 @@ func utf8ValidAVX2(p *byte, n int) bool
 // A CPU without AVX2 (which the internal/cpu detector gates, along with the
 // GOWS_SIMD kill switch) falls through to 0, so Feed runs the pure-scalar path.
 func simdBulk(b []byte) int {
-	if !avx2Validated || len(b) < simdThreshold || !cpu.X86.HasAVX2 {
+	if len(b) < simdThreshold || !cpu.X86.HasAVX2 {
 		return 0
 	}
+	// simdThreshold >= 32, so m is at least one full 32-byte block.
 	m := len(b) &^ 31
-	if m == 0 {
-		return 0
-	}
 	if !utf8ValidAVX2(&b[0], m) {
 		return -1
 	}
