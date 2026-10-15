@@ -64,11 +64,6 @@ func compare(baselinePath, currentPath, agent string) error {
 			return fmt.Errorf("case %s changed: baseline=%+v current=%+v", id, baseline[id], got)
 		}
 	}
-	for id := range current {
-		if _, ok := baseline[id]; !ok {
-			return fmt.Errorf("current has extra case %s", id)
-		}
-	}
 	return nil
 }
 

@@ -17,22 +17,22 @@ package main
 
 import (
 	"os"
-	"strings"
 
 	"github.com/zchee/gows"
-	"github.com/zchee/gows/flatekp"
 	"github.com/zchee/gows/internal/autobahnapp"
+
+	"github.com/zchee/gows/flatekp"
 )
 
 const windowBits = 9
 
-func featureConfig(mode string) autobahnapp.Config {
-	name := "gows-v04-feature-client"
-	if mode == "server" {
-		name = "gows-v04-feature-server"
-	}
+// featureConfig returns the profile for both directions. The agent name only
+// reaches the wire in client mode, where the app reports its results to the
+// fuzzingserver; in server mode the fuzzingclient's own configuration names
+// the agent, so one client name serves both.
+func featureConfig() autobahnapp.Config {
 	return autobahnapp.Config{
-		AgentName: name,
+		AgentName: "gows-v04-feature-client",
 		Upgrader: gows.Upgrader{
 			EnableCompression:    true,
 			AllowContextTakeover: true,
@@ -49,21 +49,8 @@ func featureConfig(mode string) autobahnapp.Config {
 }
 
 func main() {
-	mode := modeFromArgs(os.Args[1:])
 	if err := gows.SetDeflateBackend(flatekp.Backend(), 6, windowBits); err != nil {
 		panic(err)
 	}
-	os.Exit(autobahnapp.Run(os.Args[1:], featureConfig(mode), os.Stdout, os.Stderr))
-}
-
-func modeFromArgs(args []string) string {
-	for i, arg := range args {
-		if after, ok := strings.CutPrefix(arg, "-mode="); ok {
-			return after
-		}
-		if arg == "-mode" && i+1 < len(args) {
-			return args[i+1]
-		}
-	}
-	return ""
+	os.Exit(autobahnapp.Run(os.Args[1:], featureConfig(), os.Stderr))
 }

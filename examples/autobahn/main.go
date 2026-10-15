@@ -27,5 +27,5 @@ func main() {
 		AgentName: "gows",
 		Upgrader:  gows.Upgrader{EnableCompression: true},
 		Dialer:    gows.Dialer{EnableCompression: true},
-	}, os.Stdout, os.Stderr))
+	}, os.Stderr))
 }

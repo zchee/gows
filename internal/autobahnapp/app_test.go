@@ -35,7 +35,7 @@ func TestCaseDelayParsingAndPreActionValidation(t *testing.T) {
 	}
 	t.Setenv("AUTOBAHN_CASE_DELAY", "invalid")
 	var stderr bytes.Buffer
-	if code := Run([]string{"-mode", "server", "-addr", "invalid-address"}, Config{AgentName: "test", Upgrader: gows.Upgrader{}, Dialer: gows.Dialer{}}, &bytes.Buffer{}, &stderr); code != 2 || !bytes.Contains(stderr.Bytes(), []byte("invalid AUTOBAHN_CASE_DELAY")) {
+	if code := Run([]string{"-mode", "server", "-addr", "invalid-address"}, Config{AgentName: "test", Upgrader: gows.Upgrader{}, Dialer: gows.Dialer{}}, &stderr); code != 2 || !bytes.Contains(stderr.Bytes(), []byte("invalid AUTOBAHN_CASE_DELAY")) {
 		t.Fatalf("code=%d stderr=%q", code, stderr.String())
 	}
 }

@@ -14,30 +14,54 @@
 
 package main
 
-import "testing"
+import (
+	"bytes"
+	"net"
+	"strings"
+	"testing"
+
+	"github.com/zchee/gows/internal/autobahnapp"
+)
 
 func TestFeatureConfig(t *testing.T) {
-	server := featureConfig("server")
-	if server.AgentName != "gows-v04-feature-server" || !server.Upgrader.NegotiateWindowBits || server.Upgrader.ClientWindowBits != 9 || !server.Upgrader.AllowContextTakeover {
-		t.Fatalf("server config = %+v", server)
+	cfg := featureConfig()
+	if cfg.AgentName != "gows-v04-feature-client" {
+		t.Fatalf("agent name = %q, want gows-v04-feature-client", cfg.AgentName)
 	}
-	client := featureConfig("client")
-	if client.AgentName != "gows-v04-feature-client" || client.Dialer.ServerWindowBits != 9 || !client.Dialer.OfferClientMaxWindowBits || !client.Dialer.AllowContextTakeover {
-		t.Fatalf("client config = %+v", client)
+	if !cfg.Upgrader.NegotiateWindowBits || cfg.Upgrader.ClientWindowBits != 9 || !cfg.Upgrader.AllowContextTakeover {
+		t.Fatalf("server config = %+v", cfg.Upgrader)
+	}
+	if cfg.Dialer.ServerWindowBits != 9 || !cfg.Dialer.OfferClientMaxWindowBits || !cfg.Dialer.AllowContextTakeover {
+		t.Fatalf("client config = %+v", cfg.Dialer)
 	}
 }
 
-func TestModeFromArgs(t *testing.T) {
+// TestCLIAcceptsModeForms runs the feature profile through the shared flag set
+// and checks that each spelling of -mode reaches the requested direction: the
+// server fails at listen and the client fails dialing a closed port, both with
+// exit code 1 rather than the usage exit code 2.
+func TestCLIAcceptsModeForms(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	closed := "ws://" + ln.Addr().String()
+	if err := ln.Close(); err != nil {
+		t.Fatal(err)
+	}
 	for _, tc := range []struct {
 		args []string
 		want string
 	}{
-		{[]string{"-mode", "server"}, "server"},
-		{[]string{"-mode=server"}, "server"},
-		{[]string{"-echo", "stream", "-mode", "client"}, "client"},
+		{[]string{"-mode", "server", "-addr", "invalid-address"}, "listen invalid-address"},
+		{[]string{"-mode=server", "-addr", "invalid-address"}, "listen invalid-address"},
+		{[]string{"-echo", "stream", "-mode", "client", "-server", closed}, "client: get case count"},
+		{[]string{"-mode=client", "-server", closed}, "client: get case count"},
 	} {
-		if got := modeFromArgs(tc.args); got != tc.want {
-			t.Fatalf("modeFromArgs(%q)=%q, want %q", tc.args, got, tc.want)
+		var stderr bytes.Buffer
+		code := autobahnapp.Run(tc.args, featureConfig(), &stderr)
+		if code != 1 || strings.Contains(stderr.String(), "usage:") || !strings.Contains(stderr.String(), tc.want) {
+			t.Fatalf("Run(%q) = %d, stderr %q, want exit 1 containing %q", tc.args, code, stderr.String(), tc.want)
 		}
 	}
 }

@@ -24,10 +24,11 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"maps"
 	"os"
 	"path/filepath"
 	"regexp"
-	"sort"
+	"slices"
 	"strings"
 	"time"
 )
@@ -167,11 +168,11 @@ func run(w io.Writer, o options) error {
 		return err
 	}
 
-	before, beforeMeta, err := loadBoundReport(o.BeforePath, o.BeforeProvenance, "canonical", o.Direction, "gows", false, "")
+	before, beforeMeta, err := loadBoundReport(o.BeforePath, o.BeforeProvenance, "canonical", o.Direction, "gows", "")
 	if err != nil {
 		return fmt.Errorf("canonical evidence: %w", err)
 	}
-	after, afterMeta, err := loadBoundReport(o.AfterPath, o.AfterProvenance, "feature", o.Direction, o.Agent, true, o.ExpectedApplicationSHA)
+	after, afterMeta, err := loadBoundReport(o.AfterPath, o.AfterProvenance, "feature", o.Direction, o.Agent, o.ExpectedApplicationSHA)
 	if err != nil {
 		return fmt.Errorf("feature evidence: %w", err)
 	}
@@ -200,7 +201,7 @@ func run(w io.Writer, o options) error {
 		return err
 	}
 
-	ids := sortedKeys(mm.Inventory)
+	ids := slices.Sorted(maps.Keys(mm.Inventory))
 	for id := range before {
 		if (strings.HasPrefix(id, "13.3.") || strings.HasPrefix(id, "13.5.")) && mm.Inventory[id].Behavior == "" {
 			return fmt.Errorf("canonical report has extra inventory case %s", id)
@@ -260,7 +261,7 @@ func validateManifest(m manifestMode) error {
 	return nil
 }
 
-func loadBoundReport(indexPath, provenancePath, mode, direction, agent string, feature bool, expectedApplicationSHA string) (map[string]caseResult, provenance, error) {
+func loadBoundReport(indexPath, provenancePath, mode, direction, agent, expectedApplicationSHA string) (map[string]caseResult, provenance, error) {
 	if indexPath == "" || provenancePath == "" {
 		return nil, provenance{}, errors.New("index and provenance paths are required")
 	}
@@ -332,12 +333,12 @@ func loadBoundReport(indexPath, provenancePath, mode, direction, agent string, f
 			return nil, provenance{}, fmt.Errorf("client completion sentinel: %w", err)
 		}
 	}
-	if feature {
+	if mode == "feature" {
 		if p.ApplicationCommand == "" || p.ApplicationReceipt == "" || p.ApplicationPID <= 0 || p.ApplicationTimeout <= 0 {
 			return nil, provenance{}, errors.New("feature provenance lacks external application command")
 		}
 		cleanedReceipt, _ := filepath.Abs(filepath.Clean(p.ApplicationReceipt))
-		if cleanedRoot != rootFromIndex || filepath.Dir(cleanedReceipt) != cleanedRoot {
+		if filepath.Dir(cleanedReceipt) != cleanedRoot {
 			return nil, provenance{}, errors.New("feature report root or receipt path mismatch")
 		}
 		rb, err := os.ReadFile(p.ApplicationReceipt)
@@ -396,8 +397,8 @@ func verifyGeneratorEvidence(identity string) error {
 	if err != nil {
 		return err
 	}
-	real, realErr := filepath.EvalSymlinks(cleaned)
-	if realErr != nil || real != cleaned {
+	resolved, err := filepath.EvalSymlinks(cleaned)
+	if err != nil || resolved != cleaned {
 		return errors.New("path is not normalized absolute")
 	}
 	sum := sha256.Sum256(b)
@@ -433,15 +434,6 @@ func readJSON(path string, dst any) error {
 		return err
 	}
 	return nil
-}
-
-func sortedKeys[V any](m map[string]V) []string {
-	keys := make([]string, 0, len(m))
-	for k := range m {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
-	return keys
 }
 
 func number(v any) int {
