@@ -301,12 +301,12 @@ func loadBoundReport(indexPath, provenancePath, mode, direction, agent, expected
 		if direction == "client" && (p.ApplicationTermination != "natural" || p.ApplicationExitStatus != 0) {
 			return nil, autobahnreport.Provenance{}, errors.New("client application receipt lacks natural success")
 		}
-		if len(p.FeatureConfig) == 0 || p.FeatureConfig["backend"] != "klauspost/compress/flate" || number(p.FeatureConfig["level"]) != 6 || number(p.FeatureConfig["window_bits"]) != 9 {
+		if len(p.FeatureConfig) == 0 || p.FeatureConfig["backend"] != "klauspost/compress/flate" || !equalsInt(p.FeatureConfig["level"], 6) || !equalsInt(p.FeatureConfig["window_bits"], 9) {
 			return nil, autobahnreport.Provenance{}, errors.New("feature provenance lacks flatekp level-6/window-9 configuration")
 		}
 		if p.FeatureConfig["allow_context_takeover"] != true ||
-			(direction == "server" && (p.FeatureConfig["negotiate_window_bits"] != true || number(p.FeatureConfig["client_window_bits"]) != 9)) ||
-			(direction == "client" && (p.FeatureConfig["offer_client_max_window_bits"] != true || number(p.FeatureConfig["server_window_bits"]) != 9)) {
+			(direction == "server" && (p.FeatureConfig["negotiate_window_bits"] != true || !equalsInt(p.FeatureConfig["client_window_bits"], 9))) ||
+			(direction == "client" && (p.FeatureConfig["offer_client_max_window_bits"] != true || !equalsInt(p.FeatureConfig["server_window_bits"], 9))) {
 			return nil, autobahnreport.Provenance{}, errors.New("feature provenance lacks exact direction-specific window policy")
 		}
 	} else if len(p.FeatureConfig) != 0 {
@@ -367,11 +367,10 @@ func readJSON(path string, dst any) error {
 	return nil
 }
 
-func number(v any) int {
-	switch v := v.(type) {
-	case float64:
-		return int(v)
-	default:
-		return 0
-	}
+// equalsInt reports whether v, a number decoded from JSON into an any, is
+// exactly want. Comparing the float64 itself rejects fractional values such as
+// 6.9 that an int conversion would truncate to 6.
+func equalsInt(v any, want int) bool {
+	f, ok := v.(float64)
+	return ok && f == float64(want)
 }

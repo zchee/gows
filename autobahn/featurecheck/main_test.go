@@ -157,6 +157,18 @@ func TestFeatureCheck(t *testing.T) {
 		{"case-delay-difference", func(o *options) {
 			rewriteProvenance(t, o.AfterProvenance, func(p *autobahnreport.Provenance) { p.NetworkMode = "host"; p.CaseDelay = "0s" })
 		}, "case delay differs"},
+		{"fractional-level", func(o *options) {
+			o.AfterPath, o.AfterProvenance = writeEvidence(t, dir, "fractional-level", "feature", "server", "gows-v04-feature-server", makeCases(mm, true), featureConfig)
+			rewriteProvenance(t, o.AfterProvenance, func(p *autobahnreport.Provenance) { p.FeatureConfig["level"] = 6.9 })
+		}, "lacks flatekp level-6/window-9"},
+		{"fractional-window-bits", func(o *options) {
+			o.AfterPath, o.AfterProvenance = writeEvidence(t, dir, "fractional-window-bits", "feature", "server", "gows-v04-feature-server", makeCases(mm, true), featureConfig)
+			rewriteProvenance(t, o.AfterProvenance, func(p *autobahnreport.Provenance) { p.FeatureConfig["window_bits"] = 9.5 })
+		}, "lacks flatekp level-6/window-9"},
+		{"fractional-client-window-bits", func(o *options) {
+			o.AfterPath, o.AfterProvenance = writeEvidence(t, dir, "fractional-client-window-bits", "feature", "server", "gows-v04-feature-server", makeCases(mm, true), featureConfig)
+			rewriteProvenance(t, o.AfterProvenance, func(p *autobahnreport.Provenance) { p.FeatureConfig["client_window_bits"] = 9.25 })
+		}, "exact direction-specific window policy"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -170,18 +182,24 @@ func TestFeatureCheck(t *testing.T) {
 	}
 }
 
-func TestNumber(t *testing.T) {
+func TestEqualsInt(t *testing.T) {
 	tests := map[string]struct {
 		input any
 		want  int
+		equal bool
 	}{
-		"float64 from decoded JSON": {input: float64(9), want: 9},
-		"unsupported type":          {input: "9", want: 0},
+		"float64 from decoded JSON":         {input: float64(9), want: 9, equal: true},
+		"unsupported type":                  {input: "9", want: 9, equal: false},
+		"fraction above the wanted value":   {input: 6.9, want: 6, equal: false},
+		"fraction below the wanted value":   {input: 8.999999, want: 9, equal: false},
+		"different integral value":          {input: float64(15), want: 9, equal: false},
+		"missing key decodes to nil":        {input: nil, want: 0, equal: false},
+		"int not produced by JSON decoding": {input: 9, want: 9, equal: false},
 	}
 	for name, test := range tests {
 		t.Run(name, func(t *testing.T) {
-			if got := number(test.input); got != test.want {
-				t.Fatalf("number(%T(%v)) = %d, want %d", test.input, test.input, got, test.want)
+			if got := equalsInt(test.input, test.want); got != test.equal {
+				t.Fatalf("equalsInt(%T(%v), %d) = %v, want %v", test.input, test.input, test.want, got, test.equal)
 			}
 		})
 	}
@@ -234,9 +252,13 @@ func TestFeatureCheckClientDirection(t *testing.T) {
 	before, beforeProv := writeEvidence(t, dir, "client-before", "canonical", "client", "gows", makeCases(mm, false), nil)
 	fc := map[string]any{"backend": "klauspost/compress/flate", "level": 6, "window_bits": 9, "allow_context_takeover": true, "offer_client_max_window_bits": true, "server_window_bits": 9}
 	after, afterProv := writeEvidence(t, dir, "client-after", "feature", "client", "gows-v04-feature-client", makeCases(mm, true), fc)
-	err := run(&bytes.Buffer{}, options{ManifestPath: mfPath, BeforePath: before, BeforeProvenance: beforeProv, AfterPath: after, AfterProvenance: afterProv, Direction: "client", Agent: "gows-v04-feature-client", BeforeRunID: "canonical-client", AfterRunID: "feature-client", ExpectedHead: strings.Repeat("a", 40), ExpectedWorkspace: strings.Repeat("b", 64), ExpectedApplicationSHA: strings.Repeat("d", 64), ExpectedCaseDelay: "1s"})
-	if err != nil {
+	o := options{ManifestPath: mfPath, BeforePath: before, BeforeProvenance: beforeProv, AfterPath: after, AfterProvenance: afterProv, Direction: "client", Agent: "gows-v04-feature-client", BeforeRunID: "canonical-client", AfterRunID: "feature-client", ExpectedHead: strings.Repeat("a", 40), ExpectedWorkspace: strings.Repeat("b", 64), ExpectedApplicationSHA: strings.Repeat("d", 64), ExpectedCaseDelay: "1s"}
+	if err := run(&bytes.Buffer{}, o); err != nil {
 		t.Fatal(err)
+	}
+	rewriteProvenance(t, afterProv, func(p *autobahnreport.Provenance) { p.FeatureConfig["server_window_bits"] = 9.75 })
+	if err := run(&bytes.Buffer{}, o); err == nil || !strings.Contains(err.Error(), "exact direction-specific window policy") {
+		t.Fatalf("fractional server_window_bits: error=%v, want exact direction-specific window policy", err)
 	}
 }
 
