@@ -583,9 +583,9 @@ func (d *Dialer) handshake(conn net.Conn, u *url.URL, hdr http.Header, absoluteF
 		// scheme is written as "http" -- the carrying protocol of the
 		// opening handshake -- which any HTTP proxy understands, where a
 		// literal "ws" scheme is one RFC 7230 intermediaries need not.
-		fmt.Fprintf(&req, `GET http://%s%s HTTP/1.1`, u.Host, requestTarget(u))
+		fmt.Fprintf(&req, `GET http://%s%s HTTP/1.1`, u.Host, u.RequestURI())
 	} else {
-		fmt.Fprintf(&req, `GET %s HTTP/1.1`, requestTarget(u))
+		fmt.Fprintf(&req, `GET %s HTTP/1.1`, u.RequestURI())
 	}
 	req.WriteString("\r\n")
 
@@ -609,7 +609,7 @@ func (d *Dialer) handshake(conn net.Conn, u *url.URL, hdr http.Header, absoluteF
 	req.WriteString(`Sec-WebSocket-Version: 13`)
 	req.WriteString("\r\n")
 	if len(d.Subprotocols) > 0 {
-		fmt.Fprintf(&req, `Sec-WebSocket-Protocol: %s`, joinComma(d.Subprotocols))
+		fmt.Fprintf(&req, `Sec-WebSocket-Protocol: %s`, strings.Join(d.Subprotocols, ", "))
 		req.WriteString("\r\n")
 	}
 	offerHeader := d.deflateOffer()
@@ -724,25 +724,4 @@ func (d *Dialer) handshake(conn net.Conn, u *url.URL, hdr http.Header, absoluteF
 		h.Buffered = append([]byte(nil), data[idx+4:filled]...)
 	}
 	return h, "", nil
-}
-
-// requestTarget returns u's request-target (RFC 7230 §5.3.1) for a
-// handshake request: the escaped path and, if present, query, exactly as
-// [url.URL.RequestURI] computes it, defaulting to "/" for an empty path.
-func requestTarget(u *url.URL) string {
-	return u.RequestURI()
-}
-
-// joinComma joins ss with ", " -- the conventional separator for a
-// #token list per RFC 7230 §7 -- for use as a Sec-WebSocket-Protocol
-// request header value.
-func joinComma(ss []string) string {
-	var b bytes.Buffer
-	for i, s := range ss {
-		if i > 0 {
-			b.WriteString(", ")
-		}
-		b.WriteString(s)
-	}
-	return b.String()
 }

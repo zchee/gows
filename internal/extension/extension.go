@@ -146,7 +146,7 @@ func (s *ParamScanner) Next() bool {
 
 		if name, rawValue, hasValue := bytes.Cut(raw, []byte("=")); hasValue {
 			name = httpx.TrimOWS(name)
-			if len(name) == 0 || !isToken(name) {
+			if !httpx.IsToken(name) {
 				s.err = ErrMalformedExtensionParam
 				return false
 			}
@@ -159,7 +159,7 @@ func (s *ParamScanner) Next() bool {
 			return true
 		}
 
-		if !isToken(raw) {
+		if !httpx.IsToken(raw) {
 			s.err = ErrMalformedExtensionParam
 			return false
 		}
@@ -222,7 +222,7 @@ func unquoteToken(v []byte) (tok []byte, ok bool) {
 		return nil, false
 	}
 	if v[0] != '"' {
-		if !isToken(v) {
+		if !httpx.IsToken(v) {
 			return nil, false
 		}
 		return v, true
@@ -232,7 +232,7 @@ func unquoteToken(v []byte) (tok []byte, ok bool) {
 	}
 	inner := v[1 : len(v)-1]
 	if bytes.IndexByte(inner, '\\') < 0 {
-		if !isToken(inner) {
+		if !httpx.IsToken(inner) {
 			return nil, false
 		}
 		return inner, true
@@ -245,35 +245,8 @@ func unquoteToken(v []byte) (tok []byte, ok bool) {
 		}
 		buf = append(buf, inner[i])
 	}
-	if !isToken(buf) {
+	if !httpx.IsToken(buf) {
 		return nil, false
 	}
 	return buf, true
-}
-
-// isToken reports whether b is non-empty and consists entirely of RFC
-// 7230 §3.2.6 tchar characters.
-func isToken(b []byte) bool {
-	if len(b) == 0 {
-		return false
-	}
-	for _, c := range b {
-		if !isTchar(c) {
-			return false
-		}
-	}
-	return true
-}
-
-// isTchar reports whether c is an RFC 7230 §3.2.6 tchar.
-func isTchar(c byte) bool {
-	switch {
-	case c >= 'a' && c <= 'z', c >= 'A' && c <= 'Z', c >= '0' && c <= '9':
-		return true
-	}
-	switch c {
-	case '!', '#', '$', '%', '&', '\'', '*', '+', '-', '.', '^', '_', '`', '|', '~':
-		return true
-	}
-	return false
 }

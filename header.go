@@ -126,7 +126,7 @@ func reservedHeaderName(name string) bool {
 func validateExtraHeaders(h http.Header) error {
 	total := 0
 	for name, values := range h {
-		if !validHeaderName(name) {
+		if !httpx.IsToken(name) {
 			return fmt.Errorf("%w: invalid header name %q", ErrMalformedHeader, name)
 		}
 		if reservedHeaderName(name) {
@@ -182,34 +182,6 @@ func deleteHeaderFold(h http.Header, name string) {
 			delete(h, k)
 		}
 	}
-}
-
-// validHeaderName reports whether s is a valid header field name: a
-// non-empty RFC 7230 token (1*tchar).
-func validHeaderName(s string) bool {
-	if s == "" {
-		return false
-	}
-	for i := range len(s) {
-		if !isTokenChar(s[i]) {
-			return false
-		}
-	}
-	return true
-}
-
-// isTokenChar reports whether b is an RFC 7230 tchar: any VCHAR except
-// the delimiters DQUOTE and (),/:;<=>?@[\]{}.
-func isTokenChar(b byte) bool {
-	switch {
-	case 'a' <= b && b <= 'z', 'A' <= b && b <= 'Z', '0' <= b && b <= '9':
-		return true
-	}
-	switch b {
-	case '!', '#', '$', '%', '&', '\'', '*', '+', '-', '.', '^', '_', '\u0060', '|', '~':
-		return true
-	}
-	return false
 }
 
 // validHeaderValue reports whether s is valid header field-content per

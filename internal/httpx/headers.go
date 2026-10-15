@@ -215,13 +215,43 @@ func cutCRLF(b []byte) (line, rest []byte, ok bool) {
 }
 
 // cutByte splits b at the first occurrence of c, returning the parts
-// before and after c. It reports false if c is not present in b.
+// before and after c. It reports false if c is not present in b. It is
+// kept instead of bytes.Cut, whose separator-length dispatch measurably
+// slowed the upgrade handshake that calls it once per header line.
 func cutByte(b []byte, c byte) (before, after []byte, ok bool) {
 	i := bytes.IndexByte(b, c)
 	if i < 0 {
 		return nil, nil, false
 	}
 	return b[:i], b[i+1:], true
+}
+
+// IsToken reports whether s is non-empty and consists entirely of RFC 7230
+// §3.2.6 tchar bytes: any VCHAR except the delimiters DQUOTE and
+// (),/:;<=>?@[\]{}. It accepts both string and []byte so callers holding
+// either check it without a conversion.
+func IsToken[S ~string | ~[]byte](s S) bool {
+	if len(s) == 0 {
+		return false
+	}
+	for i := range len(s) {
+		if !isTchar(s[i]) {
+			return false
+		}
+	}
+	return true
+}
+
+func isTchar(c byte) bool {
+	switch {
+	case 'a' <= c && c <= 'z', 'A' <= c && c <= 'Z', '0' <= c && c <= '9':
+		return true
+	}
+	switch c {
+	case '!', '#', '$', '%', '&', '\'', '*', '+', '-', '.', '^', '_', '`', '|', '~':
+		return true
+	}
+	return false
 }
 
 // TrimOWS trims leading and trailing optional whitespace (SP or HTAB)
