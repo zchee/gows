@@ -753,7 +753,7 @@ func BenchmarkValidatorFeedMixed(b *testing.B) {
 // BenchmarkValidatorFeedDenseMultibyte measures the worst case for this
 // scalar implementation: every byte is part of a multi-byte sequence, so
 // the ASCII fast path never triggers and every byte goes through step.
-// This is the number Phase 3's SIMD interior loop most needs to beat.
+// It is the scalar baseline the SIMD kernels are measured against.
 func BenchmarkValidatorFeedDenseMultibyte(b *testing.B) {
 	benchFeed(b, "日本語のテスト文字列です")
 }

@@ -344,38 +344,19 @@ func (c *Conn) readFramePayload(h Header) error {
 	//
 	// Processing still runs over cap(rbuf)-sized sub-chunks regardless of how
 	// much a single Read returned, because a single very large (tens of KB+)
-	// mask.Mask/utf8v.Feed call measurably loses cache residency in the SIMD
-	// mask kernel (see bench/results/phase5-linux-amd64.md's 64KB kernel
-	// rows and its "64KB drops off ... consistent with leaving cache
-	// residency" discussion). A Read that already returns
-	// everything at once (e.g. a single-writer peer's writev'd frame, or the
-	// benchmark's loopConn) is processed identically to the old
-	// read-all-then-feed order, so hot-path throughput is unchanged; only the
-	// order of I/O and validation relative to a *chopped* arrival differs.
+	// mask.Mask/utf8v.Feed call loses cache residency in the SIMD mask kernel.
 	//
 	// I/O-error contract (mirrors fillOnce): a Read returning zero new bytes
 	// alongside a non-nil error propagates that error verbatim (a plain io.EOF,
 	// not io.ReadFull's io.ErrUnexpectedEOF upgrade), so a truncated stream
 	// surfaces identically here and on the buffered path.
 	//
-	// Known limitation, confirmed by strace on the echo benchmark harness: how
-	// many actual read(2) calls this needs is governed by *arrival pacing* on
-	// the wire, not by the size requested here. If a peer writes a frame's
-	// header and payload as two separate write(2) calls, a fast reader can
-	// re-enter Read before the second write's bytes have arrived, splitting the
-	// payload across more reads than a slower reader would "accidentally" batch
-	// by being late to ask -- gows measured 5.02 reads/msg for a 16KB frame
-	// against gws's 2.00 there, entirely attributable to this pacing effect,
-	// not to any artificial chunk cap on gows's side (there is none). A
-	// single-writer sender (e.g. this package's own writev'd WriteMessage
-	// output) does not trigger the pattern. MSG_WAITALL via a raw syscall
-	// (RawConn) was evaluated as a way to force full-remainder reads regardless
-	// of arrival pacing and rejected: on the non-blocking sockets Go's
-	// netpoller requires, MSG_WAITALL does not block in-kernel across multiple
-	// future arrivals -- it is an atomic single-attempt gate that returns
-	// EAGAIN immediately (discarding whatever partial bytes did arrive) if the
-	// full requested length is not already buffered, so it does not reduce the
-	// read count here and can add wasted round-trips instead.
+	// How many read(2) calls a frame takes depends on how the peer paced its
+	// writes, not on the size requested here: a peer that writes header and
+	// payload separately can split the payload across several reads. Forcing
+	// full reads with MSG_WAITALL does not help, because on the non-blocking
+	// sockets Go's netpoller uses it returns EAGAIN unless the whole length is
+	// already buffered.
 	chunkSize := cap(c.rbuf)
 	for len(dst) > 0 {
 		n, err := c.conn.Read(dst)

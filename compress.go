@@ -279,13 +279,10 @@ func DefaultDeflateBackend() *DeflateBackend {
 // incomingDict's capacity. incomingDict is capped at the ceiling
 // actually negotiated for the PEER's direction (via client_max_window_bits
 // on the server role, or server_max_window_bits on the client role),
-// else the RFC 7692 default 32KB ([deflateWindowBits]); it is still
-// never the outgoing window. An earlier revision capped incomingDict at
-// the outgoing window size, wrongly reusing the outgoing-direction value
-// for the incoming direction's unrelated bound -- a reviewer-caught bug
-// that silently truncated genuine cross-message back-references from a
-// compliant peer using the full window. When no peer-direction bound was
-// negotiated, the 32KB default is the only correct choice.
+// else the RFC 7692 default 32KB ([deflateWindowBits]). The outgoing
+// window bounds only this side's compressor; capping the dictionary with
+// it would truncate back-references a compliant peer using its full
+// window is entitled to emit.
 type deflateState struct {
 	// outgoing is non-nil when this Conn needs a dedicated compressor:
 	// either its own outgoing direction negotiated context takeover, or a
