@@ -11,8 +11,8 @@ import (
 
 // serverConfig carries the per-run echoserver configuration derived from the
 // command-line flags plus any gows read-buffer variant selected by -lib. Its
-// zero value reproduces the historical defaults, so every backend behaves
-// byte-identically when the new flags are unset.
+// zero value leaves every backend at its library default, so the flags only
+// change behaviour when set.
 type serverConfig struct {
 	// readBufSize is the gows read-buffer size in bytes; 0 selects gows's
 	// own default. It is meaningful only for the gows family (see

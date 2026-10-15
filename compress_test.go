@@ -1766,19 +1766,13 @@ func TestContextTakeoverBackendPinning(t *testing.T) {
 
 // --- regression: incoming dict must not be bound by the outgoing window ---
 
-// TestContextTakeoverIncomingDictNotBoundToOutgoingWindowBits is a
-// regression test for a reviewer-caught bug: an earlier revision capped
-// the incoming context-takeover sliding dict at the outgoing window size --
-// the process-wide *outgoing* compressor's window (from
-// [SetDeflateBackend]) -- even though gows negotiates no bound at all on
-// what window the *peer* actually compresses with (neither
-// negotiateDeflateWithHint nor Dialer.deflateOffer ever emits
-// client_max_window_bits/server_max_window_bits to restrict the peer's
-// own compressor; see [deflateState]'s doc). A fully RFC-7692-compliant
-// peer using the full 32KB default window can legitimately emit a
-// cross-message back-reference the wrongly truncated dict can no longer
-// resolve, corrupting decode ("flate: corrupt input") for an innocent,
-// conformant peer.
+// TestContextTakeoverIncomingDictNotBoundToOutgoingWindowBits pins the
+// incoming context-takeover sliding dict to the window negotiated for
+// the peer's direction (the RFC 7692 default of 32KB when none was),
+// never to the process-wide outgoing window from [SetDeflateBackend]:
+// a conformant peer compressing with the full default window can emit a
+// cross-message back-reference that a dict truncated to a smaller
+// outgoing window cannot resolve ("flate: corrupt input").
 //
 // This is deliberately reproduced with a real, independent
 // compress/flate.Writer standing in for "the peer" -- not gows's own

@@ -39,7 +39,7 @@ type Config struct {
 	GOOS     string
 	GOARCH   string
 	// TargetGoRoot selects the compiler that produces the target bundle. An
-	// empty value preserves the historical runtime.GOROOT default.
+	// empty value selects the compiler's own root (runtime.GOROOT).
 	TargetGoRoot string
 	RunRuntime   bool
 	AllowDirty   bool

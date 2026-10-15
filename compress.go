@@ -630,8 +630,7 @@ func writeAndFlush(w DeflateWriter, sw *sliceWriter, p []byte) ([]byte, error) {
 // decompressed bytes, capped at 2^incomingWindowBits -- the ceiling
 // actually negotiated for the peer's direction, else the RFC 7692 default
 // 32KB; deliberately never c.deflate's outgoing window (see
-// [deflateState]'s doc for why conflating the two was a real, reviewer-
-// caught bug).
+// [deflateState]'s doc for why the two directions must stay apart).
 func (c *Conn) decompressMessage(compressed []byte) ([]byte, error) {
 	cfg := activeDeflate.Load()
 	r := cfg.readers.Get().(DeflateReader)

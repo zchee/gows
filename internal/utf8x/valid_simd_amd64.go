@@ -20,7 +20,7 @@ import "github.com/zchee/gows/internal/cpu"
 
 // simdThreshold is the smallest remaining payload for which the AVX2 kernel is
 // engaged; below it the scalar DFA (with its ASCII word fast path) is cheaper.
-// Placeholder pending benchstat calibration (see utf8-simd-calibration.md).
+// 32 is the smallest size at which the kernel can engage (m = len&^31 >= 32).
 const simdThreshold = 32
 
 // utf8ValidAVX2 reports whether the n bytes at p contain no structural UTF-8

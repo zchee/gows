@@ -41,8 +41,9 @@ func closeConnOnCleanup(t *testing.T, conn net.Conn) {
 // --- RFC 7692 §7.2.1/§7.2.2 framing helpers, reimplemented locally --------
 //
 // flatekp is a separate module from gows and cannot reach gows's
-// unexported compress.go helpers (compressPayload, decompressMessage,
-// deflateFlushTail, deflateReadTail), so this test reproduces the exact
+// unexported compress.go helpers (compressPayloadWithConfig,
+// decompressMessage, deflateFlushTail, deflateReadTail), so this test
+// reproduces the exact
 // framing directly against the [gows.DeflateWriter]/[gows.DeflateReader]
 // interfaces: Flush, strip the trailing 4-byte sync-flush marker on the
 // way out; re-append it (plus the 5-byte final-empty-block trailer) on

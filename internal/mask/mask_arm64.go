@@ -25,8 +25,7 @@ import "github.com/zchee/gows/internal/cpu"
 // The generic<->NEON crossover sits between 24 B and 32 B: at 24 B the word loop
 // wins (generic 8.2 vs NEON 5.8 GB/s) but at 32 B NEON overtakes it (7.5 vs
 // 6.4 GB/s, 1.18x) and the margin widens (48 B 1.05x, 64 B 1.52x, 128 B 1.9x).
-// 32 is the smallest measured size where NEON wins, lowered from the previous
-// placeholder of 64.
+// 32 is the smallest measured size where NEON wins.
 const thresholdSIMD = 32
 
 // maskNEON masks b (n bytes) with key using 64-byte EOR blocks over 128-bit V
