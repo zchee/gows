@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -62,7 +63,7 @@ func EvaluateAARunReceipts(root string, store artifact.Store, repository Reposit
 		return AAVerdict{}, err
 	}
 	if current != repository {
-		return AAVerdict{}, fmt.Errorf("evidence: A/A preflight repository identity does not match the clean current source")
+		return AAVerdict{}, errors.New("evidence: A/A preflight repository identity does not match the clean current source")
 	}
 	wantStore := filepath.Join(root, filepath.FromSlash(ArtifactStorePath))
 	gotStore, err := filepath.Abs(store.Root())

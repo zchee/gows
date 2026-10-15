@@ -1,6 +1,7 @@
 package support
 
 import (
+	"errors"
 	"fmt"
 	"math"
 	"time"
@@ -93,7 +94,7 @@ func (r LoadgenResult) Validate() error {
 			return fmt.Errorf("support: open_loop requested offered rate = %d, want in [1,%d]", r.RequestedOfferedMessagesPerSecond, MaxOpenLoopRate)
 		}
 		if r.SchedulerLatenessLimitNanoseconds <= 0 {
-			return fmt.Errorf("support: open_loop requires a positive scheduler lateness limit")
+			return errors.New("support: open_loop requires a positive scheduler lateness limit")
 		}
 	} else if r.RequestedOfferedMessagesPerSecond != 0 || r.SchedulerLatenessLimitNanoseconds != 0 ||
 		r.SchedulerMaxLatenessNanoseconds != 0 || r.SchedulerLateMessages != 0 || r.PostWindowMessages != 0 {
@@ -103,7 +104,7 @@ func (r LoadgenResult) Validate() error {
 		return fmt.Errorf("support: invalid load shape connections=%d payload=%d inflight=%d duration=%d", r.Connections, r.PayloadBytes, r.Inflight, r.DurationNanoseconds)
 	}
 	if r.PayloadSeed == 0 {
-		return fmt.Errorf("support: payload_seed must be nonzero")
+		return errors.New("support: payload_seed must be nonzero")
 	}
 	if r.Inflight > MaxInflightBytes/r.PayloadBytes {
 		return fmt.Errorf("support: inflight*payload exceeds %d", MaxInflightBytes)
@@ -155,7 +156,7 @@ func (r LoadgenResult) Validate() error {
 			return fmt.Errorf("support: open_loop offered_messages = %d, want exact schedule count %d", r.OfferedMessages, expected)
 		}
 		if r.SchedulerLateMessages == 0 && r.SchedulerMaxLatenessNanoseconds > r.SchedulerLatenessLimitNanoseconds {
-			return fmt.Errorf("support: scheduler max lateness exceeds its limit without rejected late messages")
+			return errors.New("support: scheduler max lateness exceeds its limit without rejected late messages")
 		}
 	}
 	if r.Latency.Raw.Seen != r.AchievedMessages || r.Latency.Corrected.Seen != r.AchievedMessages {
@@ -175,13 +176,13 @@ func (r LoadgenResult) Validate() error {
 		return fmt.Errorf("support: corrected latency: %w", err)
 	}
 	if corrected.P50.Nanoseconds() != r.P50Nanoseconds || corrected.P90.Nanoseconds() != r.P90Nanoseconds || corrected.P99.Nanoseconds() != r.P99Nanoseconds || corrected.P999.Nanoseconds() != r.P999Nanoseconds {
-		return fmt.Errorf("support: latency percentile summary disagrees with corrected histogram")
+		return errors.New("support: latency percentile summary disagrees with corrected histogram")
 	}
 	durationSeconds := float64(r.DurationNanoseconds) / 1e9
 	if !sameFiniteFloat(r.OfferedMessagesPerSecond, float64(r.OfferedMessages)/durationSeconds) ||
 		!sameFiniteFloat(r.ThroughputMessagesPerSecond, float64(r.AchievedMessages)/durationSeconds) ||
 		!sameFiniteFloat(r.RejectedMessagesPerSecond, float64(r.RejectedMessages)/durationSeconds) {
-		return fmt.Errorf("support: throughput rate fields disagree with counts and duration")
+		return errors.New("support: throughput rate fields disagree with counts and duration")
 	}
 	if math.IsNaN(r.LatencyObservationNanoseconds) || math.IsInf(r.LatencyObservationNanoseconds, 0) || r.LatencyObservationNanoseconds <= 0 {
 		return fmt.Errorf("support: invalid latency observation overhead %g", r.LatencyObservationNanoseconds)
@@ -199,14 +200,14 @@ func (r LoadgenResult) Validate() error {
 		return err
 	}
 	if r.ClientCPUSeconds != r.ClientUsage.CPUSeconds || r.ClientMaxRSSBytes != r.ClientUsage.MaxRSSBytes || r.ClientMaxRSSAvailable != r.ClientUsage.Available {
-		return fmt.Errorf("support: compatibility resource fields disagree with client_usage")
+		return errors.New("support: compatibility resource fields disagree with client_usage")
 	}
 	return nil
 }
 
 func validateHistogramCounts(counts HistogramCounts) error {
 	if counts.Seen < 0 || counts.Recorded < 0 || counts.Dropped < 0 || counts.Overflow < 0 {
-		return fmt.Errorf("negative histogram count")
+		return errors.New("negative histogram count")
 	}
 	if counts.Seen != counts.Recorded+counts.Dropped {
 		return fmt.Errorf("seen %d != recorded %d + dropped %d", counts.Seen, counts.Recorded, counts.Dropped)
@@ -252,14 +253,14 @@ func OpenLoopOfferedMessages(duration time.Duration, rate int) (int64, error) {
 	seconds := int64(duration / time.Second)
 	rate64 := int64(rate)
 	if seconds > math.MaxInt64/rate64 {
-		return 0, fmt.Errorf("support: open-loop schedule count overflows int64")
+		return 0, errors.New("support: open-loop schedule count overflows int64")
 	}
 	total := seconds * rate64
 	remainder := int64(duration % time.Second)
 	product := remainder * rate64
 	extra := (product + int64(time.Second) - 1) / int64(time.Second)
 	if total > math.MaxInt64-extra {
-		return 0, fmt.Errorf("support: open-loop schedule count overflows int64")
+		return 0, errors.New("support: open-loop schedule count overflows int64")
 	}
 	return total + extra, nil
 }

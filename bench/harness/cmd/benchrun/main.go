@@ -137,7 +137,7 @@ func run() (resultErr error) {
 		return err
 	}
 	if dirty && pol.Series.RunKind != policy.RunKindDiagnostic {
-		return fmt.Errorf("final evidence requires a clean worktree; git status is dirty")
+		return errors.New("final evidence requires a clean worktree; git status is dirty")
 	}
 	goExperiment := pol.Series.GoExperiment
 	toolchainEnvironment := canonicalToolchainEnvironment(goExperiment)
@@ -834,7 +834,7 @@ func waitTCP(ctx context.Context, addr string, timeout time.Duration) error {
 		}
 	}
 	if lastErr == nil {
-		lastErr = fmt.Errorf("no successful dial")
+		lastErr = errors.New("no successful dial")
 	}
 	return fmt.Errorf("timed out after %s: %w", timeout, lastErr)
 }
@@ -1182,13 +1182,13 @@ func captureContinuousEnv(baseline EnvSnapshot) EnvSnapshot {
 
 func validateEnvironment(start, end EnvSnapshot, maxLoad1 float64) error {
 	if start.BootIdentity == "" || end.BootIdentity == "" || start.Uptime == "" || end.Uptime == "" {
-		return fmt.Errorf("host guard: boot identity or uptime is unavailable")
+		return errors.New("host guard: boot identity or uptime is unavailable")
 	}
 	if start.BootIdentity != end.BootIdentity {
-		return fmt.Errorf("host guard: boot identity changed during run")
+		return errors.New("host guard: boot identity changed during run")
 	}
 	if start.LogicalCPUs <= 0 || start.LogicalCPUs != end.LogicalCPUs || start.MemoryBytes == 0 || start.MemoryBytes != end.MemoryBytes {
-		return fmt.Errorf("host guard: CPU/memory topology changed or is unavailable")
+		return errors.New("host guard: CPU/memory topology changed or is unavailable")
 	}
 	// loadavg is gated before any benchmark child starts. The benchmark's own
 	// CPU demand remains in the exponentially decaying load average after a
@@ -1204,7 +1204,7 @@ func validateEnvironment(start, end EnvSnapshot, maxLoad1 float64) error {
 		return fmt.Errorf("host guard: power source unavailable or changed from %q to %q", startPower, endPower)
 	}
 	if !thermalClean(start.PMSetThermal) || !thermalClean(end.PMSetThermal) {
-		return fmt.Errorf("host guard: thermal or performance warning recorded")
+		return errors.New("host guard: thermal or performance warning recorded")
 	}
 	return nil
 }

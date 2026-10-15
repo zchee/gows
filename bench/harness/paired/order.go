@@ -1,6 +1,9 @@
 package paired
 
-import "fmt"
+import (
+	"errors"
+	"fmt"
+)
 
 // OrderPattern identifies which side of a paired comparison ran first.
 type OrderPattern string
@@ -24,10 +27,10 @@ type BlockOrder struct {
 // is balanced while retaining deterministic seed-controlled order.
 func BalancedBlocks(candidate, comparator string, blocks int, seed uint64) ([]BlockOrder, error) {
 	if candidate == "" || comparator == "" {
-		return nil, fmt.Errorf("paired: candidate and comparator are required")
+		return nil, errors.New("paired: candidate and comparator are required")
 	}
 	if candidate == comparator {
-		return nil, fmt.Errorf("paired: candidate and comparator labels must differ")
+		return nil, errors.New("paired: candidate and comparator labels must differ")
 	}
 	if blocks <= 0 || blocks%2 != 0 {
 		return nil, fmt.Errorf("paired: balanced AB/BA blocks require a positive even count, got %d", blocks)

@@ -19,6 +19,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"os"
@@ -161,7 +162,7 @@ func main() {
 	}
 	cases, ok := report[p.Agent]
 	if len(report) != 1 || !ok || len(cases) != 517 {
-		fatal(fmt.Errorf("report agent/count mismatch"))
+		fatal(errors.New("report agent/count mismatch"))
 	}
 	sum := sha256.Sum256(b)
 	p.Version = 1
@@ -189,7 +190,7 @@ func main() {
 		if receipt.RunID != p.RunID || receipt.Direction != p.Direction || receipt.Agent != p.Agent || receipt.Command != p.ApplicationCommand || receipt.PID <= 0 ||
 			(p.Direction == "client" && (receipt.Termination != "natural" || receipt.ExitStatus != 0)) ||
 			(p.Direction == "server" && (receipt.Termination != "owned-cleanup" || receipt.ExitStatus != 143)) {
-			fatal(fmt.Errorf("application receipt mismatch"))
+			fatal(errors.New("application receipt mismatch"))
 		}
 		rsum := sha256.Sum256(receiptData)
 		p.ApplicationReceipt = receiptPath

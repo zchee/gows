@@ -105,9 +105,9 @@ func (r Receipt) Validate() error {
 	case r.Kind != ReceiptKind:
 		return fmt.Errorf("evidence: receipt kind = %q, want %q", r.Kind, ReceiptKind)
 	case r.Evaluator != EvaluatorCommand:
-		return fmt.Errorf("evidence: evaluator command mismatch")
+		return errors.New("evidence: evaluator command mismatch")
 	case r.Contract != Contract:
-		return fmt.Errorf("evidence: evaluator contract mismatch")
+		return errors.New("evidence: evaluator contract mismatch")
 	case r.ArtifactStore != ArtifactStorePath:
 		return fmt.Errorf("evidence: artifact_store = %q, want %q", r.ArtifactStore, ArtifactStorePath)
 	case r.VerdictFile != VerdictFile:

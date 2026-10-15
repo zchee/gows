@@ -28,7 +28,7 @@ type DirectoryReceipt struct {
 // temporary files, missing required files, and empty bundles fail closed.
 func SealDirectory(store Store, dir, kind string, required []string) (DirectoryReceipt, Ref, error) {
 	if kind == "" || strings.TrimSpace(kind) != kind || strings.ContainsAny(kind, "\r\n\t") {
-		return DirectoryReceipt{}, Ref{}, fmt.Errorf("artifact: valid directory receipt kind is required")
+		return DirectoryReceipt{}, Ref{}, errors.New("artifact: valid directory receipt kind is required")
 	}
 	if _, err := os.Stat(filepath.Join(dir, "INVALIDATED.json")); err == nil {
 		return DirectoryReceipt{}, Ref{}, fmt.Errorf("artifact: refusing invalidated bundle %s", dir)
@@ -111,7 +111,7 @@ func (receipt DirectoryReceipt) Validate() error {
 		return fmt.Errorf("artifact: invalid directory receipt kind %q", receipt.Kind)
 	}
 	if len(receipt.Files) == 0 {
-		return fmt.Errorf("artifact: directory receipt has no files")
+		return errors.New("artifact: directory receipt has no files")
 	}
 	for name, ref := range receipt.Files {
 		if err := validateArtifactName(name); err != nil {

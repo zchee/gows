@@ -23,6 +23,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"syscall"
 	"testing"
@@ -61,7 +62,7 @@ func TestFeatureRunServerLaunchReceiptAndCleanup(t *testing.T) {
 		t.Fatal(err)
 	}
 	lines := strings.Fields(string(audit))
-	if len(lines) != 1 || lines[0] != fmt.Sprint(pid) {
+	if len(lines) != 1 || lines[0] != strconv.Itoa(pid) {
 		t.Fatalf("owned kill audit=%q, want exactly one kill for %d", audit, pid)
 	}
 }

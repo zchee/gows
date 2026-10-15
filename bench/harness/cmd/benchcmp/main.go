@@ -183,7 +183,7 @@ const stockControllerMarker = "GOWS_BENCHCMP_STOCK_CONTROLLER=1"
 func delegateToStockController() (delegated bool, code int, resultErr error) {
 	info, ok := debug.ReadBuildInfo()
 	if !ok {
-		return true, exitUsage, fmt.Errorf("build info is unavailable")
+		return true, exitUsage, errors.New("build info is unavailable")
 	}
 	settings := make(map[string]string, len(info.Settings))
 	for _, setting := range info.Settings {
@@ -278,7 +278,7 @@ func validateControlledController(goVersion string, settings map[string]string, 
 	}
 	if runtime.GOARCH == "amd64" && (settings["GOAMD64"] != "v1" || settings["GOARM64"] != "") ||
 		runtime.GOARCH == "arm64" && (settings["GOARM64"] != "v8.0" || settings["GOAMD64"] != "") {
-		return fmt.Errorf("controlled evaluator architecture baseline is invalid")
+		return errors.New("controlled evaluator architecture baseline is invalid")
 	}
 	wantEnvironment := map[string]string{
 		"GOENV": "off", "GOTOOLCHAIN": "local", "GOEXPERIMENT": "", "GOFLAGS": "-mod=mod",

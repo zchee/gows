@@ -9,6 +9,7 @@ package policy
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"math"
 	"os"
@@ -317,7 +318,7 @@ func (p *Policy) Validate() error {
 	case p.SchemaVersion != PolicySchemaVersion:
 		return fmt.Errorf("policy: schema_version = %d, want %d", p.SchemaVersion, PolicySchemaVersion)
 	case p.Series.ID == "":
-		return fmt.Errorf("policy: series.id is required")
+		return errors.New("policy: series.id is required")
 	case !validRunKind(p.Series.RunKind):
 		return fmt.Errorf("policy: unknown series.run_kind %q", p.Series.RunKind)
 	case !validEvidenceClass(p.Series.EvidenceClass):
@@ -327,9 +328,9 @@ func (p *Policy) Validate() error {
 	case p.Series.Toolchain != ToolchainStock && p.Series.Toolchain != ToolchainCustom:
 		return fmt.Errorf("policy: unknown series.toolchain %q", p.Series.Toolchain)
 	case p.Series.Toolchain == ToolchainStock && p.Series.GoExperiment != "":
-		return fmt.Errorf("policy: stock toolchain series must not set series.go_experiment")
+		return errors.New("policy: stock toolchain series must not set series.go_experiment")
 	case p.Series.Toolchain == ToolchainCustom && p.Series.GoExperiment == "":
-		return fmt.Errorf("policy: custom toolchain series requires series.go_experiment")
+		return errors.New("policy: custom toolchain series requires series.go_experiment")
 	case p.Series.GoExperiment != "" && !validGoExperiment(p.Series.GoExperiment):
 		return fmt.Errorf("policy: invalid series.go_experiment %q", p.Series.GoExperiment)
 	case !validAdapterClass(p.Series.AdapterClass):
@@ -339,25 +340,25 @@ func (p *Policy) Validate() error {
 	case !validClient(p.Series.Client):
 		return fmt.Errorf("policy: unknown series.client %q", p.Series.Client)
 	case p.Series.EvidenceClass == EvidenceClassClaim && p.Series.HostMode != HostModeSeparate:
-		return fmt.Errorf("policy: claim evidence requires separate_host mode")
+		return errors.New("policy: claim evidence requires separate_host mode")
 	case p.Series.EvidenceClass == EvidenceClassClaim && p.Series.Toolchain != ToolchainStock:
-		return fmt.Errorf("policy: claim evidence requires the stock toolchain series")
+		return errors.New("policy: claim evidence requires the stock toolchain series")
 	case p.Series.EvidenceClass == EvidenceClassClaim && p.Series.ValidationProfile != ValidationStrict:
-		return fmt.Errorf("policy: claim evidence requires strict_on validation")
+		return errors.New("policy: claim evidence requires strict_on validation")
 	case p.Series.RunKind == RunKindAA && (p.Series.EvidenceClass != EvidenceClassSelfValidation || p.Series.HostMode != HostModeSame || p.Series.AdapterClass != AdapterClassAA):
-		return fmt.Errorf("policy: aa runs require self_validation, same_host, and aa adapter class")
+		return errors.New("policy: aa runs require self_validation, same_host, and aa adapter class")
 	case p.Series.RunKind == RunKindBaseline &&
 		(p.Series.EvidenceClass != EvidenceClassBaseline || p.Series.HostMode != HostModeSame) &&
 		(p.Series.EvidenceClass != EvidenceClassClaim || p.Series.HostMode != HostModeSeparate):
-		return fmt.Errorf("policy: baseline runs require baseline/same_host or claim/separate_host identity")
+		return errors.New("policy: baseline runs require baseline/same_host or claim/separate_host identity")
 	case p.Series.RunKind == RunKindDiagnostic && p.Series.EvidenceClass != EvidenceClassDiagnostic:
-		return fmt.Errorf("policy: diagnostic runs require diagnostic evidence")
+		return errors.New("policy: diagnostic runs require diagnostic evidence")
 	case p.Series.ValidationProfile == ValidationUnsafe && (p.Series.RunKind != RunKindDiagnostic || p.Series.EvidenceClass != EvidenceClassDiagnostic):
-		return fmt.Errorf("policy: validation_off is diagnostic-only")
+		return errors.New("policy: validation_off is diagnostic-only")
 	case p.Candidate == "":
-		return fmt.Errorf("policy: candidate is required")
+		return errors.New("policy: candidate is required")
 	case p.Comparator == "":
-		return fmt.Errorf("policy: comparator is required")
+		return errors.New("policy: comparator is required")
 	case p.Candidate == p.Comparator:
 		return fmt.Errorf("policy: candidate and comparator must differ (both %q)", p.Candidate)
 	case p.Bootstrap.Replicates <= 0:
@@ -367,7 +368,7 @@ func (p *Policy) Validate() error {
 	case p.Bootstrap.NullIterations < 1_000:
 		return fmt.Errorf("policy: bootstrap.null_iterations must be >= 1000, got %d", p.Bootstrap.NullIterations)
 	case len(p.Scenarios) == 0:
-		return fmt.Errorf("policy: at least one scenario is required")
+		return errors.New("policy: at least one scenario is required")
 	case p.Guard.MaxLoad1 <= 0:
 		return fmt.Errorf("policy: guard.max_load1 must be > 0, got %g", p.Guard.MaxLoad1)
 	case p.Guard.MaxLoad1Drift <= 0:
@@ -375,13 +376,13 @@ func (p *Policy) Validate() error {
 	case p.Guard.MaxForeignCPUPercent <= 0 || p.Guard.MaxForeignCPUPercent > 100:
 		return fmt.Errorf("policy: guard.max_foreign_cpu_percent must be in (0,100], got %g", p.Guard.MaxForeignCPUPercent)
 	case !validPositiveThreshold(p.Thresholds.ThroughputLowerBound):
-		return fmt.Errorf("policy: thresholds.throughput_lower_bound must be finite and > 0")
+		return errors.New("policy: thresholds.throughput_lower_bound must be finite and > 0")
 	case !validPositiveThreshold(p.Thresholds.ThroughputGeomean):
-		return fmt.Errorf("policy: thresholds.throughput_geomean must be finite and > 0")
+		return errors.New("policy: thresholds.throughput_geomean must be finite and > 0")
 	case !validPositiveThreshold(p.Thresholds.P99UpperBound):
-		return fmt.Errorf("policy: thresholds.p99_upper_bound must be finite and > 0")
+		return errors.New("policy: thresholds.p99_upper_bound must be finite and > 0")
 	case !validPositiveThreshold(p.Thresholds.P999CenterUpperBound):
-		return fmt.Errorf("policy: thresholds.p999_center_upper_bound must be finite and > 0")
+		return errors.New("policy: thresholds.p999_center_upper_bound must be finite and > 0")
 	}
 	for field, value := range map[string]string{"series.id": p.Series.ID, "candidate": p.Candidate, "comparator": p.Comparator} {
 		if !validArtifactID(value) {
@@ -457,7 +458,7 @@ func (p *Policy) Validate() error {
 		}
 	}
 	if primaries == 0 {
-		return fmt.Errorf("policy: at least one scenario must be primary")
+		return errors.New("policy: at least one scenario must be primary")
 	}
 
 	for name, ov := range p.LibraryOverrides {
@@ -471,7 +472,7 @@ func (p *Policy) Validate() error {
 			return fmt.Errorf("policy: library_overrides %q lib %q is not a path-safe identifier", name, ov.Lib)
 		}
 		if p.Series.RunKind != RunKindDiagnostic && (len(ov.BuildEnv) != 0 || len(ov.ServerArgs) != 0) {
-			return fmt.Errorf("policy: final aa/baseline evidence forbids build_env and server_args overrides")
+			return errors.New("policy: final aa/baseline evidence forbids build_env and server_args overrides")
 		}
 		seenEnv := make(map[string]struct{}, len(ov.BuildEnv))
 		for _, env := range ov.BuildEnv {
@@ -498,11 +499,11 @@ func (p *Policy) Validate() error {
 		candidate := p.Resolve(p.Candidate)
 		comparator := p.Resolve(p.Comparator)
 		if candidate.Lib != comparator.Lib || !slices.Equal(candidate.BuildEnv, comparator.BuildEnv) || !slices.Equal(candidate.ServerArgs, comparator.ServerArgs) {
-			return fmt.Errorf("policy: aa labels must resolve to the same server backend, build environment, and arguments")
+			return errors.New("policy: aa labels must resolve to the same server backend, build environment, and arguments")
 		}
 		ca, cb := p.Adapters[p.Candidate], p.Adapters[p.Comparator]
 		if ca.ID != cb.ID || !slices.Equal(ca.SourceFiles, cb.SourceFiles) {
-			return fmt.Errorf("policy: aa labels must use the same adapter identity")
+			return errors.New("policy: aa labels must use the same adapter identity")
 		}
 	}
 	return nil
@@ -601,7 +602,7 @@ func (g AAGates) validate() error {
 
 func (p *Policy) validateAdapters() error {
 	if len(p.Adapters) == 0 {
-		return fmt.Errorf("policy: adapters are required")
+		return errors.New("policy: adapters are required")
 	}
 	for _, name := range []string{p.Candidate, p.Comparator} {
 		adapter, ok := p.Adapters[name]

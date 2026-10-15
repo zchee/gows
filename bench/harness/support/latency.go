@@ -1,6 +1,7 @@
 package support
 
 import (
+	"errors"
 	"fmt"
 	"slices"
 	"time"
@@ -136,7 +137,7 @@ func exportHistogram(h *hdrhistogram.Histogram, counts HistogramCounts) Histogra
 // subsampling. Every recorded message retains its original histogram count.
 func MergeLatencySnapshots(snapshots []LatencySnapshot) (LatencySnapshot, error) {
 	if len(snapshots) == 0 {
-		return LatencySnapshot{}, fmt.Errorf("support: no latency snapshots to merge")
+		return LatencySnapshot{}, errors.New("support: no latency snapshots to merge")
 	}
 	raw, err := importHistogram(snapshots[0].Raw)
 	if err != nil {

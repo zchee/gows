@@ -1,6 +1,9 @@
 package support
 
-import "fmt"
+import (
+	"errors"
+	"fmt"
+)
 
 // Usage is normalized process resource usage. Available distinguishes a real
 // zero measurement from an unsupported or unavailable collector.
@@ -28,7 +31,7 @@ func SelfRusage() Usage {
 // encoded as plausible zeroes.
 func UsageDelta(before, after Usage) (Usage, error) {
 	if !before.Available || !after.Available {
-		return Usage{}, fmt.Errorf("support: rusage is unavailable before or after the measurement window")
+		return Usage{}, errors.New("support: rusage is unavailable before or after the measurement window")
 	}
 	if before.Source == "" || after.Source != before.Source {
 		return Usage{}, fmt.Errorf("support: rusage source changed from %q to %q", before.Source, after.Source)

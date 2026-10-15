@@ -58,8 +58,8 @@ func main() {
 
 func modeFromArgs(args []string) string {
 	for i, arg := range args {
-		if strings.HasPrefix(arg, "-mode=") {
-			return strings.TrimPrefix(arg, "-mode=")
+		if after, ok := strings.CutPrefix(arg, "-mode="); ok {
+			return after
 		}
 		if arg == "-mode" && i+1 < len(args) {
 			return args[i+1]

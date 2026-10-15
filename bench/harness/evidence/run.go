@@ -349,10 +349,10 @@ func validateEnvSnapshot(snapshot envSnapshot, requireUptime bool) error {
 	}
 	if snapshot.PMSetBattery == "" || snapshot.PMSetThermal == "" || snapshot.LogicalCPUs <= 0 || snapshot.MemoryBytes == 0 ||
 		snapshot.BootIdentity == "" || snapshot.CapturedAt == "" || snapshot.ObservationNanoseconds <= 0 {
-		return fmt.Errorf("host snapshot identity or observation overhead is incomplete")
+		return errors.New("host snapshot identity or observation overhead is incomplete")
 	}
 	if requireUptime && snapshot.Uptime == "" {
-		return fmt.Errorf("host snapshot uptime is unavailable")
+		return errors.New("host snapshot uptime is unavailable")
 	}
 	if _, err := time.Parse(time.RFC3339Nano, snapshot.CapturedAt); err != nil {
 		return fmt.Errorf("invalid captured_at: %w", err)
@@ -369,7 +369,7 @@ func validateRunEnvironment(start, end envSnapshot, guard policy.Guard) error {
 		return fmt.Errorf("power source unavailable or changed from %q to %q", startPower, endPower)
 	}
 	if !snapshotThermalClean(start.PMSetThermal) || !snapshotThermalClean(end.PMSetThermal) {
-		return fmt.Errorf("thermal or performance warning recorded")
+		return errors.New("thermal or performance warning recorded")
 	}
 	return nil
 }
@@ -413,7 +413,7 @@ func validateGuardLog(path string, baseline envSnapshot, guard policy.Guard) (re
 	for scanner.Scan() {
 		raw := bytes.TrimSpace(scanner.Bytes())
 		if len(raw) == 0 {
-			return fmt.Errorf("empty snapshot line")
+			return errors.New("empty snapshot line")
 		}
 		var snapshot envSnapshot
 		if err := decodeStrict(raw, &snapshot); err != nil {
@@ -445,7 +445,7 @@ func validateGuardLog(path string, baseline envSnapshot, guard policy.Guard) (re
 		return err
 	}
 	if count == 0 {
-		return fmt.Errorf("guard log has no snapshots")
+		return errors.New("guard log has no snapshots")
 	}
 	return nil
 }
@@ -520,7 +520,7 @@ func validateToolchainIdentity(manifest runManifest) error {
 		return fmt.Errorf("stat go toolchain: %w", err)
 	}
 	if !info.Mode().IsRegular() || info.Size() != manifest.GoBinarySizeBytes || !support.ValidSHA256(manifest.GoBinarySHA256) {
-		return fmt.Errorf("go toolchain file identity mismatch")
+		return errors.New("go toolchain file identity mismatch")
 	}
 	raw, err := os.ReadFile(wantGoTool)
 	if err != nil {
@@ -528,7 +528,7 @@ func validateToolchainIdentity(manifest runManifest) error {
 	}
 	sum := sha256.Sum256(raw)
 	if hex.EncodeToString(sum[:]) != manifest.GoBinarySHA256 {
-		return fmt.Errorf("go toolchain SHA-256 mismatch")
+		return errors.New("go toolchain SHA-256 mismatch")
 	}
 	return nil
 }
@@ -884,21 +884,21 @@ func validateMeasurementConsistency(sample paired.Sample) error {
 	}
 	if r.P50Nanoseconds != percentiles.P50.Nanoseconds() || r.P90Nanoseconds != percentiles.P90.Nanoseconds() ||
 		r.P99Nanoseconds != percentiles.P99.Nanoseconds() || r.P999Nanoseconds != percentiles.P999.Nanoseconds() {
-		return fmt.Errorf("latency summary disagrees with corrected HDR histogram")
+		return errors.New("latency summary disagrees with corrected HDR histogram")
 	}
 	if r.Latency.CorrectionMethod != "scheduled-start-response-time" || r.Latency.Raw.LowestTrackableNanoseconds != r.Latency.Corrected.LowestTrackableNanoseconds ||
 		r.Latency.Raw.HighestTrackableNanoseconds != r.Latency.Corrected.HighestTrackableNanoseconds ||
 		r.Latency.Raw.SignificantFigures != r.Latency.Corrected.SignificantFigures {
-		return fmt.Errorf("latency observation contract is inconsistent")
+		return errors.New("latency observation contract is inconsistent")
 	}
 	durationSeconds := float64(r.DurationNanoseconds) / float64(time.Second)
 	if !nearlyEqual(r.OfferedMessagesPerSecond, float64(r.OfferedMessages)/durationSeconds) ||
 		!nearlyEqual(r.ThroughputMessagesPerSecond, float64(r.AchievedMessages)/durationSeconds) ||
 		!nearlyEqual(r.RejectedMessagesPerSecond, float64(r.RejectedMessages)/durationSeconds) {
-		return fmt.Errorf("reported rates disagree with counts and duration")
+		return errors.New("reported rates disagree with counts and duration")
 	}
 	if !finitePositive(r.ThroughputMessagesPerSecond) || !finitePositive(r.LatencyObservationNanoseconds) {
-		return fmt.Errorf("throughput or observation overhead is not finite and positive")
+		return errors.New("throughput or observation overhead is not finite and positive")
 	}
 	if err := r.ServerAllocations.Validate(r.Messages); err != nil {
 		return fmt.Errorf("server allocations: %w", err)
@@ -918,7 +918,7 @@ func validateMeasurementConsistency(sample paired.Sample) error {
 		!nearlyEqual(sample.ServerCPUSecondsPerMessage, r.ServerUsage.CPUSeconds/messages) ||
 		!nearlyEqual(sample.ServerRSSBytesPerConnection, float64(r.ServerUsage.MaxRSSBytes)/float64(r.Connections)) ||
 		!nearlyEqual(sample.ClientCPUSecondsPerMessage, r.ClientUsage.CPUSeconds/messages) {
-		return fmt.Errorf("sample-derived CPU/RSS fields disagree with raw usage")
+		return errors.New("sample-derived CPU/RSS fields disagree with raw usage")
 	}
 	return nil
 }

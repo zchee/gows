@@ -43,7 +43,7 @@ type Store struct {
 
 func NewStore(root string) (Store, error) {
 	if root == "" {
-		return Store{}, fmt.Errorf("artifact: store root is required")
+		return Store{}, errors.New("artifact: store root is required")
 	}
 	absolute, err := filepath.Abs(root)
 	if err != nil {
@@ -291,7 +291,7 @@ func (ref Ref) Validate() error {
 		return fmt.Errorf("artifact: negative size %d", ref.SizeBytes)
 	}
 	if ref.MediaType == "" {
-		return fmt.Errorf("artifact: media_type is required")
+		return errors.New("artifact: media_type is required")
 	}
 	return nil
 }

@@ -1,6 +1,7 @@
 package support
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -75,7 +76,7 @@ func formatBootIdentity(source, raw string) (string, error) {
 	source = strings.TrimSpace(source)
 	value := strings.TrimSpace(raw)
 	if source == "" || value == "" {
-		return "", fmt.Errorf("boot identity source or value is empty")
+		return "", errors.New("boot identity source or value is empty")
 	}
 	if strings.ContainsAny(source, "=\r\n\x00") {
 		return "", fmt.Errorf("boot identity source %q contains a delimiter or control byte", source)

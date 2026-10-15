@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"math"
 	"os"
@@ -284,16 +285,16 @@ func formatProcessUsage(process processUsage) string {
 
 func validateContinuousEnvironment(baseline, current EnvSnapshot, maxLoad1Drift float64) error {
 	if baseline.BootIdentity == "" || current.BootIdentity != baseline.BootIdentity {
-		return fmt.Errorf("host guard: boot identity changed or became unavailable")
+		return errors.New("host guard: boot identity changed or became unavailable")
 	}
 	if current.LogicalCPUs != baseline.LogicalCPUs || current.MemoryBytes != baseline.MemoryBytes {
-		return fmt.Errorf("host guard: CPU/memory topology changed")
+		return errors.New("host guard: CPU/memory topology changed")
 	}
 	if source := powerSource(current.PMSetBattery); source == "" || source != powerSource(baseline.PMSetBattery) {
-		return fmt.Errorf("host guard: power source changed or became unavailable")
+		return errors.New("host guard: power source changed or became unavailable")
 	}
 	if !thermalClean(current.PMSetThermal) {
-		return fmt.Errorf("host guard: thermal or performance warning recorded")
+		return errors.New("host guard: thermal or performance warning recorded")
 	}
 	if maxLoad1Drift <= 0 || current.Load1-baseline.Load1 > maxLoad1Drift {
 		return fmt.Errorf("host guard: load1 drift %.2f exceeds %.2f (baseline %.2f, current %.2f)", current.Load1-baseline.Load1, maxLoad1Drift, baseline.Load1, current.Load1)

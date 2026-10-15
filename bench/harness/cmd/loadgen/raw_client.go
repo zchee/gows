@@ -7,6 +7,7 @@ import (
 	"crypto/sha1"
 	"encoding/base64"
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"io"
 	"math"
@@ -90,7 +91,7 @@ func dialRawClient(ctx context.Context, rawURL string, kind messageKind, payload
 	if !strings.EqualFold(resp.Header.Get("Upgrade"), "websocket") ||
 		!headerContainsToken(resp.Header.Values("Connection"), "upgrade") ||
 		resp.Header.Get("Sec-WebSocket-Accept") != wantAccept {
-		return nil, fmt.Errorf("raw client: invalid upgrade response headers")
+		return nil, errors.New("raw client: invalid upgrade response headers")
 	}
 
 	var seed [32]byte

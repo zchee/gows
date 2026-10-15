@@ -157,7 +157,7 @@ func ValidateRepository(evidenceDir string, identity RepositoryIdentity, require
 		return RepositoryState{}, fmt.Errorf("evidence: current stock Go version = %q, want %q", currentVersion, identity.GoVersion)
 	}
 	if currentSum != identity.GoBinarySHA256 || currentSize != identity.GoBinarySizeBytes {
-		return RepositoryState{}, fmt.Errorf("evidence: current stock Go binary identity mismatch")
+		return RepositoryState{}, errors.New("evidence: current stock Go binary identity mismatch")
 	}
 	if runtime.GOOS != identity.GOOS || runtime.GOARCH != identity.GOARCH {
 		return RepositoryState{}, fmt.Errorf("evidence: evaluator host = %s/%s, want %s/%s", runtime.GOOS, runtime.GOARCH, identity.GOOS, identity.GOARCH)
@@ -281,7 +281,7 @@ func requireRealDirectoryPath(root, directory string) error {
 
 func normalizeRepositoryRoot(root string) (string, error) {
 	if root == "" {
-		return "", fmt.Errorf("evidence: repository root is required")
+		return "", errors.New("evidence: repository root is required")
 	}
 	absolute, err := filepath.Abs(root)
 	if err != nil {

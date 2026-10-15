@@ -1,6 +1,7 @@
 package artifact
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path"
@@ -102,7 +103,7 @@ func SealRun(store Store, runDir string) (RunReceipt, Ref, error) {
 		return RunReceipt{}, Ref{}, fmt.Errorf("artifact: parse run metadata: %w", err)
 	}
 	if err := meta.validate(); err != nil {
-		return RunReceipt{}, Ref{}, fmt.Errorf("artifact: run metadata identity is incomplete")
+		return RunReceipt{}, Ref{}, errors.New("artifact: run metadata identity is incomplete")
 	}
 
 	var names []string
@@ -177,7 +178,7 @@ func (receipt RunReceipt) Validate() error {
 		return fmt.Errorf("artifact: run receipt schema_version = %d, want %d", receipt.SchemaVersion, RunReceiptSchemaVersion)
 	}
 	if err := receipt.identityMeta().validate(); err != nil {
-		return fmt.Errorf("artifact: run receipt identity is incomplete")
+		return errors.New("artifact: run receipt identity is incomplete")
 	}
 	for _, required := range requiredRunFiles {
 		if _, ok := receipt.Files[required]; !ok {
@@ -189,7 +190,7 @@ func (receipt RunReceipt) Validate() error {
 			return fmt.Errorf("artifact: invalid run artifact name %q", name)
 		}
 		if name == "INVALIDATED.json" {
-			return fmt.Errorf("artifact: run receipt contains invalidation marker")
+			return errors.New("artifact: run receipt contains invalidation marker")
 		}
 		if err := ref.Validate(); err != nil {
 			return fmt.Errorf("artifact: %s: %w", name, err)
@@ -199,10 +200,10 @@ func (receipt RunReceipt) Validate() error {
 		}
 	}
 	if receipt.Files["policy.json"].SHA256 != receipt.PolicySHA256 {
-		return fmt.Errorf("artifact: policy receipt hash disagrees with policy identity")
+		return errors.New("artifact: policy receipt hash disagrees with policy identity")
 	}
 	if receipt.Files["echoserver"].SHA256 != receipt.EchoserverSHA256 || receipt.Files["loadgen"].SHA256 != receipt.LoadgenSHA256 {
-		return fmt.Errorf("artifact: binary receipt hashes disagree with binary identity")
+		return errors.New("artifact: binary receipt hashes disagree with binary identity")
 	}
 	return nil
 }
@@ -251,7 +252,7 @@ func ResolveRun(store Store, receiptRef Ref) (RunReceipt, map[string]string, err
 		return RunReceipt{}, nil, fmt.Errorf("artifact: parse resolved manifest identity: %w", err)
 	}
 	if !reflect.DeepEqual(meta, receipt.identityMeta()) {
-		return RunReceipt{}, nil, fmt.Errorf("artifact: run receipt identity disagrees with resolved manifest")
+		return RunReceipt{}, nil, errors.New("artifact: run receipt identity disagrees with resolved manifest")
 	}
 	return receipt, resolved, nil
 }
@@ -263,16 +264,16 @@ func (meta runMeta) validate() error {
 		!support.ValidSHA256(meta.EchoserverSHA256) || !support.ValidSHA256(meta.LoadgenSHA256) || !support.ValidSHA256(meta.PolicySHA256) ||
 		meta.RunKind == "" || meta.EvidenceClass == "" || meta.ToolchainSeries == "" ||
 		len(meta.AdapterSHA256) == 0 || len(meta.LibraryBinarySHA256) == 0 {
-		return fmt.Errorf("incomplete run identity")
+		return errors.New("incomplete run identity")
 	}
 	for name, digest := range meta.AdapterSHA256 {
 		if name == "" || !support.ValidSHA256(digest) {
-			return fmt.Errorf("invalid adapter identity")
+			return errors.New("invalid adapter identity")
 		}
 	}
 	for name, digest := range meta.LibraryBinarySHA256 {
 		if name == "" || !support.ValidSHA256(digest) {
-			return fmt.Errorf("invalid library binary identity")
+			return errors.New("invalid library binary identity")
 		}
 	}
 	return nil
@@ -297,7 +298,7 @@ func (receipt RunReceipt) identityMeta() runMeta {
 
 func validateArtifactName(name string) error {
 	if name == "" || name == "." || strings.Contains(name, `\`) || filepath.ToSlash(name) != name || path.Clean(name) != name || !filepath.IsLocal(filepath.FromSlash(name)) {
-		return fmt.Errorf("non-canonical artifact path")
+		return errors.New("non-canonical artifact path")
 	}
 	return nil
 }
