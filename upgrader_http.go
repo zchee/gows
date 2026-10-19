@@ -16,6 +16,7 @@ package gows
 
 import (
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 
@@ -106,6 +107,14 @@ func (u *Upgrader) UpgradeHTTP(w http.ResponseWriter, r *http.Request) (net.Conn
 		}
 	}
 
+	var responseHeaders http.Header
+	if u.ForwardResponseHeaders {
+		responseHeaders = w.Header().Clone()
+		if err := validateExtraHeaders(responseHeaders); err != nil {
+			return nil, Handshake{}, err
+		}
+	}
+
 	conn, brw, err := http.NewResponseController(w).Hijack()
 	if err != nil {
 		http.Error(w, "gows: hijack: "+err.Error(), http.StatusInternalServerError)
@@ -119,7 +128,15 @@ func (u *Upgrader) UpgradeHTTP(w http.ResponseWriter, r *http.Request) (net.Conn
 	}
 
 	resp := appendSwitchingProtocolsResponse(make([]byte, 0, 160+len(selected)), []byte(key), selected, deflateParams, deflateOK)
-	if _, werr := conn.Write(resp); werr != nil {
+	if len(responseHeaders) != 0 {
+		resp = appendExtraHeaders(resp[:len(resp)-2], responseHeaders)
+		resp = append(resp, '\r', '\n')
+	}
+	written, werr := conn.Write(resp)
+	if werr == nil && written != len(resp) {
+		werr = io.ErrShortWrite
+	}
+	if werr != nil {
 		conn.Close()
 		return nil, Handshake{}, werr
 	}
