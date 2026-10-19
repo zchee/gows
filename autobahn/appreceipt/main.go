@@ -22,25 +22,12 @@ import (
 	"flag"
 	"fmt"
 	"os"
+
+	"github.com/zchee/gows/internal/autobahnreport"
 )
 
-type receipt struct {
-	RunID                    string `json:"run_id"`
-	Direction                string `json:"direction"`
-	Agent                    string `json:"agent"`
-	Command                  string `json:"command"`
-	StartedUTC               string `json:"started_utc"`
-	EndedUTC                 string `json:"ended_utc"`
-	Termination              string `json:"termination"`
-	PID                      int    `json:"pid"`
-	ExitStatus               int    `json:"exit_status"`
-	Executable               string `json:"executable"`
-	ExecutableSHA256         string `json:"executable_sha256"`
-	ExpectedExecutableSHA256 string `json:"expected_executable_sha256"`
-}
-
 func main() {
-	var r receipt
+	var r autobahnreport.ApplicationReceipt
 	var output string
 	flag.StringVar(&r.RunID, "run-id", "", "run ID")
 	flag.StringVar(&r.Direction, "direction", "", "direction")

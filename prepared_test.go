@@ -134,6 +134,68 @@ func TestWritePreparedMessage(t *testing.T) {
 	}
 }
 
+// TestWritePreparedMessageFlushesBufferedBatch checks that a prepared frame
+// keeps its place behind messages already queued with WriteMessageBuffered:
+// the batch must reach the wire before the prepared frame, as it does before
+// any other directly written frame.
+func TestWritePreparedMessageFlushesBufferedBatch(t *testing.T) {
+	buffered := []byte("buffered first")
+	tests := map[string]struct {
+		prepared    []byte
+		compression bool
+		wantRSV1    bool
+	}{
+		"success: plain prepared frame": {
+			prepared: []byte("prepared second"),
+		},
+		"success: compressed prepared frame": {
+			prepared:    []byte(strings.Repeat("prepared second ", 40)),
+			compression: true,
+			wantRSV1:    true,
+		},
+	}
+
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			pm, err := NewPreparedMessage(OpcodeText, tt.prepared)
+			if err != nil {
+				t.Fatalf("NewPreparedMessage: %v", err)
+			}
+			sc := &scriptConn{}
+			c := NewServerConn(sc, WithCompression(tt.compression))
+			if err := c.WriteMessageBuffered(OpcodeText, buffered); err != nil {
+				t.Fatalf("WriteMessageBuffered: %v", err)
+			}
+			if err := c.WritePreparedMessage(pm); err != nil {
+				t.Fatalf("WritePreparedMessage: %v", err)
+			}
+			if err := c.Flush(); err != nil {
+				t.Fatalf("Flush: %v", err)
+			}
+
+			frames := parseFrames(t, sc.out.Bytes())
+			if len(frames) != 2 {
+				t.Fatalf("wire carries %d frames, want 2", len(frames))
+			}
+			if frames[0].h.Rsv != 0 || !bytes.Equal(frames[0].payload, buffered) {
+				t.Fatalf("first frame = RSV %#x payload %q, want the buffered message %q", frames[0].h.Rsv, frames[0].payload, buffered)
+			}
+			second := frames[1].payload
+			if got := frames[1].h.Rsv == RSV1; got != tt.wantRSV1 {
+				t.Fatalf("second frame RSV1 set = %v, want %v", got, tt.wantRSV1)
+			}
+			if tt.wantRSV1 {
+				if second, err = c.decompressMessage(second); err != nil {
+					t.Fatalf("decompressMessage: %v", err)
+				}
+			}
+			if !bytes.Equal(second, tt.prepared) {
+				t.Fatalf("second frame payload = %q, want the prepared message %q", second, tt.prepared)
+			}
+		})
+	}
+}
+
 func TestWritePreparedMessageClientRoleRejected(t *testing.T) {
 	pm, err := NewPreparedMessage(OpcodeText, []byte("hi"))
 	if err != nil {

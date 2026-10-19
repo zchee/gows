@@ -73,17 +73,36 @@ func (e *FrameUsageError) Error() string { return "gows: frame API: " + e.Reason
 // and reason. An absent code is represented by CloseNoStatusReceived. The
 // returned reason is an owned string; malformed bodies return a ProtocolError.
 func ParseClose(payload []byte) (CloseError, error) {
-	code, reason, err := ParseCloseBody(payload)
-	if err != nil {
-		return CloseError{}, &ProtocolError{Code: CloseProtocolError, Reason: "malformed close frame body"}
-	}
-	if code != CloseNoStatusReceived && !ValidCloseCode(code) || len(payload) != 0 && code == CloseNoStatusReceived {
-		return CloseError{}, &ProtocolError{Code: CloseProtocolError, Reason: "invalid close code"}
-	}
-	if !utf8x.Valid(reason) {
-		return CloseError{}, &ProtocolError{Code: CloseInvalidFramePayloadData, Reason: "invalid UTF-8 in close reason"}
+	code, reason, perr := validateCloseBody(payload, true)
+	if perr != nil {
+		return CloseError{}, perr
 	}
 	return CloseError{Code: code, Reason: string(reason)}, nil
+}
+
+// validateCloseBody parses a received Close frame's application data and
+// applies RFC 6455's rules to it. An empty body means no status code and
+// yields CloseNoStatusReceived. Otherwise the code must be one a peer may
+// send (§7.4): 1005 is reserved for the absence of a code, so an explicit
+// 1005 on the wire is a protocol error like any other reserved code. The
+// reason must be UTF-8 (§5.5.1) when checkUTF8 is set. Both the message and
+// the frame read paths validate through this; they differ only in what
+// they do with a violation.
+func validateCloseBody(payload []byte, checkUTF8 bool) (CloseCode, []byte, *ProtocolError) {
+	code, reason, err := ParseCloseBody(payload)
+	if err != nil {
+		return 0, nil, &ProtocolError{Code: CloseProtocolError, Reason: "malformed close frame body"}
+	}
+	if len(payload) == 0 {
+		return CloseNoStatusReceived, nil, nil
+	}
+	if !ValidCloseCode(code) {
+		return 0, nil, &ProtocolError{Code: CloseProtocolError, Reason: "invalid close code"}
+	}
+	if checkUTF8 && !utf8x.Valid(reason) {
+		return 0, nil, &ProtocolError{Code: CloseInvalidFramePayloadData, Reason: "invalid UTF-8 in close reason"}
+	}
+	return code, reason, nil
 }
 
 const (

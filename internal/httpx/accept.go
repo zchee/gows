@@ -18,7 +18,6 @@ import (
 	"crypto/rand"
 	"crypto/sha1"
 	"encoding/base64"
-	"errors"
 )
 
 const (
@@ -36,18 +35,13 @@ const (
 	acceptEncodedLen = 28
 )
 
-// ErrInvalidKeyLength indicates a Sec-WebSocket-Key value was not exactly
-// 24 bytes, the length mandated by RFC 6455 §4.1 for a base64-encoded
-// 16-byte nonce.
-var ErrInvalidKeyLength = errors.New("httpx: invalid Sec-WebSocket-Key length")
-
 // AppendAccept computes the Sec-WebSocket-Accept value for the given
 // Sec-WebSocket-Key client key and appends its base64 encoding to dst,
 // returning the extended buffer.
 //
 // AppendAccept assumes key is exactly 24 bytes, as validated by the
-// caller (see [Accept] for a validating alternative); it performs no
-// length check and never returns an error. Passing a key of any other
+// caller (the upgrade paths reject any other length with a 400); it
+// performs no length check and never returns an error. Passing a key of any other
 // length does not panic, but produces an accept value with no defined
 // meaning.
 //
@@ -67,18 +61,6 @@ func AppendAccept(dst, key []byte) []byte {
 	var enc [acceptEncodedLen]byte
 	base64.StdEncoding.Encode(enc[:], sum[:])
 	return append(dst, enc[:]...)
-}
-
-// Accept computes the Sec-WebSocket-Accept value for key, validating that
-// key is exactly 24 bytes as required by RFC 6455 §4.1, and returns it as
-// a newly allocated value. Callers on a hot path that have already
-// validated the key length elsewhere should call [AppendAccept] directly
-// to avoid this allocation.
-func Accept(key []byte) ([]byte, error) {
-	if len(key) != acceptKeyLen {
-		return nil, ErrInvalidKeyLength
-	}
-	return AppendAccept(nil, key), nil
 }
 
 // AppendKey generates a new random Sec-WebSocket-Key client handshake

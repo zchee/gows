@@ -24,8 +24,8 @@ import (
 	"github.com/go-json-experiment/json"
 	"github.com/gobwas/ws"
 	"github.com/gobwas/ws/wsutil"
-
 	"github.com/zchee/gows"
+
 	"github.com/zchee/gows/bench/harness/support"
 )
 
@@ -259,7 +259,7 @@ func run() error {
 		return err
 	}
 	if *payloadSeed == 0 {
-		return fmt.Errorf("loadgen: -seed must be nonzero")
+		return errors.New("loadgen: -seed must be nonzero")
 	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
@@ -475,13 +475,13 @@ func validateShape(arrival arrivalKind, connections, payload, inflight, rate int
 	case duration <= 0:
 		return fmt.Errorf("loadgen: -duration must be > 0, got %s", duration)
 	case arrival == arrivalClosedLoop && (inflight != 1 || rate != 0 || maxSchedulerLateness != 0):
-		return fmt.Errorf("loadgen: closed_loop requires inflight=1, rate=0, and max-scheduler-lateness=0")
+		return errors.New("loadgen: closed_loop requires inflight=1, rate=0, and max-scheduler-lateness=0")
 	case arrival == arrivalPipelined && (inflight < 2 || rate != 0 || maxSchedulerLateness != 0):
-		return fmt.Errorf("loadgen: pipelined requires inflight>=2, rate=0, and max-scheduler-lateness=0")
+		return errors.New("loadgen: pipelined requires inflight>=2, rate=0, and max-scheduler-lateness=0")
 	case arrival == arrivalOpenLoop && (inflight != 1 || rate <= 0 || rate > support.MaxOpenLoopRate):
 		return fmt.Errorf("loadgen: open_loop requires inflight=1 and rate in [1,%d]", support.MaxOpenLoopRate)
 	case arrival == arrivalOpenLoop && maxSchedulerLateness <= 0:
-		return fmt.Errorf("loadgen: open_loop requires max-scheduler-lateness > 0")
+		return errors.New("loadgen: open_loop requires max-scheduler-lateness > 0")
 	case arrival == arrivalOpenLoop && maxSchedulerLateness > time.Second/time.Duration(rate):
 		return fmt.Errorf("loadgen: max-scheduler-lateness %s exceeds one arrival interval", maxSchedulerLateness)
 	}
@@ -717,7 +717,7 @@ func offerArrival(queues []chan arrival, next int, offered arrival) (int, bool) 
 
 func measureOpenLoop(clients []wsClient, recorders []*support.LatencyRecorder, payloads [][]byte, start, end time.Time, rate int, maxSchedulerLateness time.Duration, counters *measurementCounters) error {
 	if !time.Now().Before(end) {
-		return fmt.Errorf("loadgen: open-loop measurement window expired before scheduler start")
+		return errors.New("loadgen: open-loop measurement window expired before scheduler start")
 	}
 	queues := make([]chan arrival, len(clients))
 	var wg sync.WaitGroup
@@ -766,19 +766,19 @@ type openLoopClock struct {
 
 func dispatchOpenLoop(queues []chan arrival, start, end time.Time, rate int, maxSchedulerLateness time.Duration, counters *measurementCounters, clock openLoopClock) error {
 	if len(queues) == 0 {
-		return fmt.Errorf("loadgen: open-loop scheduler requires at least one queue")
+		return errors.New("loadgen: open-loop scheduler requires at least one queue")
 	}
 	if counters == nil || clock.now == nil || clock.waitUntil == nil {
-		return fmt.Errorf("loadgen: open-loop scheduler is incompletely configured")
+		return errors.New("loadgen: open-loop scheduler is incompletely configured")
 	}
 	if !start.Before(end) {
-		return fmt.Errorf("loadgen: open-loop window start must precede end")
+		return errors.New("loadgen: open-loop window start must precede end")
 	}
 	if maxSchedulerLateness <= 0 || rate <= 0 || rate > support.MaxOpenLoopRate || maxSchedulerLateness > time.Second/time.Duration(rate) {
 		return fmt.Errorf("loadgen: invalid open-loop rate/lateness contract rate=%d max_lateness=%s", rate, maxSchedulerLateness)
 	}
 	if now := clock.now(); !now.Before(end) {
-		return fmt.Errorf("loadgen: open-loop measurement window expired before dispatch")
+		return errors.New("loadgen: open-loop measurement window expired before dispatch")
 	}
 	total, err := support.OpenLoopOfferedMessages(end.Sub(start), rate)
 	if err != nil {
@@ -845,7 +845,7 @@ func scheduledArrivalsThrough(start, now time.Time, rate int) (int64, error) {
 	}
 	elapsed := now.Sub(start)
 	if elapsed == time.Duration(1<<63-1) {
-		return 0, fmt.Errorf("loadgen: scheduler elapsed time overflows arrival count")
+		return 0, errors.New("loadgen: scheduler elapsed time overflows arrival count")
 	}
 	return support.OpenLoopOfferedMessages(elapsed+time.Nanosecond, rate)
 }

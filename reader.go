@@ -73,16 +73,17 @@ func (c *Conn) ReadMessage() (Opcode, []byte, error) {
 }
 
 // readMessage implements ReadMessage without the sticky-error short circuit,
-// so [Conn.Close] can reuse it to drain the connection.
-func (c *Conn) readMessage() (Opcode, []byte, error) {
+// so [Conn.Close] can reuse it to drain the connection. The drain discards
+// every message, so only the error is returned.
+func (c *Conn) readMessage() error {
 	// Defense in depth: never index the freed read buffer after teardown. The
 	// Close idempotency guard already prevents the known re-entry path; this
 	// makes readMessage itself safe to call in any torn-down state.
 	if c.tornDown.Load() {
 		if c.readErr != nil {
-			return 0, nil, c.readErr
+			return c.readErr
 		}
-		return 0, nil, net.ErrClosed
+		return net.ErrClosed
 	}
 
 	// If a prior NextReader stream is still open, this new read supersedes it:
@@ -91,11 +92,12 @@ func (c *Conn) readMessage() (Opcode, []byte, error) {
 	// msgReader is always nil, so this is a single predictable nil check.
 	if c.msgReader != nil {
 		if err := c.discardStreamRemainder(); err != nil {
-			return 0, nil, err
+			return err
 		}
 	}
 
-	return c.readMessageBody()
+	_, _, err := c.readMessageBody()
+	return err
 }
 
 // readMessageBody reads one complete data message, assuming the caller has
@@ -342,38 +344,19 @@ func (c *Conn) readFramePayload(h Header) error {
 	//
 	// Processing still runs over cap(rbuf)-sized sub-chunks regardless of how
 	// much a single Read returned, because a single very large (tens of KB+)
-	// mask.Mask/utf8v.Feed call measurably loses cache residency in the SIMD
-	// mask kernel (see bench/results/phase5-linux-amd64.md's 64KB kernel
-	// rows and its "64KB drops off ... consistent with leaving cache
-	// residency" discussion). A Read that already returns
-	// everything at once (e.g. a single-writer peer's writev'd frame, or the
-	// benchmark's loopConn) is processed identically to the old
-	// read-all-then-feed order, so hot-path throughput is unchanged; only the
-	// order of I/O and validation relative to a *chopped* arrival differs.
+	// mask.Mask/utf8v.Feed call loses cache residency in the SIMD mask kernel.
 	//
 	// I/O-error contract (mirrors fillOnce): a Read returning zero new bytes
 	// alongside a non-nil error propagates that error verbatim (a plain io.EOF,
 	// not io.ReadFull's io.ErrUnexpectedEOF upgrade), so a truncated stream
 	// surfaces identically here and on the buffered path.
 	//
-	// Known limitation, confirmed by strace on the echo benchmark harness: how
-	// many actual read(2) calls this needs is governed by *arrival pacing* on
-	// the wire, not by the size requested here. If a peer writes a frame's
-	// header and payload as two separate write(2) calls, a fast reader can
-	// re-enter Read before the second write's bytes have arrived, splitting the
-	// payload across more reads than a slower reader would "accidentally" batch
-	// by being late to ask -- gows measured 5.02 reads/msg for a 16KB frame
-	// against gws's 2.00 there, entirely attributable to this pacing effect,
-	// not to any artificial chunk cap on gows's side (there is none). A
-	// single-writer sender (e.g. this package's own writev'd WriteMessage
-	// output) does not trigger the pattern. MSG_WAITALL via a raw syscall
-	// (RawConn) was evaluated as a way to force full-remainder reads regardless
-	// of arrival pacing and rejected: on the non-blocking sockets Go's
-	// netpoller requires, MSG_WAITALL does not block in-kernel across multiple
-	// future arrivals -- it is an atomic single-attempt gate that returns
-	// EAGAIN immediately (discarding whatever partial bytes did arrive) if the
-	// full requested length is not already buffered, so it does not reduce the
-	// read count here and can add wasted round-trips instead.
+	// How many read(2) calls a frame takes depends on how the peer paced its
+	// writes, not on the size requested here: a peer that writes header and
+	// payload separately can split the payload across several reads. Forcing
+	// full reads with MSG_WAITALL does not help, because on the non-blocking
+	// sockets Go's netpoller uses it returns EAGAIN unless the whole length is
+	// already buffered.
 	chunkSize := cap(c.rbuf)
 	for len(dst) > 0 {
 		n, err := c.conn.Read(dst)
@@ -441,18 +424,12 @@ func (c *Conn) handleControl(h Header) error {
 func (c *Conn) handleClose(payload []byte) error {
 	c.closeRcvd.Store(true)
 
-	code, reason, err := ParseCloseBody(payload)
-	if err != nil {
-		return c.failClose(CloseProtocolError, "malformed close frame body")
+	code, reason, perr := validateCloseBody(payload, !c.skipUTF8)
+	if perr != nil {
+		return c.failClose(perr.Code, perr.Reason)
 	}
 
 	if code != CloseNoStatusReceived {
-		if !ValidCloseCode(code) {
-			return c.failClose(CloseProtocolError, "invalid close code")
-		}
-		if !c.skipUTF8 && !utf8x.Valid(reason) {
-			return c.failClose(CloseInvalidFramePayloadData, "invalid UTF-8 in close reason")
-		}
 		_ = c.sendClose(code, nil)
 	} else {
 		// The peer sent no status code; reply with an empty Close body
@@ -635,13 +612,14 @@ func (c *Conn) NextReader() (Opcode, io.Reader, error) {
 
 	c.utf8v.Reset()
 
-	op, h, err := c.readDataFrameHeader()
+	h, err := c.readDataFrameHeader()
 	if err != nil {
 		return 0, nil, err
 	}
+	op := h.Opcode
 
 	if h.Rsv == RSV1 {
-		decoded, err := c.reassembleCompressed(h, op)
+		decoded, err := c.reassembleCompressed(h)
 		if err != nil {
 			return 0, nil, err
 		}
@@ -669,23 +647,23 @@ func (c *Conn) NextReader() (Opcode, io.Reader, error) {
 // readDataFrameHeader reads frame headers, auto-handling control frames, until
 // the header that opens a data message (Text or Binary) is found. A
 // Continuation frame with no message in progress is a protocol error.
-func (c *Conn) readDataFrameHeader() (Opcode, Header, error) {
+func (c *Conn) readDataFrameHeader() (Header, error) {
 	for {
 		h, err := c.readHeaderWithPartialEOF(true)
 		if err != nil {
-			return 0, Header{}, err
+			return Header{}, err
 		}
 		if h.Opcode.IsControl() {
 			if err := c.handleControl(h); err != nil {
-				return 0, Header{}, err
+				return Header{}, err
 			}
 			continue
 		}
 		switch h.Opcode {
 		case OpcodeText, OpcodeBinary:
-			return h.Opcode, h, nil
+			return h, nil
 		case OpcodeContinuation:
-			return 0, Header{}, c.failClose(CloseProtocolError, "continuation frame with no message in progress")
+			return Header{}, c.failClose(CloseProtocolError, "continuation frame with no message in progress")
 		}
 	}
 }
@@ -927,9 +905,9 @@ func (c *Conn) finishCompressedMessage() ([]byte, error) {
 // every fragment into c.msgBuf (enforcing the read limit), then finishes via
 // [Conn.finishCompressedMessage]. Used only by NextReader's compressed-inbound
 // fallback -- never the hot path.
-func (c *Conn) reassembleCompressed(first Header, op Opcode) ([]byte, error) {
+func (c *Conn) reassembleCompressed(first Header) ([]byte, error) {
 	c.msgBuf = c.msgBuf[:0]
-	c.msgIsText = op == OpcodeText
+	c.msgIsText = first.Opcode == OpcodeText
 	c.msgCompressed = true
 
 	h := first

@@ -23,9 +23,9 @@ import (
 )
 
 // Note: judge lives in the gows root module but is a CI tool, not part of
-// the public API, so (per plan) it must depend on nothing but the standard
-// library. Assertions below therefore use slices.Equal / reflect-free
-// comparisons instead of the repo-wide gocmp convention.
+// the public API, so it must depend on nothing but the standard library.
+// Assertions below therefore use slices.Equal / reflect-free comparisons
+// instead of the repo-wide gocmp convention.
 
 func TestLoadReport(t *testing.T) {
 	tests := map[string]struct {

@@ -14,6 +14,8 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" &>/dev/null && pwd)"
+# shellcheck source-path=SCRIPTDIR source=evidence.sh
+source "${SCRIPT_DIR}/evidence.sh"
 CONFIG_DIR="${SCRIPT_DIR}/config"
 DEFAULT_REPORTS_DIR="${SCRIPT_DIR}/reports"
 REPORTS_DIR="${AUTOBAHN_REPORTS_DIR:-${DEFAULT_REPORTS_DIR}}"
@@ -129,9 +131,7 @@ validate_profile() {
         ;;
     esac
     if [[ "$STRICT_EVIDENCE" == 1 ]]; then
-        [[ "${AUTOBAHN_GENERATOR_EVIDENCE:-}" =~ ^(/.*)@sha256:([0-9a-f]{64})$ ]] || { echo "run.sh: strict generator evidence must be <absolute-path>@sha256:<64 lowercase hex>" >&2; exit 1; }
-        local generator_path="${BASH_REMATCH[1]}" generator_sha="${BASH_REMATCH[2]}"
-        [[ -f "$generator_path" && "$(realpath "$generator_path")" == "$generator_path" && "$(shasum -a 256 "$generator_path" | awk '{print $1}')" == "$generator_sha" ]] || { echo "run.sh: strict generator evidence file/hash mismatch" >&2; exit 1; }
+        verify_generator_evidence "run.sh: strict generator evidence" "${AUTOBAHN_GENERATOR_EVIDENCE:-}" || exit 1
     fi
     [[ "$CLIENT_TIMEOUT" =~ ^[1-9][0-9]*$ && "$SERVER_TIMEOUT" =~ ^[1-9][0-9]*$ ]] || { echo "run.sh: timeout values must be positive base-10 integers" >&2; exit 1; }
     case "$NETWORK_MODE" in auto) [[ "$(uname -s)" == Linux ]] && EFFECTIVE_NETWORK_MODE=host || EFFECTIVE_NETWORK_MODE=bridge;; host|bridge) EFFECTIVE_NETWORK_MODE="$NETWORK_MODE";; *) echo "run.sh: AUTOBAHN_NETWORK_MODE must be auto, host, or bridge" >&2; exit 1;; esac

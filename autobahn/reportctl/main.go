@@ -17,30 +17,38 @@ package main
 
 import (
 	"fmt"
+	"io"
 	"os"
 
 	"github.com/zchee/gows/autobahn/reporttxn"
 )
 
 func main() {
-	if len(os.Args) != 4 {
-		fmt.Fprintln(os.Stderr, "usage: reportctl backup|publish|restore <source> <destination>")
-		os.Exit(2)
+	os.Exit(run(os.Args[1:], os.Stderr))
+}
+
+// run performs the operation named by args[0] and returns the process exit
+// code: 2 for a usage error, 1 when the operation fails, 0 on success.
+func run(args []string, stderr io.Writer) int {
+	if len(args) != 3 {
+		fmt.Fprintln(stderr, "usage: reportctl backup|publish|restore <source> <destination>")
+		return 2
 	}
 	var err error
-	switch os.Args[1] {
+	switch args[0] {
 	case "backup":
-		err = reporttxn.Backup(os.Args[2], os.Args[3])
+		err = reporttxn.Backup(args[1], args[2])
 	case "publish":
-		err = reporttxn.Publish(os.Args[2], os.Args[3])
+		err = reporttxn.Publish(args[1], args[2])
 	case "restore":
-		err = reporttxn.Restore(os.Args[2], os.Args[3])
+		err = reporttxn.Restore(args[1], args[2])
 	default:
-		fmt.Fprintf(os.Stderr, "reportctl: unknown operation %q\n", os.Args[1])
-		os.Exit(2)
+		fmt.Fprintf(stderr, "reportctl: unknown operation %q\n", args[0])
+		return 2
 	}
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "reportctl:", err)
-		os.Exit(1)
+		fmt.Fprintln(stderr, "reportctl:", err)
+		return 1
 	}
+	return 0
 }

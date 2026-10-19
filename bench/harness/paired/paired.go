@@ -70,31 +70,31 @@ func (s Sample) Validate() error {
 	case s.SchemaVersion != SampleSchemaVersion:
 		return fmt.Errorf("paired: schema_version = %d, want %d", s.SchemaVersion, SampleSchemaVersion)
 	case s.SessionID == "":
-		return fmt.Errorf("paired: session_id is required")
+		return errors.New("paired: session_id is required")
 	case s.BlockID == "":
-		return fmt.Errorf("paired: block_id is required")
+		return errors.New("paired: block_id is required")
 	case OrderPattern(s.Order) != OrderAB && OrderPattern(s.Order) != OrderBA:
 		return fmt.Errorf("paired: order must be AB or BA, got %q", s.Order)
 	case !support.ValidSHA256(s.BinarySHA256):
-		return fmt.Errorf("paired: binary_sha256 must be 64 lowercase hexadecimal characters")
+		return errors.New("paired: binary_sha256 must be 64 lowercase hexadecimal characters")
 	case !support.ValidSHA256(s.PolicySHA256):
-		return fmt.Errorf("paired: policy_sha256 must be 64 lowercase hexadecimal characters")
+		return errors.New("paired: policy_sha256 must be 64 lowercase hexadecimal characters")
 	case !support.ValidSHA256(s.AdapterSHA256):
-		return fmt.Errorf("paired: adapter_sha256 must be 64 lowercase hexadecimal characters")
+		return errors.New("paired: adapter_sha256 must be 64 lowercase hexadecimal characters")
 	case s.Scenario == "":
-		return fmt.Errorf("paired: scenario is required")
+		return errors.New("paired: scenario is required")
 	case s.Library == "":
-		return fmt.Errorf("paired: library is required")
+		return errors.New("paired: library is required")
 	case s.Repetition < 0:
 		return fmt.Errorf("paired: repetition must be >= 0, got %d", s.Repetition)
 	case !s.ServerProcessUsage.Available:
-		return fmt.Errorf("paired: server process rusage is unavailable")
+		return errors.New("paired: server process rusage is unavailable")
 	}
 	if err := s.LoadgenResult.HardFailure(); err != nil {
 		return fmt.Errorf("paired: loadgen result: %w", err)
 	}
 	if s.ServerCPUSeconds != s.LoadgenResult.ServerUsage.CPUSeconds || s.ServerMaxRSSBytes != s.LoadgenResult.ServerUsage.MaxRSSBytes {
-		return fmt.Errorf("paired: derived server resource fields disagree with loadgen.server_usage")
+		return errors.New("paired: derived server resource fields disagree with loadgen.server_usage")
 	}
 	return nil
 }

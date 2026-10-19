@@ -182,7 +182,11 @@ func TestPublishRejectsIncompleteAndSymlinkedReports(t *testing.T) {
 	}
 }
 
-func TestBackupRemovesIncompleteDestinationOnCopyFailure(t *testing.T) {
+// TestBackupRejectsSymlinkBeforeCreatingDestination covers the hash preflight:
+// the symlink is refused before copyTree runs, so no destination is created.
+// Backup has no hook between copying and verifying, so a failure after a
+// partial copy cannot be produced from outside the function.
+func TestBackupRejectsSymlinkBeforeCreatingDestination(t *testing.T) {
 	dir := t.TempDir()
 	source := writeReport(t, dir, "source", "canonical")
 	if err := os.Symlink("index.json", filepath.Join(source, "zz-link")); err != nil {

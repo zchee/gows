@@ -484,7 +484,7 @@ func (c *Conn) Close(code CloseCode, reason string) error {
 	if !c.closeRcvd.Load() {
 		_ = c.conn.SetReadDeadline(time.Now().Add(c.closeTimeout))
 		for {
-			if _, _, err := c.readMessage(); err != nil {
+			if err := c.readMessage(); err != nil {
 				break
 			}
 		}
@@ -665,7 +665,7 @@ func (c *Conn) CloseContext(ctx context.Context, code CloseCode, reason string) 
 	var drainErr error
 	if sendErr == nil && !c.closeRcvd.Load() {
 		for {
-			if _, _, err := c.readMessage(); err != nil {
+			if err := c.readMessage(); err != nil {
 				drainErr = err
 				break
 			}

@@ -32,7 +32,7 @@ const inflateChunkSize = 4096
 
 // deflateFlushTail is the 4-byte DEFLATE sync-flush marker (RFC 7692
 // §7.2.1) that [DeflateWriter.Flush] always appends to its output;
-// compressPayload strips exactly these 4 trailing bytes before the
+// [writeAndFlush] strips exactly these 4 trailing bytes before the
 // result goes on the wire.
 var deflateFlushTail = [4]byte{0x00, 0x00, 0xff, 0xff}
 
@@ -92,7 +92,7 @@ var defaultDeflateBackend = &DeflateBackend{
 // level and window bits it was installed with, and the two pools
 // themselves. [SetDeflateBackend] builds a new deflateConfig and
 // atomically swaps it in rather than mutating pool fields in place, so a
-// compressPayload/decompressMessage call in flight never observes a pool
+// compressPayloadWithConfig/decompressMessage call in flight never observes a pool
 // whose New func was reassigned mid-use, and previously pooled
 // writers/readers from an old backend are simply dropped (left for GC)
 // instead of resurfacing from a Get call under the new configuration.
@@ -198,7 +198,7 @@ func SetDeflateBackend(b *DeflateBackend, level, windowBits int) error {
 // currentDeflateWindowBits reports the window bits [SetDeflateBackend]'s
 // active backend actually compresses at: [deflateWindowBits] (15) until
 // or unless SetDeflateBackend installs a backend configured for less.
-// negotiateDeflate and [Dialer]'s handshake consult this (gated by
+// negotiateDeflateWithHint and [Dialer]'s handshake consult this (gated by
 // [Upgrader.NegotiateWindowBits]/[Dialer.WindowBits] respectively) to
 // decide what window bits to accept or offer.
 func currentDeflateWindowBits() int {
@@ -260,7 +260,7 @@ func DefaultDeflateBackend() *DeflateBackend {
 // direction, or when a per-Conn outgoing compressor is needed to honor a
 // negotiated window ceiling below the process-global [SetDeflateBackend]
 // windowBits; nil otherwise, in which case compress.go's original pooled,
-// no-context-takeover compressPayload/decompressMessage path applies with
+// no-context-takeover compressPayloadWithConfig/decompressMessage path applies with
 // no per-Conn cost at all -- see [WithCompressionParams] for the real
 // memory cost once this is non-nil.
 //
@@ -275,17 +275,14 @@ func DefaultDeflateBackend() *DeflateBackend {
 // construction SetDeflateBackend swap to a larger window is prevented
 // from violating an emitted ceiling.
 //
-// outgoingWindowBits governs only outgoing's own compressor, never
+// The window outgoing's own compressor was built with never governs
 // incomingDict's capacity. incomingDict is capped at the ceiling
 // actually negotiated for the PEER's direction (via client_max_window_bits
 // on the server role, or server_max_window_bits on the client role),
-// else the RFC 7692 default 32KB ([deflateWindowBits]); it is still
-// never outgoingWindowBits. An earlier revision capped incomingDict at
-// 1<<outgoingWindowBits, wrongly reusing the outgoing-direction value
-// for the incoming direction's unrelated bound -- a reviewer-caught bug
-// that silently truncated genuine cross-message back-references from a
-// compliant peer using the full window. When no peer-direction bound was
-// negotiated, the 32KB default is the only correct choice.
+// else the RFC 7692 default 32KB ([deflateWindowBits]). The outgoing
+// window bounds only this side's compressor; capping the dictionary with
+// it would truncate back-references a compliant peer using its full
+// window is entitled to emit.
 type deflateState struct {
 	// outgoing is non-nil when this Conn needs a dedicated compressor:
 	// either its own outgoing direction negotiated context takeover, or a
@@ -302,12 +299,8 @@ type deflateState struct {
 	// [DeflateReader.Reset]'s preset dictionary -- see decompressMessage's
 	// doc for why this needs no persistent reader object, unlike
 	// outgoing, and the doc above for why its cap is the peer-direction
-	// negotiated ceiling (else 32KB), never outgoingWindowBits.
+	// negotiated ceiling (else 32KB), never the outgoing window.
 	incomingDict []byte
-	// outgoingWindowBits is the window bits outgoing's own compressor was
-	// constructed with; see the doc above for why this must never also
-	// govern incomingDict's capacity.
-	outgoingWindowBits int
 
 	// incomingWindowBits is the cap exponent for incomingDict: the ceiling
 	// negotiated for the peer's direction, else 15. Always set when this
@@ -365,7 +358,7 @@ func newDeflateState(client bool, p CompressionParams) *deflateState {
 	// needSubCeilWriter: the process-global pool compresses at a window
 	// larger than this Conn's negotiated outgoing ceiling, so a dedicated
 	// per-Conn writer (Reset per message) is required. Server paths can
-	// never hit this in practice -- negotiateDeflate declines offers below
+	// never hit this in practice -- negotiateDeflateWithHint declines offers below
 	// activeBits -- but the general condition stays role-agnostic.
 	needSubCeilWriter := outCeil < cfg.windowBits
 	if !outgoingTakeover && !incomingTakeover && !needSubCeilWriter {
@@ -373,7 +366,6 @@ func newDeflateState(client bool, p CompressionParams) *deflateState {
 	}
 
 	ds := &deflateState{
-		outgoingWindowBits: cfg.windowBits,
 		incomingWindowBits: inBits,
 	}
 	if outgoingTakeover || needSubCeilWriter {
@@ -391,7 +383,6 @@ func newDeflateState(client bool, p CompressionParams) *deflateState {
 				// newDeflateConfig's pool New func).
 				panic("gows: DeflateBackend " + cfg.backend.Name + ".NewWriter: " + err.Error())
 			}
-			ds.outgoingWindowBits = w
 			ds.outgoingDst = &sliceWriter{}
 			// One-time Reset: establishes the destination adapter and a
 			// fresh window. For takeover, never called again; for sub-
@@ -403,7 +394,7 @@ func newDeflateState(client bool, p CompressionParams) *deflateState {
 	}
 	if incomingTakeover {
 		// Cap at the peer-direction negotiated ceiling (else 32KB) -- see
-		// deflateState's doc for why this must not use outgoingWindowBits.
+		// deflateState's doc for why this must not use the outgoing window.
 		ds.incomingDict = make([]byte, 0, 1<<inBits)
 	}
 	return ds
@@ -439,7 +430,7 @@ func slideWindow(dict, add []byte, maxlength int) []byte {
 var errDecompressedTooLarge = errors.New("gows: decompressed message exceeds read limit")
 
 // sliceWriter is an io.Writer that appends to an owned byte slice,
-// letting compressPayload capture a pooled [DeflateWriter]'s Flush
+// letting compressPayloadWithConfig capture a pooled [DeflateWriter]'s Flush
 // output directly into a caller-supplied scratch buffer with no
 // intermediate allocation.
 type sliceWriter struct {
@@ -503,33 +494,23 @@ func (r *tailReader) Read(p []byte) (int, error) {
 	return 0, io.EOF
 }
 
-// compressPayload deflate-compresses p (RFC 7692 §7.2.1) using a pooled
-// [DeflateWriter] (from the process's active [DeflateBackend]; see
-// [SetDeflateBackend]) reset onto a fresh, empty LZ77 window
-// (no-context-takeover), appends the result to dst[:0] (reusing its
-// storage), strips the trailing 4-byte sync-flush marker Flush always
-// emits, and returns the extended slice. It is compress.go's original,
-// always-no-context-takeover entry point: [NewPreparedMessage] calls it
-// directly (never [Conn.compressMessage]'s context-takeover branch),
-// since a message precompressed once for broadcast to many connections
-// must be compressed as if no-context-takeover were in effect regardless
-// of any individual target connection's own negotiated context takeover
-// -- a back-reference into one connection's private LZ77 window would be
-// meaningless (or wrong) to a different connection's decompressor.
-func compressPayload(dst, p []byte) ([]byte, error) {
-	return compressPayloadWithConfig(dst, p, activeDeflate.Load())
-}
-
-// compressPayloadWithConfig is compressPayload's cfg-threaded form: the
-// per-emission ceiling guard in [Conn.WriteMessage] loads activeDeflate
-// once, checks the ceiling against that same snapshot, and must compress
-// with it rather than re-loading (a concurrent SetDeflateBackend could
-// otherwise swap to a larger window between the check and the compress).
-func compressPayloadWithConfig(dst, p []byte, cfg *deflateConfig) ([]byte, error) {
+// compressPayloadWithConfig deflate-compresses p (RFC 7692 §7.2.1) with a
+// [DeflateWriter] from cfg's pool, reset onto a fresh, empty LZ77 window
+// (no context takeover), and returns the result with the trailing 4-byte
+// sync-flush marker stripped. [NewPreparedMessage] calls it rather than
+// [Conn.compressMessage]: a message compressed once for broadcast to many
+// connections must be compressed as if no context takeover were in
+// effect, whatever each target connection negotiated, because a
+// back-reference into one connection's private LZ77 window would be
+// meaningless to another connection's decompressor. The caller passes
+// cfg so that the window bits it records for the result come from the
+// same snapshot that compressed it; a concurrent [SetDeflateBackend]
+// cannot swap the backend in between.
+func compressPayloadWithConfig(p []byte, cfg *deflateConfig) ([]byte, error) {
 	w := cfg.writers.Get().(DeflateWriter)
 	defer cfg.writers.Put(w)
 
-	sw := &sliceWriter{b: dst[:0]}
+	sw := &sliceWriter{}
 	w.Reset(sw)
 	return writeAndFlush(w, sw, p)
 }
@@ -562,13 +543,12 @@ func (c *Conn) acquireCompressor() (lease compressorLease, reset, ok bool) {
 	return compressorLease{w: pw, sw: &c.wslice, pool: &cfg.writers}, true, true
 }
 
-// compressMessage is compressPayload's per-Conn counterpart, used by
-// [Conn.WriteMessage]/writeFrameLocked instead of compressPayload
-// directly. When c's own outgoing direction did not negotiate context
+// compressMessage is compressPayloadWithConfig's per-Conn counterpart,
+// used by [Conn.WriteMessage]/writeFrameLocked. When c's own outgoing direction did not negotiate context
 // takeover and no sub-ceiling per-Conn writer is installed (c.deflate ==
 // nil or c.deflate.outgoing == nil -- this package's original, zero-per-
 // Conn-state path and overwhelmingly the common case), it is identical
-// to compressPayload: a pooled compressor, fresh window, no per-Conn
+// to compressPayloadWithConfig: a pooled compressor, fresh window, no per-Conn
 // cost. Otherwise it reuses c.deflate's dedicated compressor; for
 // context takeover the LZ77 window is preserved across messages (RFC
 // 7692 §7.2.3.2), and for a sub-ceiling no-takeover writer the window is
@@ -597,7 +577,7 @@ func (c *Conn) compressMessage(dst, p []byte) ([]byte, bool, error) {
 
 // writeAndFlush writes p to w, flushes the RFC 7692 §7.2.1 sync-flush
 // marker, and returns sw's accumulated bytes with that trailing 4-byte
-// marker stripped. Shared by compressPayload (pooled, freshly Reset onto
+// marker stripped. Shared by compressPayloadWithConfig (pooled, freshly Reset onto
 // sw immediately before this call) and compressMessage's
 // context-takeover branch (persistent w, sw merely repointed at dst) --
 // both need the identical Write+Flush+strip sequence once w and sw are
@@ -649,9 +629,8 @@ func writeAndFlush(w DeflateWriter, sw *sliceWriter, p []byte) ([]byte, error) {
 // decode, decompressMessage grows incomingDict with this message's newly
 // decompressed bytes, capped at 2^incomingWindowBits -- the ceiling
 // actually negotiated for the peer's direction, else the RFC 7692 default
-// 32KB; deliberately never c.deflate's own outgoingWindowBits (see
-// [deflateState]'s doc for why conflating the two was a real, reviewer-
-// caught bug).
+// 32KB; deliberately never c.deflate's outgoing window (see
+// [deflateState]'s doc for why the two directions must stay apart).
 func (c *Conn) decompressMessage(compressed []byte) ([]byte, error) {
 	cfg := activeDeflate.Load()
 	r := cfg.readers.Get().(DeflateReader)

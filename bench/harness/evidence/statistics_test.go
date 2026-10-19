@@ -91,9 +91,10 @@ func TestEvaluateBaselineDoesNotRequireQuickWSSuperiority(t *testing.T) {
 	runs := make(map[string]resolvedRun, len(requiredBaselineRoles))
 	for i, role := range requiredBaselineRoles {
 		pol := baselineTestPolicy(role, i)
-		run := statisticalRun(pol, "baseline-"+role, time.Date(2026, 7, 15, 10+i, 0, 0, 0, time.UTC), 0.5)
-		runs[role] = run
-		records = append(records, RunEvidence{Role: role, Run: run.Reference})
+		session := "baseline-" + role
+		runs[role] = statisticalRun(pol, session, time.Date(2026, 7, 15, 10+i, 0, 0, 0, time.UTC), 0.5)
+		ref := artifact.Ref{URI: "omx-cas://sha256/" + sessionHash(session), SHA256: sessionHash(session), SizeBytes: 1, MediaType: "application/vnd.gows.bench-run-receipt+json"}
+		records = append(records, RunEvidence{Role: role, Run: ref})
 	}
 	verdicts, err := evaluateBaselines(records, runs)
 	if err != nil {
@@ -188,9 +189,8 @@ func statisticalRun(pol *policy.Policy, session string, started time.Time, candi
 	const adapter = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
 	const policySum = "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
 	run := resolvedRun{
-		Reference: artifact.Ref{URI: "omx-cas://sha256/" + sessionHash(session), SHA256: sessionHash(session), SizeBytes: 1, MediaType: "application/vnd.gows.bench-run-receipt+json"},
-		Receipt:   artifact.RunReceipt{SessionID: session, PolicySHA256: policySum},
-		Manifest: runManifest{
+		Receipt: artifact.RunReceipt{SessionID: session, PolicySHA256: policySum},
+		Manifest: support.RunManifest{
 			Hostname: "host", Kernel: "kernel", BootIdentityStart: "boot", BootIdentityEnd: "boot",
 			LibraryBinariesSHA256: map[string]string{pol.Candidate: binary, pol.Comparator: binary},
 			AdapterSHA256:         map[string]string{pol.Candidate: adapter, pol.Comparator: adapter},

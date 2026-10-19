@@ -17,10 +17,10 @@ package autobahn
 import (
 	"bytes"
 	"encoding/json"
-	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -460,7 +460,7 @@ func writeIndexFixture(t *testing.T, path, agent, behavior string) {
 	t.Helper()
 	cases := make(map[string]map[string]string, 517)
 	for i := 1; i <= 517; i++ {
-		cases["1.1."+fmt.Sprint(i)] = map[string]string{"behavior": behavior, "behaviorClose": "OK"}
+		cases["1.1."+strconv.Itoa(i)] = map[string]string{"behavior": behavior, "behaviorClose": "OK"}
 	}
 	b, err := json.Marshal(map[string]any{agent: cases})
 	if err != nil {

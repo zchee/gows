@@ -24,18 +24,16 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"maps"
 	"os"
 	"path/filepath"
 	"regexp"
-	"sort"
+	"slices"
 	"strings"
 	"time"
-)
 
-type caseResult struct {
-	Behavior      string `json:"behavior"`
-	BehaviorClose string `json:"behaviorClose"`
-}
+	"github.com/zchee/gows/internal/autobahnreport"
+)
 
 type manifest struct {
 	Version int                     `json:"version"`
@@ -43,68 +41,10 @@ type manifest struct {
 }
 
 type manifestMode struct {
-	Agent      string                `json:"agent"`
-	TotalCases int                   `json:"total_cases"`
-	Inventory  map[string]caseResult `json:"inventory"`
-	Targets    []string              `json:"targets"`
-}
-
-type provenance struct {
-	Version                   int            `json:"version"`
-	RunID                     string         `json:"run_id"`
-	Mode                      string         `json:"mode"`
-	Direction                 string         `json:"direction"`
-	Agent                     string         `json:"agent"`
-	Branch                    string         `json:"branch"`
-	Head                      string         `json:"head"`
-	DirtyEntries              int            `json:"dirty_entries"`
-	GoVersion                 string         `json:"go_version"`
-	GOOS                      string         `json:"goos"`
-	GOARCH                    string         `json:"goarch"`
-	Command                   string         `json:"command"`
-	ExitStatus                int            `json:"exit_status"`
-	Image                     string         `json:"image"`
-	ImageID                   string         `json:"image_id"`
-	CaseCount                 int            `json:"case_count"`
-	IndexPath                 string         `json:"index_path"`
-	IndexSHA256               string         `json:"index_sha256"`
-	StartedUTC                string         `json:"started_utc"`
-	EndedUTC                  string         `json:"ended_utc"`
-	Generator                 string         `json:"generator_evidence"`
-	WorkspaceSHA              string         `json:"workspace_sha256"`
-	ApplicationCommand        string         `json:"application_command,omitempty"`
-	ApplicationReceipt        string         `json:"application_receipt,omitempty"`
-	ApplicationReceiptSHA     string         `json:"application_receipt_sha256,omitempty"`
-	ApplicationPID            int            `json:"application_pid,omitempty"`
-	ApplicationExitStatus     int            `json:"application_exit_status,omitempty"`
-	ApplicationTermination    string         `json:"application_termination,omitempty"`
-	ApplicationExpectedSHA256 string         `json:"application_expected_sha256,omitempty"`
-	ApplicationObservedSHA256 string         `json:"application_observed_sha256,omitempty"`
-	CWD                       string         `json:"cwd"`
-	ReportRoot                string         `json:"report_root"`
-	ContainerID               string         `json:"container_id"`
-	RunnerTimeout             int            `json:"runner_timeout_seconds"`
-	ApplicationTimeout        int            `json:"application_timeout_seconds"`
-	NetworkMode               string         `json:"network_mode"`
-	CaseDelay                 string         `json:"case_delay"`
-	CompletionFile            string         `json:"completion_file,omitempty"`
-	CompletionMechanism       string         `json:"completion_mechanism"`
-	CompletionStopReason      string         `json:"completion_stop_reason"`
-	CompletionStopStatus      int            `json:"completion_stop_status"`
-	FeatureConfig             map[string]any `json:"feature_config"`
-}
-
-type applicationReceipt struct {
-	RunID                    string `json:"run_id"`
-	Direction                string `json:"direction"`
-	Agent                    string `json:"agent"`
-	Command                  string `json:"command"`
-	Termination              string `json:"termination"`
-	PID                      int    `json:"pid"`
-	ExitStatus               int    `json:"exit_status"`
-	Executable               string `json:"executable"`
-	ExecutableSHA256         string `json:"executable_sha256"`
-	ExpectedExecutableSHA256 string `json:"expected_executable_sha256"`
+	Agent      string                               `json:"agent"`
+	TotalCases int                                  `json:"total_cases"`
+	Inventory  map[string]autobahnreport.CaseResult `json:"inventory"`
+	Targets    []string                             `json:"targets"`
 }
 
 type options struct {
@@ -144,7 +84,7 @@ func run(w io.Writer, o options) error {
 	if o.Direction != "server" && o.Direction != "client" {
 		return errors.New("direction must be server or client")
 	}
-	if o.BeforeRunID == "" || o.AfterRunID == "" || o.ExpectedHead == "" || o.ExpectedWorkspace == "" || !rawSHA.MatchString(o.ExpectedApplicationSHA) || !normalizedDuration(o.ExpectedCaseDelay) {
+	if o.BeforeRunID == "" || o.AfterRunID == "" || o.ExpectedHead == "" || o.ExpectedWorkspace == "" || !rawSHA.MatchString(o.ExpectedApplicationSHA) || !autobahnreport.IsNormalizedDuration(o.ExpectedCaseDelay) {
 		return errors.New("explicit run IDs, HEAD, and workspace SHA are required")
 	}
 	wantAgent := "gows-v04-feature-" + o.Direction
@@ -167,11 +107,11 @@ func run(w io.Writer, o options) error {
 		return err
 	}
 
-	before, beforeMeta, err := loadBoundReport(o.BeforePath, o.BeforeProvenance, "canonical", o.Direction, "gows", false, "")
+	before, beforeMeta, err := loadBoundReport(o.BeforePath, o.BeforeProvenance, "canonical", o.Direction, "gows", "")
 	if err != nil {
 		return fmt.Errorf("canonical evidence: %w", err)
 	}
-	after, afterMeta, err := loadBoundReport(o.AfterPath, o.AfterProvenance, "feature", o.Direction, o.Agent, true, o.ExpectedApplicationSHA)
+	after, afterMeta, err := loadBoundReport(o.AfterPath, o.AfterProvenance, "feature", o.Direction, o.Agent, o.ExpectedApplicationSHA)
 	if err != nil {
 		return fmt.Errorf("feature evidence: %w", err)
 	}
@@ -200,7 +140,7 @@ func run(w io.Writer, o options) error {
 		return err
 	}
 
-	ids := sortedKeys(mm.Inventory)
+	ids := slices.Sorted(maps.Keys(mm.Inventory))
 	for id := range before {
 		if (strings.HasPrefix(id, "13.3.") || strings.HasPrefix(id, "13.5.")) && mm.Inventory[id].Behavior == "" {
 			return fmt.Errorf("canonical report has extra inventory case %s", id)
@@ -260,125 +200,122 @@ func validateManifest(m manifestMode) error {
 	return nil
 }
 
-func loadBoundReport(indexPath, provenancePath, mode, direction, agent string, feature bool, expectedApplicationSHA string) (map[string]caseResult, provenance, error) {
+func loadBoundReport(indexPath, provenancePath, mode, direction, agent, expectedApplicationSHA string) (map[string]autobahnreport.CaseResult, autobahnreport.Provenance, error) {
 	if indexPath == "" || provenancePath == "" {
-		return nil, provenance{}, errors.New("index and provenance paths are required")
+		return nil, autobahnreport.Provenance{}, errors.New("index and provenance paths are required")
 	}
 	data, err := os.ReadFile(indexPath)
 	if err != nil {
-		return nil, provenance{}, fmt.Errorf("read index: %w", err)
+		return nil, autobahnreport.Provenance{}, fmt.Errorf("read index: %w", err)
 	}
-	var reports map[string]map[string]caseResult
+	var reports map[string]map[string]autobahnreport.CaseResult
 	if err := json.Unmarshal(data, &reports); err != nil {
-		return nil, provenance{}, fmt.Errorf("parse index: %w", err)
+		return nil, autobahnreport.Provenance{}, fmt.Errorf("parse index: %w", err)
 	}
 	if len(reports) != 1 {
-		return nil, provenance{}, fmt.Errorf("wrong agent count %d, want exactly 1", len(reports))
+		return nil, autobahnreport.Provenance{}, fmt.Errorf("wrong agent count %d, want exactly 1", len(reports))
 	}
 	cases, ok := reports[agent]
 	if !ok {
-		return nil, provenance{}, fmt.Errorf("wrong agent, want %q", agent)
+		return nil, autobahnreport.Provenance{}, fmt.Errorf("wrong agent, want %q", agent)
 	}
-	var p provenance
+	var p autobahnreport.Provenance
 	if err := readJSON(provenancePath, &p); err != nil {
-		return nil, provenance{}, fmt.Errorf("provenance: %w", err)
+		return nil, autobahnreport.Provenance{}, fmt.Errorf("provenance: %w", err)
 	}
 	sum := sha256.Sum256(data)
 	started, startErr := time.Parse(time.RFC3339, p.StartedUTC)
 	ended, endErr := time.Parse(time.RFC3339, p.EndedUTC)
 	if p.Version != 1 || p.RunID == "" || p.Mode != mode || p.Direction != direction || p.Agent != agent ||
 		p.Branch == "" || p.Head == "" || p.GoVersion == "" || p.GOOS == "" || p.GOARCH == "" || p.Command == "" ||
-		p.ExitStatus != 0 || !pinnedImage.MatchString(p.Image) || !imageID.MatchString(p.ImageID) || p.CaseCount != 517 || p.IndexPath == "" ||
+		p.ExitStatus != 0 || !autobahnreport.IsPinnedImage(p.Image) || !autobahnreport.IsImageID(p.ImageID) || p.CaseCount != 517 || p.IndexPath == "" ||
 		startErr != nil || endErr != nil || ended.Before(started) ||
-		p.WorkspaceSHA == "" || p.CWD == "" || p.ReportRoot == "" || !filepath.IsAbs(p.ReportRoot) || !containerID.MatchString(p.ContainerID) || p.RunnerTimeout <= 0 || (p.NetworkMode != "host" && p.NetworkMode != "bridge") || !normalizedDuration(p.CaseDelay) || (p.CompletionMechanism != "default-timeout" && p.CompletionMechanism != "sentinel") ||
+		p.WorkspaceSHA == "" || p.CWD == "" || p.ReportRoot == "" || !filepath.IsAbs(p.ReportRoot) || !autobahnreport.IsContainerID(p.ContainerID) || p.RunnerTimeout <= 0 || (p.NetworkMode != "host" && p.NetworkMode != "bridge") || !autobahnreport.IsNormalizedDuration(p.CaseDelay) || (p.CompletionMechanism != "default-timeout" && p.CompletionMechanism != "sentinel") ||
 		p.IndexSHA256 != hex.EncodeToString(sum[:]) {
-		return nil, provenance{}, errors.New("missing, stale, or hash-mismatched provenance")
+		return nil, autobahnreport.Provenance{}, errors.New("missing, stale, or hash-mismatched provenance")
 	}
 	if err := verifyGeneratorEvidence(p.Generator); err != nil {
-		return nil, provenance{}, fmt.Errorf("generator evidence: %w", err)
+		return nil, autobahnreport.Provenance{}, fmt.Errorf("generator evidence: %w", err)
 	}
 	if filepath.Base(p.IndexPath) != filepath.Base(indexPath) {
-		return nil, provenance{}, errors.New("provenance index path does not name index.json")
+		return nil, autobahnreport.Provenance{}, errors.New("provenance index path does not name index.json")
 	}
 	wantIndex, _ := filepath.Abs(filepath.Clean(indexPath))
 	gotIndex, _ := filepath.Abs(filepath.Clean(p.IndexPath))
 	if wantIndex != gotIndex {
-		return nil, provenance{}, errors.New("provenance index path is not the exact cleaned index path")
+		return nil, autobahnreport.Provenance{}, errors.New("provenance index path is not the exact cleaned index path")
 	}
 	info, err := os.Stat(indexPath)
 	if err != nil {
-		return nil, provenance{}, err
+		return nil, autobahnreport.Provenance{}, err
 	}
 	if info.ModTime().Before(started.Add(-2*time.Second)) || info.ModTime().After(ended.Add(2*time.Second)) {
-		return nil, provenance{}, errors.New("stale report timing evidence")
+		return nil, autobahnreport.Provenance{}, errors.New("stale report timing evidence")
 	}
 	rootFromIndex := filepath.Dir(filepath.Dir(wantIndex))
 	cleanedRoot, _ := filepath.Abs(filepath.Clean(p.ReportRoot))
 	if cleanedRoot != rootFromIndex {
-		return nil, provenance{}, errors.New("report root does not match exact index path")
+		return nil, autobahnreport.Provenance{}, errors.New("report root does not match exact index path")
 	}
 	if !strings.Contains(filepath.Base(cleanedRoot), p.RunID) {
-		return nil, provenance{}, errors.New("report root does not contain provenance run ID")
+		return nil, autobahnreport.Provenance{}, errors.New("report root does not contain provenance run ID")
 	}
 	if direction == "server" && (p.CompletionFile != "" || p.CompletionMechanism != "default-timeout") {
-		return nil, provenance{}, errors.New("server completion evidence is invalid")
+		return nil, autobahnreport.Provenance{}, errors.New("server completion evidence is invalid")
 	}
 	if direction == "client" && p.CompletionMechanism == "sentinel" {
 		completion, _ := filepath.Abs(filepath.Clean(p.CompletionFile))
 		if completion == "" || filepath.Dir(completion) != cleanedRoot || p.CompletionStopReason != "sentinel" {
-			return nil, provenance{}, errors.New("client completion sentinel evidence is invalid")
+			return nil, autobahnreport.Provenance{}, errors.New("client completion sentinel evidence is invalid")
 		}
 		if _, err := os.Stat(completion); err != nil {
-			return nil, provenance{}, fmt.Errorf("client completion sentinel: %w", err)
+			return nil, autobahnreport.Provenance{}, fmt.Errorf("client completion sentinel: %w", err)
 		}
 	}
-	if feature {
+	if mode == "feature" {
 		if p.ApplicationCommand == "" || p.ApplicationReceipt == "" || p.ApplicationPID <= 0 || p.ApplicationTimeout <= 0 {
-			return nil, provenance{}, errors.New("feature provenance lacks external application command")
+			return nil, autobahnreport.Provenance{}, errors.New("feature provenance lacks external application command")
 		}
 		cleanedReceipt, _ := filepath.Abs(filepath.Clean(p.ApplicationReceipt))
-		if cleanedRoot != rootFromIndex || filepath.Dir(cleanedReceipt) != cleanedRoot {
-			return nil, provenance{}, errors.New("feature report root or receipt path mismatch")
+		if filepath.Dir(cleanedReceipt) != cleanedRoot {
+			return nil, autobahnreport.Provenance{}, errors.New("feature report root or receipt path mismatch")
 		}
 		rb, err := os.ReadFile(p.ApplicationReceipt)
 		if err != nil {
-			return nil, provenance{}, fmt.Errorf("application receipt: %w", err)
+			return nil, autobahnreport.Provenance{}, fmt.Errorf("application receipt: %w", err)
 		}
 		rsum := sha256.Sum256(rb)
 		if p.ApplicationReceiptSHA != hex.EncodeToString(rsum[:]) {
-			return nil, provenance{}, errors.New("application receipt hash mismatch")
+			return nil, autobahnreport.Provenance{}, errors.New("application receipt hash mismatch")
 		}
-		var receipt applicationReceipt
+		var receipt autobahnreport.ApplicationReceipt
 		if err := json.Unmarshal(rb, &receipt); err != nil {
-			return nil, provenance{}, err
+			return nil, autobahnreport.Provenance{}, err
 		}
 		if receipt.RunID != p.RunID || receipt.Direction != direction || receipt.Agent != agent || receipt.Command != p.ApplicationCommand || receipt.PID != p.ApplicationPID || receipt.ExitStatus != p.ApplicationExitStatus || receipt.Termination != p.ApplicationTermination || receipt.Executable == "" || receipt.ExecutableSHA256 != expectedApplicationSHA || receipt.ExpectedExecutableSHA256 != expectedApplicationSHA || p.ApplicationExpectedSHA256 != expectedApplicationSHA || p.ApplicationObservedSHA256 != expectedApplicationSHA {
-			return nil, provenance{}, errors.New("application receipt content mismatch")
+			return nil, autobahnreport.Provenance{}, errors.New("application receipt content mismatch")
 		}
 		if direction == "server" && (p.ApplicationTermination != "owned-cleanup" || p.ApplicationExitStatus != 143) {
-			return nil, provenance{}, errors.New("server application receipt lacks expected owned cleanup status")
+			return nil, autobahnreport.Provenance{}, errors.New("server application receipt lacks expected owned cleanup status")
 		}
 		if direction == "client" && (p.ApplicationTermination != "natural" || p.ApplicationExitStatus != 0) {
-			return nil, provenance{}, errors.New("client application receipt lacks natural success")
+			return nil, autobahnreport.Provenance{}, errors.New("client application receipt lacks natural success")
 		}
-		if len(p.FeatureConfig) == 0 || p.FeatureConfig["backend"] != "klauspost/compress/flate" || number(p.FeatureConfig["level"]) != 6 || number(p.FeatureConfig["window_bits"]) != 9 {
-			return nil, provenance{}, errors.New("feature provenance lacks flatekp level-6/window-9 configuration")
+		if len(p.FeatureConfig) == 0 || p.FeatureConfig["backend"] != "klauspost/compress/flate" || !equalsInt(p.FeatureConfig["level"], 6) || !equalsInt(p.FeatureConfig["window_bits"], 9) {
+			return nil, autobahnreport.Provenance{}, errors.New("feature provenance lacks flatekp level-6/window-9 configuration")
 		}
 		if p.FeatureConfig["allow_context_takeover"] != true ||
-			(direction == "server" && (p.FeatureConfig["negotiate_window_bits"] != true || number(p.FeatureConfig["client_window_bits"]) != 9)) ||
-			(direction == "client" && (p.FeatureConfig["offer_client_max_window_bits"] != true || number(p.FeatureConfig["server_window_bits"]) != 9)) {
-			return nil, provenance{}, errors.New("feature provenance lacks exact direction-specific window policy")
+			(direction == "server" && (p.FeatureConfig["negotiate_window_bits"] != true || !equalsInt(p.FeatureConfig["client_window_bits"], 9))) ||
+			(direction == "client" && (p.FeatureConfig["offer_client_max_window_bits"] != true || !equalsInt(p.FeatureConfig["server_window_bits"], 9))) {
+			return nil, autobahnreport.Provenance{}, errors.New("feature provenance lacks exact direction-specific window policy")
 		}
 	} else if len(p.FeatureConfig) != 0 {
-		return nil, provenance{}, errors.New("canonical provenance unexpectedly has feature configuration")
+		return nil, autobahnreport.Provenance{}, errors.New("canonical provenance unexpectedly has feature configuration")
 	}
 	return cases, p, nil
 }
 
 var (
-	pinnedImage       = regexp.MustCompile(`^[^@]+@sha256:[0-9a-fA-F]{64}$`)
-	imageID           = regexp.MustCompile(`^sha256:[0-9a-fA-F]{64}$`)
-	containerID       = regexp.MustCompile(`^[0-9a-fA-F]{12,64}$`)
 	rawSHA            = regexp.MustCompile(`^[0-9a-fA-F]{64}$`)
 	generatorIdentity = regexp.MustCompile(`^(/.*)@sha256:([0-9a-f]{64})$`)
 )
@@ -396,8 +333,8 @@ func verifyGeneratorEvidence(identity string) error {
 	if err != nil {
 		return err
 	}
-	real, realErr := filepath.EvalSymlinks(cleaned)
-	if realErr != nil || real != cleaned {
+	resolved, err := filepath.EvalSymlinks(cleaned)
+	if err != nil || resolved != cleaned {
 		return errors.New("path is not normalized absolute")
 	}
 	sum := sha256.Sum256(b)
@@ -407,12 +344,7 @@ func verifyGeneratorEvidence(identity string) error {
 	return nil
 }
 
-func normalizedDuration(value string) bool {
-	d, err := time.ParseDuration(value)
-	return err == nil && d >= 0 && d.String() == value
-}
-
-func rejectReportFailures(cases map[string]caseResult) error {
+func rejectReportFailures(cases map[string]autobahnreport.CaseResult) error {
 	for id, c := range cases {
 		if c.Behavior == "NON-STRICT" || c.BehaviorClose == "NON-STRICT" ||
 			!allowed(c.Behavior) || !allowed(c.BehaviorClose) {
@@ -435,20 +367,10 @@ func readJSON(path string, dst any) error {
 	return nil
 }
 
-func sortedKeys[V any](m map[string]V) []string {
-	keys := make([]string, 0, len(m))
-	for k := range m {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
-	return keys
-}
-
-func number(v any) int {
-	switch v := v.(type) {
-	case float64:
-		return int(v)
-	default:
-		return 0
-	}
+// equalsInt reports whether v, a number decoded from JSON into an any, is
+// exactly want. Comparing the float64 itself rejects fractional values such as
+// 6.9 that an int conversion would truncate to 6.
+func equalsInt(v any, want int) bool {
+	f, ok := v.(float64)
+	return ok && f == float64(want)
 }

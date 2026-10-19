@@ -11,8 +11,8 @@ import (
 
 // serverConfig carries the per-run echoserver configuration derived from the
 // command-line flags plus any gows read-buffer variant selected by -lib. Its
-// zero value reproduces the historical defaults, so every backend behaves
-// byte-identically when the new flags are unset.
+// zero value leaves every backend at its library default, so the flags only
+// change behaviour when set.
 type serverConfig struct {
 	// readBufSize is the gows read-buffer size in bytes; 0 selects gows's
 	// own default. It is meaningful only for the gows family (see
@@ -40,15 +40,15 @@ func (c serverConfig) hooked() bool {
 
 // newListener opens a TCP listener on addr and, when cfg requires it, wraps it
 // so every accepted connection passes through the cross-cutting accept hooks:
-// the TCP_NOTSENT_LOWAT socket option (exercised by the H5 experiment
-// policies) and the one-shot runtime/trace trigger (a manual diagnostic knob;
+// the TCP_NOTSENT_LOWAT socket option (set by the lowat experiment policies
+// under policy/experiments) and the one-shot runtime/trace trigger (a manual diagnostic knob;
 // no committed policy sets -trace-file). Backends that obtain their listener
 // through this helper (gows and gobwas via a raw accept loop, and gorilla,
 // coder, and quickws via serveHTTP) therefore share a single accept-wrapping
 // point. The gws, nbio, and fasthttp backends manage their listeners inside
 // the library (gws.Server.Run, nbhttp.Engine, fasthttp.Server.ListenAndServe)
-// and so are not wrapped; the H5 experiments (and manual trace captures) only
-// exercise gows and quickws, both of which route through here.
+// and so are not wrapped; the lowat experiments (and manual trace captures)
+// only exercise gows and quickws, both of which route through here.
 func newListener(addr string, cfg serverConfig) (net.Listener, error) {
 	ln, err := net.Listen("tcp", addr)
 	if err != nil {

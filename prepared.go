@@ -89,7 +89,7 @@ func NewPreparedMessage(op Opcode, payload []byte) (*PreparedMessage, error) {
 
 	if len(payload) >= defaultCompressMinSize {
 		cfg := activeDeflate.Load()
-		compressed, err := compressPayloadWithConfig(nil, payload, cfg)
+		compressed, err := compressPayloadWithConfig(payload, cfg)
 		if err != nil {
 			return nil, fmt.Errorf("gows: prepare compressed message: %w", err)
 		}
@@ -147,6 +147,12 @@ func (c *Conn) WritePreparedMessage(pm *PreparedMessage) error {
 			frame = pm.compressed
 		}
 	}
-	_, err := c.conn.Write(frame)
-	return err
+	// Like every other directly written frame, a prepared frame goes out
+	// behind a pending WriteMessageBuffered batch, never ahead of it.
+	if len(c.wbatch) != 0 {
+		if err := c.flushBufferedLocked(); err != nil {
+			return err
+		}
+	}
+	return c.writeFrameBytes(frame)
 }

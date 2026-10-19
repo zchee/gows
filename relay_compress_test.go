@@ -82,7 +82,7 @@ func TestDecodeFrameLifecycle(t *testing.T) {
 }
 
 func TestDecodeFrameErrors(t *testing.T) {
-	compressed, err := compressPayload(nil, []byte(strings.Repeat("bomb", 1000)))
+	compressed, err := compressPayload([]byte(strings.Repeat("bomb", 1000)))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -126,7 +126,7 @@ func TestDecodeFrameErrors(t *testing.T) {
 	if _, _, err := c.DecodeFrame(f); err == nil {
 		t.Fatal("decoder accepted a new opening inside fragments")
 	}
-	f.Payload, err = compressPayload(nil, nil)
+	f.Payload, err = compressPayload(nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -137,7 +137,7 @@ func TestDecodeFrameErrors(t *testing.T) {
 }
 
 func TestDecodeFrameInvalidText(t *testing.T) {
-	p, err := compressPayload(nil, []byte{255})
+	p, err := compressPayload([]byte{255})
 	if err != nil {
 		t.Fatal(err)
 	}

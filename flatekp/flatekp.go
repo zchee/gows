@@ -51,10 +51,9 @@
 // smaller permessage-deflate window with peers, instead of declining
 // every offer that asks for one.
 //
-// One real constraint of the underlying library carries through here
-// honestly rather than being papered over: klauspost's NewWriterWindow
-// has no level parameter of its own -- a custom (sub-32KB) window
-// always uses klauspost's internal fast, level-5-equivalent encoder.
+// One constraint of the underlying library carries through: klauspost's
+// NewWriterWindow has no level parameter of its own -- a custom (sub-32KB)
+// window always uses klauspost's internal fast, level-5-equivalent encoder.
 // [Backend]'s NewWriter therefore only honors the level argument when
 // windowBits is 15 (the default, full window); for windowBits 8-14, the
 // level argument is accepted (so callers configuring
@@ -95,7 +94,6 @@ import (
 	"io"
 
 	kflate "github.com/klauspost/compress/flate"
-
 	"github.com/zchee/gows"
 )
 
@@ -129,14 +127,9 @@ func Backend() *gows.DeflateBackend {
 	}
 }
 
-// newWriter implements the compressor half of [Backend]. For the
-// RFC 7692 default window (windowBits == 15) it delegates to
-// kflate.NewWriter, honoring level exactly as stdlib compress/flate
-// would. For a smaller negotiated window it delegates to
-// kflate.NewWriterWindow, which -- per the package doc -- has no level
-// parameter of its own; level is accepted but not passed through in
-// that case, since klauspost's windowed mode always uses its internal
-// fast (~level 5) encoder regardless of what is asked for.
+// newWriter implements the compressor half of [Backend]: kflate.NewWriter
+// at the full window, kflate.NewWriterWindow below it (where level is
+// ignored; see the package doc).
 func newWriter(level, windowBits int) (gows.DeflateWriter, error) {
 	if windowBits < minWindowBits || windowBits > maxWindowBits {
 		return nil, fmt.Errorf("flatekp: window bits %d outside [%d, %d]", windowBits, minWindowBits, maxWindowBits)
@@ -155,14 +148,14 @@ func newWriter(level, windowBits int) (gows.DeflateWriter, error) {
 	return w, nil
 }
 
-// newReader implements the decompressor half of [Backend]. windowBits
-// is unused: like stdlib compress/flate, klauspost's decompressor needs
-// no window-size configuration in advance -- DEFLATE back-reference
+// newReader implements the decompressor half of [Backend]. The window-bits
+// argument is unused: like stdlib compress/flate, klauspost's decompressor
+// needs no window-size configuration in advance -- DEFLATE back-reference
 // distances are self-describing in the compressed stream itself, so any
 // decompressor with a buffer at least as large as the compressor's
 // window (klauspost's is always the RFC 7692 maximum, 32KB, regardless
 // of what window the peer's compressor used) decodes correctly.
-func newReader(windowBits int) gows.DeflateReader {
+func newReader(_ int) gows.DeflateReader {
 	// kflate.NewReader's returned io.ReadCloser also implements
 	// kflate.Resetter (Reset(io.Reader, []byte) error), the same stable
 	// guarantee compress.go's stdlib backend relies on.

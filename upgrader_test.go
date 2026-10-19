@@ -247,6 +247,27 @@ func TestUpgradeRejectionPaths(t *testing.T) {
 			wantErr:        gows.ErrMissingKey,
 			wantStatusLine: "HTTP/1.1 400 Bad Request\r\n",
 		},
+		"error: empty Sec-WebSocket-Key value": {
+			request: "GET /chat HTTP/1.1\r\n" +
+				"Host: example.com\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n" +
+				"Sec-WebSocket-Key: \r\nSec-WebSocket-Version: 13\r\n\r\n",
+			wantErr:        gows.ErrMissingKey,
+			wantStatusLine: "HTTP/1.1 400 Bad Request\r\n",
+		},
+		"error: Sec-WebSocket-Key one byte short (23)": {
+			request: "GET /chat HTTP/1.1\r\n" +
+				"Host: example.com\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n" +
+				"Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ=\r\nSec-WebSocket-Version: 13\r\n\r\n",
+			wantErr:        gows.ErrMissingKey,
+			wantStatusLine: "HTTP/1.1 400 Bad Request\r\n",
+		},
+		"error: Sec-WebSocket-Key one byte long (25)": {
+			request: "GET /chat HTTP/1.1\r\n" +
+				"Host: example.com\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n" +
+				"Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==A\r\nSec-WebSocket-Version: 13\r\n\r\n",
+			wantErr:        gows.ErrMissingKey,
+			wantStatusLine: "HTTP/1.1 400 Bad Request\r\n",
+		},
 		"error: bad version": {
 			request: "GET /chat HTTP/1.1\r\n" +
 				"Host: example.com\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n" +
@@ -447,11 +468,10 @@ func TestUpgradeNoPipelinedDataLeavesBufferedNil(t *testing.T) {
 // using httpx directly, for assertions against a raw response.
 func mustAccept(t *testing.T, key string) string {
 	t.Helper()
-	accept, err := httpx.Accept([]byte(key))
-	if err != nil {
-		t.Fatalf("httpx.Accept: %v", err)
+	if len(key) != 24 {
+		t.Fatalf("mustAccept: key %q is %d bytes, want 24", key, len(key))
 	}
-	return string(accept)
+	return string(httpx.AppendAccept(nil, []byte(key)))
 }
 
 // fakeConn is a bytes-backed net.Conn for allocation/latency-sensitive
@@ -685,6 +705,106 @@ func TestTrustedClientWindowBitsHintPublicPipeline(t *testing.T) {
 	}
 }
 
+// TestPackageLevelDialAndUpgrade exercises the zero-value conveniences
+// Dial, Upgrade and UpgradeHTTP end to end: the handshake completes with
+// no subprotocol and no compression, the server sees the request target,
+// and the resulting connections carry a message in each direction.
+func TestPackageLevelDialAndUpgrade(t *testing.T) {
+	type serverResult struct {
+		hs  gows.Handshake
+		err error
+	}
+	// echoOnce answers one message on a server-role connection.
+	echoOnce := func(conn net.Conn) error {
+		c := gows.NewServerConn(conn)
+		op, p, err := c.ReadMessage()
+		if err != nil {
+			return err
+		}
+		return c.WriteMessage(op, p)
+	}
+
+	tests := map[string]struct {
+		// start runs one server and returns the ws:// URL to dial.
+		start func(t *testing.T, results chan<- serverResult) string
+	}{
+		"success: Upgrade on a raw listener": {
+			start: func(t *testing.T, results chan<- serverResult) string {
+				ln, err := net.Listen("tcp", "127.0.0.1:0")
+				if err != nil {
+					t.Fatalf("listen: %v", err)
+				}
+				t.Cleanup(func() { ln.Close() })
+				go func() {
+					conn, err := ln.Accept()
+					if err != nil {
+						results <- serverResult{err: err}
+						return
+					}
+					defer conn.Close()
+					hs, err := gows.Upgrade(conn)
+					if err == nil {
+						err = echoOnce(conn)
+					}
+					results <- serverResult{hs: hs, err: err}
+				}()
+				return "ws://" + ln.Addr().String() + "/echo?q=1"
+			},
+		},
+		"success: UpgradeHTTP in a net/http handler": {
+			start: func(t *testing.T, results chan<- serverResult) string {
+				srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					conn, hs, err := gows.UpgradeHTTP(w, r)
+					if err == nil {
+						defer conn.Close()
+						err = echoOnce(conn)
+					}
+					results <- serverResult{hs: hs, err: err}
+				}))
+				t.Cleanup(srv.Close)
+				return "ws" + strings.TrimPrefix(srv.URL, "http") + "/echo?q=1"
+			},
+		},
+	}
+
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			results := make(chan serverResult, 1)
+			wsURL := tt.start(t, results)
+
+			conn, hs, err := gows.Dial(t.Context(), wsURL)
+			if err != nil {
+				t.Fatalf("Dial(%q): %v", wsURL, err)
+			}
+			defer conn.Close()
+			if hs.Subprotocol != "" || hs.Compressed {
+				t.Errorf("client Handshake = %+v, want no subprotocol and no compression", hs)
+			}
+
+			c := gows.NewClientConn(conn)
+			if err := c.WriteMessage(gows.OpcodeText, []byte("hello")); err != nil {
+				t.Fatalf("WriteMessage: %v", err)
+			}
+			op, p, err := c.ReadMessage()
+			if err != nil || op != gows.OpcodeText || string(p) != "hello" {
+				t.Fatalf("ReadMessage = (%v, %q, %v), want (%v, %q, nil)", op, p, err, gows.OpcodeText, "hello")
+			}
+
+			select {
+			case res := <-results:
+				if res.err != nil {
+					t.Fatalf("server: %v", res.err)
+				}
+				if res.hs.Path != "/echo" || res.hs.Query != "q=1" || res.hs.Subprotocol != "" || res.hs.Compressed {
+					t.Errorf("server Handshake = %+v, want Path /echo, Query q=1, no subprotocol, no compression", res.hs)
+				}
+			case <-time.After(3 * time.Second):
+				t.Fatal("server result did not arrive in time")
+			}
+		})
+	}
+}
+
 // startUpgradeHTTPServer starts an httptest.Server whose handler calls
 // u.UpgradeHTTP for every request, reporting the result via onResult.
 // The server is not closed automatically; callers must defer srv.Close.
@@ -894,6 +1014,24 @@ func TestUpgradeHTTPRejectionPaths(t *testing.T) {
 		"error: missing key": {
 			request: "GET / HTTP/1.1\r\nHost: h\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n" +
 				"Sec-WebSocket-Version: 13\r\n\r\n",
+			wantErr:        gows.ErrMissingKey,
+			wantStatusCode: "400",
+		},
+		"error: empty key value": {
+			request: "GET / HTTP/1.1\r\nHost: h\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n" +
+				"Sec-WebSocket-Key: \r\nSec-WebSocket-Version: 13\r\n\r\n",
+			wantErr:        gows.ErrMissingKey,
+			wantStatusCode: "400",
+		},
+		"error: key one byte short (23)": {
+			request: "GET / HTTP/1.1\r\nHost: h\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n" +
+				"Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ=\r\nSec-WebSocket-Version: 13\r\n\r\n",
+			wantErr:        gows.ErrMissingKey,
+			wantStatusCode: "400",
+		},
+		"error: key one byte long (25)": {
+			request: "GET / HTTP/1.1\r\nHost: h\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n" +
+				"Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==A\r\nSec-WebSocket-Version: 13\r\n\r\n",
 			wantErr:        gows.ErrMissingKey,
 			wantStatusCode: "400",
 		},

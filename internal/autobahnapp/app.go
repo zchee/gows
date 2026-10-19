@@ -48,7 +48,7 @@ type Config struct {
 
 // Run parses args and runs the requested server or client mode. It returns a
 // process exit code; server mode does not return during normal operation.
-func Run(args []string, cfg Config, stdout, stderr io.Writer) int {
+func Run(args []string, cfg Config, stderr io.Writer) int {
 	fs := flag.NewFlagSet("autobahn", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	mode := fs.String("mode", "", `"server" or "client"`)

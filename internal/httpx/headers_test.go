@@ -16,6 +16,7 @@ package httpx_test
 
 import (
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/zchee/gows/internal/httpx"
@@ -297,6 +298,50 @@ func TestTrimOWS(t *testing.T) {
 				t.Errorf("TrimOWS(%q) = %q, want %q", tt.in, got, tt.want)
 			}
 		})
+	}
+}
+
+func TestIsToken(t *testing.T) {
+	tests := map[string]struct {
+		in   string
+		want bool
+	}{
+		"success: header name":           {in: "X-Custom-Header", want: true},
+		"success: every tchar symbol":    {in: "!#$%&'*+-.^_`|~", want: true},
+		"success: alphanumerics":         {in: "abcXYZ019", want: true},
+		"error: empty":                   {in: "", want: false},
+		"error: space":                   {in: "X Header", want: false},
+		"error: colon":                   {in: "X-Header:", want: false},
+		"error: DQUOTE":                  {in: `"quoted"`, want: false},
+		"error: delimiter in the middle": {in: "a/b", want: false},
+		"error: CR":                      {in: "X\rHeader", want: false},
+		"error: DEL":                     {in: "X\x7fHeader", want: false},
+		"error: obs-text byte":           {in: "X\x80Header", want: false},
+	}
+
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			if got := httpx.IsToken(tt.in); got != tt.want {
+				t.Errorf("IsToken(string %q) = %v, want %v", tt.in, got, tt.want)
+			}
+			if got := httpx.IsToken([]byte(tt.in)); got != tt.want {
+				t.Errorf("IsToken([]byte %q) = %v, want %v", tt.in, got, tt.want)
+			}
+		})
+	}
+}
+
+// TestIsTokenEveryByte checks each single byte against RFC 7230 §3.2.6's
+// tchar grammar, spelled out here independently of the implementation:
+// ALPHA / DIGIT / "!#$%&'*+-.^_`|~".
+func TestIsTokenEveryByte(t *testing.T) {
+	const symbols = "!#$%&'*+-.^_`|~"
+	for c := range 256 {
+		b := byte(c)
+		want := 'a' <= b && b <= 'z' || 'A' <= b && b <= 'Z' || '0' <= b && b <= '9' || strings.IndexByte(symbols, b) >= 0
+		if got := httpx.IsToken([]byte{b}); got != want {
+			t.Errorf("IsToken(%#02x) = %v, want %v", b, got, want)
+		}
 	}
 }
 

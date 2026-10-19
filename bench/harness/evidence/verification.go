@@ -87,8 +87,8 @@ func CollectVerificationCommandInputs(root, sourceHead string) (VerificationComm
 		return VerificationCommandInputs{}, err
 	}
 	toolPaths := map[string]string{
-		"go":    stockGoToolPath(),
-		"gofmt": filepath.Join(stockGoRoot(), "bin", "gofmt"),
+		"go":    support.CompilerGoToolPath(),
+		"gofmt": filepath.Join(support.CompilerGoRoot(), "bin", "gofmt"),
 	}
 	for _, name := range []string{"gopls", "git"} {
 		path, err := exec.LookPath(name)
@@ -139,7 +139,7 @@ func CollectVerificationCommandInputs(root, sourceHead string) (VerificationComm
 		goFiles = append(goFiles, name)
 	}
 	if len(goFiles) == 0 {
-		return VerificationCommandInputs{}, fmt.Errorf("evidence: source commit has no tracked Go files")
+		return VerificationCommandInputs{}, errors.New("evidence: source commit has no tracked Go files")
 	}
 	slices.Sort(goFiles)
 	home, err := os.UserHomeDir()
@@ -212,7 +212,7 @@ func verificationToolIdentity(name, path, goTool string) (VerificationToolIdenti
 	} else {
 		command = exec.Command(goTool, "version", "-m", path)
 	}
-	command.Env = overrideEnv(os.Environ(), "GOENV=off", "GOTOOLCHAIN=local", "GOEXPERIMENT=", "LANG=C", "LC_ALL=C")
+	command.Env = support.OverrideEnvironment(os.Environ(), []string{"GOENV=off", "GOTOOLCHAIN=local", "GOEXPERIMENT=", "LANG=C", "LC_ALL=C"})
 	output, err := command.CombinedOutput()
 	if err != nil {
 		return VerificationToolIdentity{}, fmt.Errorf("evidence: inspect verification tool %s: %w: %s", name, err, strings.TrimSpace(string(output)))
@@ -283,7 +283,7 @@ func ValidateVerificationBundle(bundleDir string, repository RepositoryIdentity,
 	}
 	manifestPath, ok := paths["manifest.json"]
 	if !ok {
-		return fmt.Errorf("evidence: verification bundle lacks manifest.json")
+		return errors.New("evidence: verification bundle lacks manifest.json")
 	}
 	raw, err := os.ReadFile(manifestPath)
 	if err != nil {
@@ -306,7 +306,7 @@ func verificationBundlePaths(bundleDir string) (map[string]string, error) {
 		return nil, fmt.Errorf("evidence: stat verification bundle: %w", err)
 	}
 	if !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
-		return nil, fmt.Errorf("evidence: verification bundle is not a real directory")
+		return nil, errors.New("evidence: verification bundle is not a real directory")
 	}
 	paths := make(map[string]string)
 	err = filepath.WalkDir(absolute, func(path string, entry os.DirEntry, walkErr error) error {
@@ -350,7 +350,7 @@ func resolveVerification(store artifact.Store, ref artifact.Ref, repository Repo
 	}
 	manifestPath, ok := paths["manifest.json"]
 	if !ok {
-		return VerificationVerdict{}, fmt.Errorf("evidence: verification bundle lacks manifest.json")
+		return VerificationVerdict{}, errors.New("evidence: verification bundle lacks manifest.json")
 	}
 	raw, err := os.ReadFile(manifestPath)
 	if err != nil {
@@ -397,7 +397,7 @@ func validateVerificationManifest(manifest VerificationManifest, paths map[strin
 				return fmt.Errorf("evidence: verification check %q %s hash mismatch", check.ID, label)
 			}
 			if check.ID == "format" && label == "stdout" && len(raw) != 0 {
-				return fmt.Errorf("evidence: verification format check produced non-empty stdout")
+				return errors.New("evidence: verification format check produced non-empty stdout")
 			}
 		}
 	}
@@ -422,16 +422,16 @@ func validateVerificationRecord(manifest VerificationManifest, repository Reposi
 	if manifest.SourceHead != repository.SourceHead || manifest.SourceTree != repository.SourceTree ||
 		manifest.ModuleFilesSHA256 != repository.ModuleFilesSHA256 || manifest.GoVersion != repository.GoVersion ||
 		manifest.GoBinarySHA256 != repository.GoBinarySHA256 || manifest.GOOS != repository.GOOS || manifest.GOARCH != repository.GOARCH {
-		return nil, fmt.Errorf("evidence: verification source/toolchain identity mismatch")
+		return nil, errors.New("evidence: verification source/toolchain identity mismatch")
 	}
 	if !slices.Equal(manifest.Tools, inputs.Tools) {
-		return nil, fmt.Errorf("evidence: verification tool identities do not match current executable bytes")
+		return nil, errors.New("evidence: verification tool identities do not match current executable bytes")
 	}
 	if inputs.Tools[0].SHA256 != repository.GoBinarySHA256 || inputs.Tools[0].SizeBytes != repository.GoBinarySizeBytes {
-		return nil, fmt.Errorf("evidence: verification Go tool identity does not match repository stock Go identity")
+		return nil, errors.New("evidence: verification Go tool identity does not match repository stock Go identity")
 	}
 	if manifest.Hostname == "" || manifest.BootIdentity == "" {
-		return nil, fmt.Errorf("evidence: verification host identity is incomplete")
+		return nil, errors.New("evidence: verification host identity is incomplete")
 	}
 	if err := support.ValidateBootIdentity(manifest.GOOS, manifest.BootIdentity); err != nil {
 		return nil, fmt.Errorf("evidence: verification boot identity: %w", err)
@@ -480,7 +480,7 @@ func validateVerificationRecord(manifest VerificationManifest, repository Reposi
 
 func (inputs VerificationCommandInputs) validate() error {
 	if !filepath.IsAbs(inputs.RepositoryRoot) {
-		return fmt.Errorf("evidence: verification repository root is not absolute")
+		return errors.New("evidence: verification repository root is not absolute")
 	}
 	for name, path := range map[string]string{
 		"go": inputs.GoTool, "gofmt": inputs.Gofmt, "gopls": inputs.Gopls, "git": inputs.Git,
@@ -511,7 +511,7 @@ func (inputs VerificationCommandInputs) validate() error {
 		}
 	}
 	if len(inputs.TrackedGoFiles) == 0 || !slices.IsSorted(inputs.TrackedGoFiles) {
-		return fmt.Errorf("evidence: verification tracked Go files are empty or unsorted")
+		return errors.New("evidence: verification tracked Go files are empty or unsorted")
 	}
 	for i, name := range inputs.TrackedGoFiles {
 		if !filepath.IsLocal(filepath.FromSlash(name)) || filepath.ToSlash(filepath.Clean(name)) != name || filepath.Ext(name) != ".go" || i > 0 && inputs.TrackedGoFiles[i-1] == name {

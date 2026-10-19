@@ -1,6 +1,7 @@
 package support
 
 import (
+	"errors"
 	"fmt"
 	"math"
 )
@@ -86,7 +87,7 @@ func AllocationDelta(before, after MemSnapshot, overhead MemSnapshotDelta, messa
 // Validate recomputes every derived allocation field from its raw counters.
 func (stats AllocationStats) Validate(messages int64) error {
 	if !stats.Available {
-		return fmt.Errorf("support: allocation accounting is unavailable")
+		return errors.New("support: allocation accounting is unavailable")
 	}
 	if messages <= 0 {
 		return fmt.Errorf("support: allocation validation requires messages > 0, got %d", messages)
@@ -98,17 +99,17 @@ func (stats AllocationStats) Validate(messages int64) error {
 		return fmt.Errorf("support: allocation observation method = %q, want %q", stats.ObservationMethod, allocationObservationMethod)
 	}
 	if stats.MallocsAfter < stats.MallocsBefore || stats.TotalAllocBytesAfter < stats.TotalAllocBytesBefore {
-		return fmt.Errorf("support: allocation counters regress")
+		return errors.New("support: allocation counters regress")
 	}
 	rawMallocs := stats.MallocsAfter - stats.MallocsBefore
 	rawBytes := stats.TotalAllocBytesAfter - stats.TotalAllocBytesBefore
 	if stats.MallocsRawDelta != rawMallocs || stats.TotalAllocBytesRawDelta != rawBytes {
-		return fmt.Errorf("support: allocation raw deltas disagree with before/after counters")
+		return errors.New("support: allocation raw deltas disagree with before/after counters")
 	}
 	wantAllocations := float64(rawMallocs) / float64(messages)
 	wantBytes := float64(rawBytes) / float64(messages)
 	if !sameFiniteFloat(stats.AllocationsPerMessage, wantAllocations) || !sameFiniteFloat(stats.AllocatedBytesPerMessage, wantBytes) {
-		return fmt.Errorf("support: allocation per-message rates disagree with counters")
+		return errors.New("support: allocation per-message rates disagree with counters")
 	}
 	return nil
 }

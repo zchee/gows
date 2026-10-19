@@ -109,53 +109,21 @@ func (p DeflateParams) ClientMaxWindowBitsValue() int {
 	return p.ClientMaxWindowBits
 }
 
-// ParseDeflateOffer scans b, a Sec-WebSocket-Extensions header value,
-// for permessage-deflate offers, and returns the first one that is
-// structurally valid per the decline conditions in RFC 7692 §7 (no
-// parameter undefined for use in an offer, no duplicate parameters, no
-// out-of-range or malformed window-bits value). Per RFC 7692 §5, "a
-// client may also offer multiple [permessage-deflate] choices ... [and]
-// the order of elements is important as it specifies the client's
-// preference", so a later permessage-deflate offer is only considered
-// if every earlier one is invalid.
-//
-// ParseDeflateOffer reports ok=false if b contains no permessage-deflate
-// offer at all, or every one present is invalid; the caller should then
-// omit permessage-deflate from its response entirely, per RFC 7692 §7's
-// decline conditions.
-//
-// ParseDeflateOffer only checks structural validity: whether the
-// resulting configuration is one the caller is actually willing to use
-// (e.g. it may refuse to disable context takeover) is a policy decision
-// left to the caller.
-func ParseDeflateOffer(b []byte) (params DeflateParams, ok bool) {
-	sc := NewOfferScanner(b)
-	for sc.Next() {
-		if !httpx.EqualFold(sc.Name(), DeflateExtensionName) {
-			continue
-		}
-		if params, ok := ParseDeflateOfferParams(sc.Params()); ok {
-			return params, true
-		}
-	}
-	return DeflateParams{}, false
-}
-
 // ParseDeflateOfferParams validates one permessage-deflate offer's
 // already-scanned parameters (typically params obtained from an
-// [OfferScanner] whose Name() matched [DeflateExtensionName]), applying
-// the same structural rules [ParseDeflateOffer] applies to every
-// candidate internally.
+// [OfferScanner] whose Name() matched [DeflateExtensionName]) against the
+// decline conditions in RFC 7692 §7: no parameter undefined for use in an
+// offer, no duplicate parameters, no out-of-range or malformed
+// window-bits value. A bare client_max_window_bits is valid in an offer
+// and is reported as [ClientMaxWindowBitsBare].
 //
-// It is exported for callers that need to apply additional policy on top
-// of structural validity per candidate offer and keep trying subsequent
-// offers on rejection -- something ParseDeflateOffer's own "first
-// structurally valid offer" selection does not support (e.g. a server
-// that can only honor server_max_window_bits == 15 needs to decline an
-// otherwise-valid offer requesting a smaller window and fall back to the
-// client's next offer, which requires re-scanning with
-// [NewOfferScanner] and calling this function per candidate directly
-// instead of ParseDeflateOffer).
+// It checks structural validity only. Per RFC 7692 §5 the order of a
+// client's offers is its preference, so a caller scans them with
+// [NewOfferScanner], calls this per permessage-deflate candidate, and
+// applies its own policy on top (e.g. a server that cannot honor a
+// requested server_max_window_bits declines that offer and falls back to
+// the client's next one). When no candidate is acceptable the caller
+// omits permessage-deflate from its response, per RFC 7692 §7.
 func ParseDeflateOfferParams(params ParamScanner) (DeflateParams, bool) {
 	return parseDeflateParams(params)
 }
@@ -163,7 +131,7 @@ func ParseDeflateOfferParams(params ParamScanner) (DeflateParams, bool) {
 // AppendDeflateResponse appends the permessage-deflate response element
 // -- "permessage-deflate" followed by agreed's parameters -- to dst,
 // returning the extended buffer. agreed is the configuration the server
-// has decided to accept (typically derived from a [ParseDeflateOffer]
+// has decided to accept (typically derived from a [ParseDeflateOfferParams]
 // result, possibly narrowed by the server's own policy).
 //
 // AppendDeflateResponse never emits a bare client_max_window_bits (RFC
@@ -234,7 +202,7 @@ func ValidateDeflateResponse(offered DeflateParams, response []byte) (DeflatePar
 // window-bits values are always rejected. The one difference between
 // offer- and response-side validity -- whether a bare
 // client_max_window_bits is acceptable -- is left to the caller
-// ([ParseDeflateOffer] accepts it as [ClientMaxWindowBitsBare];
+// ([ParseDeflateOfferParams] accepts it as [ClientMaxWindowBitsBare];
 // [ValidateDeflateResponse] rejects a bare result itself), since this
 // function has no way to know which side is calling it.
 func parseDeflateParams(params ParamScanner) (DeflateParams, bool) {

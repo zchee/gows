@@ -20,7 +20,6 @@ import (
 	"io"
 	rand "math/rand/v2"
 	"net"
-	"sync"
 
 	"github.com/zchee/gows/internal/mask"
 	"github.com/zchee/gows/internal/pool"
@@ -345,14 +344,10 @@ var errWriterClosed = fmt.Errorf("gows: write on a closed message writer: %w", n
 type messageWriter struct {
 	err error // sticky terminal error
 
-	comp DeflateWriter
-	c    *Conn
-	sink *sliceWriter
-	// compPool is non-nil when comp is a pooled writer to return on release; nil
-	// for a per-Conn (context-takeover or sub-ceiling) writer. Carrying the
-	// bare pool pointer keeps release allocation-free where a per-message
-	// closure would heap-allocate.
-	compPool *sync.Pool
+	c *Conn
+	// lease is the compressor this message compresses through, zero until
+	// the message engages DEFLATE and again after release.
+	lease compressorLease
 
 	buf     []byte // pooled fragment buffer; plaintext until compressed mode
 	op      Opcode // message opcode carried by the first fragment
@@ -569,13 +564,11 @@ func (w *messageWriter) engageCompression() error {
 	if reset {
 		lease.w.Reset(lease.sw)
 	}
-	w.comp = lease.w
-	w.sink = lease.sw
-	w.compPool = lease.pool
+	w.lease = lease
 	w.compressed = true
 
 	if len(w.buf) > 0 {
-		if _, err := w.comp.Write(w.buf); err != nil {
+		if _, err := w.lease.w.Write(w.buf); err != nil {
 			w.fedToCompressor = true
 			w.disableTakeoverIfFed()
 			return fmt.Errorf("gows: compress message: %w", err)
@@ -597,7 +590,7 @@ func (w *messageWriter) engageCompression() error {
 // fixed-size compressed fragments. The caller must already be in compressed
 // mode.
 func (w *messageWriter) writeCompressed(p []byte) (int, error) {
-	if _, err := w.comp.Write(p); err != nil {
+	if _, err := w.lease.w.Write(p); err != nil {
 		w.fedToCompressor = true
 		w.disableTakeoverIfFed()
 		w.err = fmt.Errorf("gows: compress message: %w", err)
@@ -619,13 +612,13 @@ func (w *messageWriter) writeCompressed(p []byte) (int, error) {
 // as non-final frames (RSV1 only on the first). The caller must hold wmu.
 func (w *messageWriter) drainCompressedFragmentsLocked() error {
 	const frag = defaultWriteBufferSize
-	for len(w.sink.b) >= frag {
-		chunk := w.sink.b[:frag]
+	for len(w.lease.sw.b) >= frag {
+		chunk := w.lease.sw.b[:frag]
 		if err := w.emitCompressedChunkLocked(chunk, false); err != nil {
 			return err
 		}
-		n := copy(w.sink.b, w.sink.b[frag:])
-		w.sink.b = w.sink.b[:n]
+		n := copy(w.lease.sw.b, w.lease.sw.b[frag:])
+		w.lease.sw.b = w.lease.sw.b[:n]
 	}
 	return nil
 }
@@ -643,9 +636,7 @@ func (w *messageWriter) closeLargeLocked() error {
 	if reset {
 		lease.w.Reset(lease.sw)
 	}
-	w.comp = lease.w
-	w.sink = lease.sw
-	w.compPool = lease.pool
+	w.lease = lease
 	w.compressed = true
 	out, err := writeAndFlush(lease.w, lease.sw, w.buf)
 	w.fedToCompressor = true
@@ -665,17 +656,17 @@ func (w *messageWriter) closeLargeLocked() error {
 // sync Flush, strip the 4-byte marker, emit the remainder as the final Fin
 // fragment. The caller must hold wmu.
 func (w *messageWriter) closeCompressedLocked() error {
-	if err := w.comp.Flush(); err != nil {
+	if err := w.lease.w.Flush(); err != nil {
 		w.disableTakeoverIfFed()
 		return fmt.Errorf("gows: flush compressed message: %w", err)
 	}
-	out := w.sink.b
+	out := w.lease.sw.b
 	if len(out) < len(deflateFlushTail) {
 		w.disableTakeoverIfFed()
 		return errors.New("gows: compressed output shorter than the sync-flush marker")
 	}
-	w.sink.b = out[:len(out)-len(deflateFlushTail)]
-	if err := w.emitCompressedChunkLocked(w.sink.b, true); err != nil {
+	w.lease.sw.b = out[:len(out)-len(deflateFlushTail)]
+	if err := w.emitCompressedChunkLocked(w.lease.sw.b, true); err != nil {
 		w.disableTakeoverIfFed()
 		return err
 	}
@@ -703,14 +694,11 @@ func (w *messageWriter) emitCompressedChunkLocked(payload []byte, fin bool) erro
 	return nil
 }
 
-// releaseCompressor returns a pooled compressor (if any). Idempotent.
+// releaseCompressor returns a pooled compressor (if any). Zeroing the lease
+// makes a second call a no-op.
 func (w *messageWriter) releaseCompressor() {
-	if w.compPool != nil {
-		w.compPool.Put(w.comp)
-		w.compPool = nil
-	}
-	w.comp = nil
-	w.sink = nil
+	w.lease.release()
+	w.lease = compressorLease{}
 }
 
 // disableTakeoverIfFed marks outgoing compression disabled when a

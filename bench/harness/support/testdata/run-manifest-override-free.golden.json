@@ -1,0 +1,110 @@
+{
+  "schema_version": 1,
+  "session_id": "session-1",
+  "git_commit": "c0ffee",
+  "git_dirty": true,
+  "git_remote": "origin-url",
+  "git_branch": "main",
+  "git_status": " M a.go",
+  "git_tree": "7ree",
+  "source_sha256": "50fc",
+  "module_path": "github.com/zchee/gows/bench",
+  "module_files_sha256": "m0d",
+  "go_version": "go version go1.26 darwin/arm64",
+  "go_binary_path": "/goroot/bin/go",
+  "go_binary_sha256": "60b1",
+  "go_binary_size_bytes": 1024,
+  "harness_runtime_version": "go1.26",
+  "goos": "darwin",
+  "goarch": "arm64",
+  "go_env": {
+    "path": "provenance/go-env.json",
+    "sha256": "ab01",
+    "size_bytes": 42
+  },
+  "module_graph": {
+    "path": "provenance/modules.jsonl",
+    "sha256": "ab01",
+    "size_bytes": 42
+  },
+  "binary_provenance": {
+    "echoserver": {
+      "path": "bin/echoserver",
+      "sha256": "ec40",
+      "size_bytes": 8,
+      "go_version_m": {
+        "path": "provenance/binaries/echoserver.version-m.txt",
+        "sha256": "ab01",
+        "size_bytes": 42
+      }
+    },
+    "loadgen": {
+      "path": "bin/loadgen",
+      "sha256": "10ad",
+      "size_bytes": 7,
+      "go_version_m": {
+        "path": "provenance/binaries/loadgen.version-m.txt",
+        "sha256": "ab01",
+        "size_bytes": 42
+      }
+    }
+  },
+  "os_version": {
+    "path": "provenance/os-version.txt",
+    "sha256": "ab01",
+    "size_bytes": 42
+  },
+  "system_profile": {
+    "path": "provenance/system-profile.txt",
+    "sha256": "ab01",
+    "size_bytes": 42
+  },
+  "limits": {
+    "path": "provenance/limits.txt",
+    "sha256": "ab01",
+    "size_bytes": 42
+  },
+  "hostname": "host",
+  "kernel": "kernel",
+  "boot_identity_start": "boot-a",
+  "boot_identity_end": "boot-a",
+  "client": "gows",
+  "echoserver_sha256": "ec40",
+  "loadgen_sha256": "10ad",
+  "policy_sha256": "9011",
+  "adapter_sha256": {
+    "gows": "g1",
+    "quickws": "q1"
+  },
+  "library_binaries_sha256": {
+    "gows": "ec40",
+    "quickws": "ec40"
+  },
+  "run_kind": "comparative",
+  "evidence_class": "screen",
+  "toolchain_series": "stock",
+  "go_experiment": "",
+  "toolchain_environment": {
+    "goenv": "off",
+    "gotoolchain": "local",
+    "goflags": "-mod=mod",
+    "goexperiment": "",
+    "goos": "darwin",
+    "goarch": "arm64",
+    "goamd64": "",
+    "goarm64": "v8.0",
+    "gofips140": "latest",
+    "cgo_enabled": "0"
+  },
+  "runtime_environment": {
+    "gomaxprocs": "8",
+    "gogc": "100",
+    "gomemlimit": "off",
+    "godebug": "",
+    "gows_simd": ""
+  },
+  "seed": 99,
+  "smoke": false,
+  "started_at": "2026-07-15T00:00:00Z",
+  "ended_at": "2026-07-15T00:45:00Z"
+}

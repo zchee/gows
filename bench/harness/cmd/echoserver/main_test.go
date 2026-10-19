@@ -9,8 +9,8 @@ import (
 
 // TestGoWSVariants verifies that every gows -lib variant is registered in the
 // runners map and resolves to the read-buffer size, UTF-8 setting, and echo
-// loop the experiments depend on. The read-buffer geometry is hypothesis H1's
-// manipulated variable, and useServe selects the drain-and-coalesce loop that
+// loop the experiments depend on. The read-buffer geometry is the one thing the
+// rbuf variants change, and useServe selects the drain-and-coalesce loop that
 // the paired final gate measures as gows-serve, so a wrong value in either
 // would silently invalidate its experiment.
 func TestGoWSVariants(t *testing.T) {
@@ -58,7 +58,7 @@ func TestGoWSRbuf1kFitsFrame(t *testing.T) {
 		t.Fatalf("rbuf1kSize = %d is too small to hold a 1 KiB frame + %d-byte header", rbuf1kSize, gows.MaxHeaderSize)
 	}
 	if rbuf1kSize >= bufferSize {
-		t.Fatalf("rbuf1kSize = %d should be smaller than the stock buffer %d for H1 to sweep downward", rbuf1kSize, bufferSize)
+		t.Fatalf("rbuf1kSize = %d should be smaller than the stock buffer %d for the read-buffer sweep to reach below it", rbuf1kSize, bufferSize)
 	}
 }
 

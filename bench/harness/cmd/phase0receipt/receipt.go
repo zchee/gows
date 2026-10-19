@@ -96,7 +96,7 @@ func runAAPreflight(cfg commandConfig, ops operations) error {
 	if err != nil {
 		return err
 	}
-	return writeNewFileAtomic(root, output, raw, 0o644)
+	return writeNewFileAtomic(root, output, raw)
 }
 
 func runBuild(cfg commandConfig, ops operations) error {
@@ -147,7 +147,7 @@ func runBuild(cfg commandConfig, ops operations) error {
 	if err != nil {
 		return fmt.Errorf("marshal Phase 0 receipt: %w", err)
 	}
-	return writeNewFileAtomic(root, output, raw, 0o644)
+	return writeNewFileAtomic(root, output, raw)
 }
 
 func validateCommandConfig(cfg commandConfig, includeBaselines bool) error {
@@ -514,14 +514,14 @@ func openFixedStore(root string) (artifact.Store, error) {
 // after proving path stays below root through real (non-symlink) directories.
 // The atomic no-replace publication itself is [support.WriteNewFileAtomic]'s
 // same-directory hard-link step.
-func writeNewFileAtomic(root, path string, data []byte, mode os.FileMode) error {
+func writeNewFileAtomic(root, path string, data []byte) error {
 	if _, err := relativeBelowRoot(root, path); err != nil {
 		return err
 	}
 	if err := ensureRealDirectories(root, filepath.Dir(path)); err != nil {
 		return err
 	}
-	return support.WriteNewFileAtomic(path, data, mode)
+	return support.WriteNewFileAtomic(path, data, 0o644)
 }
 
 func ensureRealDirectories(root, directory string) error {

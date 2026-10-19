@@ -2,6 +2,7 @@ package evidence
 
 import (
 	"cmp"
+	"errors"
 	"fmt"
 	"math"
 	"slices"
@@ -51,14 +52,14 @@ type measuredPair struct {
 
 func evaluateAA(runs []resolvedRun) (AAVerdict, error) {
 	if len(runs) != 3 {
-		return AAVerdict{}, fmt.Errorf("evidence: A/A requires exactly three runs")
+		return AAVerdict{}, errors.New("evidence: A/A requires exactly three runs")
 	}
 	first := runs[0]
 	pol := first.Policy
 	if pol.Series.RunKind != policy.RunKindAA || pol.Series.EvidenceClass != policy.EvidenceClassSelfValidation ||
 		pol.Series.HostMode != policy.HostModeSame || pol.Series.Toolchain != policy.ToolchainStock ||
 		pol.Series.AdapterClass != policy.AdapterClassAA || pol.Series.ValidationProfile != policy.ValidationStrict {
-		return AAVerdict{}, fmt.Errorf("evidence: A/A policy classification is not strict stock self-validation")
+		return AAVerdict{}, errors.New("evidence: A/A policy classification is not strict stock self-validation")
 	}
 	if pol.AAGates.MinSessions != 3 || pol.AAGates.MinPairsPerSession != 20 || pol.Bootstrap.Confidence != 0.95 ||
 		pol.Bootstrap.Replicates < 1_000 || pol.Bootstrap.NullIterations < 1_000 || pol.AAGates.MaxFalsePositive != 0.05 ||
@@ -66,7 +67,7 @@ func evaluateAA(runs []resolvedRun) (AAVerdict, error) {
 		pol.AAGates.P99 != (policy.RatioBand{Lower: 0.98, Upper: 1.02}) ||
 		pol.AAGates.P999 != (policy.RatioBand{Lower: 0.95, Upper: 1.05}) ||
 		pol.AAGates.OrderEffect != (policy.RatioBand{Lower: 0.99, Upper: 1.01}) {
-		return AAVerdict{}, fmt.Errorf("evidence: A/A preregistered inference settings are insufficient")
+		return AAVerdict{}, errors.New("evidence: A/A preregistered inference settings are insufficient")
 	}
 	sessionIDs := make([]string, len(runs))
 	binarySHA := first.Manifest.LibraryBinariesSHA256[pol.Candidate]
@@ -380,7 +381,7 @@ func finiteRatio(candidate, comparator float64) (float64, error) {
 		return 1, nil
 	}
 	if comparator == 0 {
-		return 0, fmt.Errorf("undefined ratio with zero comparator")
+		return 0, errors.New("undefined ratio with zero comparator")
 	}
 	return candidate / comparator, nil
 }
@@ -398,7 +399,7 @@ func hierarchicalInterval(ratios []paired.BlockRatio, config paired.InferenceCon
 
 func hierarchicalIntervalWithZero(ratios []paired.BlockRatio, config paired.InferenceConfig) (paired.Interval, error) {
 	if len(ratios) == 0 || config.Replicates <= 0 || config.Confidence <= 0 || config.Confidence >= 1 {
-		return paired.Interval{}, fmt.Errorf("evidence: invalid nonnegative hierarchical bootstrap input")
+		return paired.Interval{}, errors.New("evidence: invalid nonnegative hierarchical bootstrap input")
 	}
 	bySession := make(map[string][]paired.BlockRatio)
 	seen := make(map[string]bool, len(ratios))
@@ -597,7 +598,7 @@ func fullClaimPass(allPairs map[string][]measuredPair, pol *policy.Policy, flips
 
 func hierarchicalAbsoluteInterval(pairs []measuredPair, values []float64, config paired.InferenceConfig) (paired.Interval, error) {
 	if len(pairs) != len(values) || len(values) == 0 {
-		return paired.Interval{}, fmt.Errorf("evidence: invalid absolute interval input")
+		return paired.Interval{}, errors.New("evidence: invalid absolute interval input")
 	}
 	bySession := make(map[string][]float64)
 	for i, pair := range pairs {

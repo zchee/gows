@@ -307,7 +307,7 @@ func websocketAccept(key string) string {
 }
 
 func FuzzConnReadState(f *testing.F) {
-	compressed, err := compressPayload(nil, []byte("compressed seed"))
+	compressed, err := compressPayload([]byte("compressed seed"))
 	if err != nil {
 		f.Fatal(err)
 	}

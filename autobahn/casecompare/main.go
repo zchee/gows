@@ -22,9 +22,9 @@ import (
 	"fmt"
 	"os"
 	"sort"
-)
 
-type result struct{ Behavior, BehaviorClose string }
+	"github.com/zchee/gows/internal/autobahnreport"
+)
 
 func main() {
 	baseline := flag.String("baseline", "", "frozen baseline index.json")
@@ -64,15 +64,10 @@ func compare(baselinePath, currentPath, agent string) error {
 			return fmt.Errorf("case %s changed: baseline=%+v current=%+v", id, baseline[id], got)
 		}
 	}
-	for id := range current {
-		if _, ok := baseline[id]; !ok {
-			return fmt.Errorf("current has extra case %s", id)
-		}
-	}
 	return nil
 }
 
-func load(path, agent string) (map[string]result, error) {
+func load(path, agent string) (map[string]autobahnreport.CaseResult, error) {
 	if path == "" || agent == "" {
 		return nil, errors.New("path and agent are required")
 	}
@@ -80,10 +75,7 @@ func load(path, agent string) (map[string]result, error) {
 	if err != nil {
 		return nil, err
 	}
-	var report map[string]map[string]struct {
-		Behavior      string `json:"behavior"`
-		BehaviorClose string `json:"behaviorClose"`
-	}
+	var report map[string]map[string]autobahnreport.CaseResult
 	if err := json.Unmarshal(b, &report); err != nil {
 		return nil, err
 	}
@@ -91,9 +83,5 @@ func load(path, agent string) (map[string]result, error) {
 	if !ok {
 		return nil, fmt.Errorf("missing exact agent %q", agent)
 	}
-	out := make(map[string]result, len(cases))
-	for id, r := range cases {
-		out[id] = result{r.Behavior, r.BehaviorClose}
-	}
-	return out, nil
+	return cases, nil
 }

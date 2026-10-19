@@ -9,11 +9,11 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
-	"runtime"
 	"slices"
 	"sort"
 	"strings"
@@ -39,7 +39,7 @@ type Config struct {
 	GOOS     string
 	GOARCH   string
 	// TargetGoRoot selects the compiler that produces the target bundle. An
-	// empty value preserves the historical runtime.GOROOT default.
+	// empty value selects the compiler's own root (runtime.GOROOT).
 	TargetGoRoot string
 	RunRuntime   bool
 	AllowDirty   bool
@@ -335,7 +335,7 @@ func Collect(ctx context.Context, cfg Config) (_ Bundle, resultErr error) {
 func resolveTargetGoRoot(explicit string) (string, string, error) {
 	root := explicit
 	if root == "" {
-		root = compilerGoRoot()
+		root = support.CompilerGoRoot()
 	}
 	if !filepath.IsAbs(root) {
 		return "", "", fmt.Errorf("GOROOT %q is not absolute", root)
@@ -365,16 +365,9 @@ func resolveTargetGoRoot(explicit string) (string, string, error) {
 		return "", "", fmt.Errorf("absolute Go tool %q: %w", goTool, err)
 	}
 	if canonicalTool != goTool {
-		return "", "", fmt.Errorf("Go tool %q is not symlink-canonical (want %q)", goTool, canonicalTool)
+		return "", "", fmt.Errorf("go tool %q is not symlink-canonical (want %q)", goTool, canonicalTool)
 	}
 	return canonicalRoot, canonicalTool, nil
-}
-
-// compilerGoRoot returns the exact compiler toolchain that built asmprobe;
-// assembly provenance must not silently switch to a different PATH toolchain.
-func compilerGoRoot() string {
-	//lint:ignore SA1019 Exact build-toolchain identity is required by assembly provenance.
-	return runtime.GOROOT() //nolint:staticcheck // Exact build-toolchain identity is required by assembly provenance.
 }
 
 func targetEnvironment(base []string, goos, goarch, goroot, gofips140 string) []string {
@@ -396,26 +389,17 @@ func targetEnvironment(base []string, goos, goarch, goroot, gofips140 string) []
 	if goarch == "arm64" {
 		overrides["GOARM64"] = "v8.0"
 	}
-	env := make([]string, 0, len(base)+len(overrides))
-	for _, entry := range base {
+	// Both architecture baselines are dropped from the inherited environment;
+	// only the target architecture's one is set again below.
+	base = slices.DeleteFunc(slices.Clone(base), func(entry string) bool {
 		name, _, _ := strings.Cut(entry, "=")
-		if name == "GOAMD64" || name == "GOARM64" {
-			continue
-		}
-		if _, overridden := overrides[name]; overridden {
-			continue
-		}
-		env = append(env, entry)
+		return name == "GOAMD64" || name == "GOARM64"
+	})
+	assignments := make([]string, 0, len(overrides))
+	for _, name := range slices.Sorted(maps.Keys(overrides)) {
+		assignments = append(assignments, name+"="+overrides[name])
 	}
-	keys := make([]string, 0, len(overrides))
-	for name := range overrides {
-		keys = append(keys, name)
-	}
-	sort.Strings(keys)
-	for _, name := range keys {
-		env = append(env, name+"="+overrides[name])
-	}
-	return env
+	return support.OverrideEnvironment(base, assignments)
 }
 
 func targetSetting(goarch, targetArch, value string) string {

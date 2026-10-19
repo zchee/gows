@@ -72,7 +72,7 @@ func TestValidateSamplesRejectsReusedBlockIdentity(t *testing.T) {
 	run := resolvedRun{
 		Receipt: artifact.RunReceipt{SessionID: "session", PolicySHA256: strings.Repeat("c", 64)},
 		Policy:  pol,
-		Manifest: runManifest{
+		Manifest: support.RunManifest{
 			LibraryBinariesSHA256: map[string]string{"a": strings.Repeat("a", 64), "b": strings.Repeat("b", 64)},
 			AdapterSHA256:         map[string]string{"a": strings.Repeat("d", 64), "b": strings.Repeat("e", 64)},
 		},
@@ -139,7 +139,7 @@ func TestValidateRunTimeline(t *testing.T) {
 }
 
 func TestValidateEnvSnapshotRequiresObservationOverhead(t *testing.T) {
-	snapshot := envSnapshot{
+	snapshot := support.EnvSnapshot{
 		PMSetBattery: "Now drawing from 'AC Power'", PMSetThermal: "No thermal warning level has been recorded\nNo performance warning level has been recorded",
 		LogicalCPUs: 8, MemoryBytes: 16 << 30, BootIdentity: "darwin:kern.bootsessionuuid=test-boot", Uptime: "up 1 day",
 		CapturedAt: time.Date(2026, 7, 15, 0, 0, 0, 0, time.UTC).Format(time.RFC3339Nano), ObservationNanoseconds: 1,
@@ -155,7 +155,7 @@ func TestValidateEnvSnapshotRequiresObservationOverhead(t *testing.T) {
 
 func TestRunEnvironmentRejectsRecordedContamination(t *testing.T) {
 	cleanThermal := "No thermal warning level has been recorded\nNo performance warning level has been recorded"
-	baseline := envSnapshot{
+	baseline := support.EnvSnapshot{
 		Load1: 2, PMSetBattery: "Now drawing from 'AC Power'", PMSetThermal: cleanThermal,
 		LogicalCPUs: 8, MemoryBytes: 16 << 30, BootIdentity: "darwin:kern.bootsessionuuid=test-boot",
 	}

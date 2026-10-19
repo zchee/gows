@@ -19,7 +19,25 @@ import (
 	"testing"
 
 	"github.com/zchee/gows/internal/extension"
+	"github.com/zchee/gows/internal/httpx"
 )
+
+// firstValidDeflateOffer applies the selection rule a server builds its
+// negotiation on: scan a Sec-WebSocket-Extensions value in the client's
+// preference order and return the first permessage-deflate offer whose
+// parameters [extension.ParseDeflateOfferParams] accepts.
+func firstValidDeflateOffer(b []byte) (extension.DeflateParams, bool) {
+	sc := extension.NewOfferScanner(b)
+	for sc.Next() {
+		if !httpx.EqualFold(sc.Name(), extension.DeflateExtensionName) {
+			continue
+		}
+		if params, ok := extension.ParseDeflateOfferParams(sc.Params()); ok {
+			return params, true
+		}
+	}
+	return extension.DeflateParams{}, false
+}
 
 func TestParseDeflateOfferRFCExamples(t *testing.T) {
 	tests := map[string]struct {
@@ -63,7 +81,7 @@ func TestParseDeflateOfferRFCExamples(t *testing.T) {
 
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
-			got, ok := extension.ParseDeflateOffer([]byte(tt.raw))
+			got, ok := firstValidDeflateOffer([]byte(tt.raw))
 			if ok != tt.wantOK {
 				t.Fatalf("ok = %v, want %v (got=%+v)", ok, tt.wantOK, got)
 			}
@@ -80,7 +98,7 @@ func TestParseDeflateOfferFallback(t *testing.T) {
 	raw := "permessage-deflate; server_no_context_takeover; server_no_context_takeover, " +
 		"permessage-deflate; client_max_window_bits"
 
-	got, ok := extension.ParseDeflateOffer([]byte(raw))
+	got, ok := firstValidDeflateOffer([]byte(raw))
 	if !ok {
 		t.Fatalf("ok = false, want true (should fall back to the second, valid offer)")
 	}
@@ -108,8 +126,8 @@ func TestParseDeflateOfferMalformed(t *testing.T) {
 
 	for name, raw := range tests {
 		t.Run(name, func(t *testing.T) {
-			if _, ok := extension.ParseDeflateOffer([]byte(raw)); ok {
-				t.Fatalf("ParseDeflateOffer(%q): ok = true, want false", raw)
+			if _, ok := firstValidDeflateOffer([]byte(raw)); ok {
+				t.Fatalf("firstValidDeflateOffer(%q): ok = true, want false", raw)
 			}
 		})
 	}
@@ -118,7 +136,7 @@ func TestParseDeflateOfferMalformed(t *testing.T) {
 func TestParseDeflateOfferSkipsUnknownExtensionNames(t *testing.T) {
 	raw := "permessage-foo; server_no_context_takeover, " + // Not permessage-deflate: ignored regardless of params.
 		"permessage-deflate; client_no_context_takeover"
-	got, ok := extension.ParseDeflateOffer([]byte(raw))
+	got, ok := firstValidDeflateOffer([]byte(raw))
 	if !ok {
 		t.Fatalf("ok = false, want true")
 	}
@@ -131,12 +149,12 @@ func TestParseDeflateOfferSkipsUnknownExtensionNames(t *testing.T) {
 func TestParseDeflateOfferAllocs(t *testing.T) {
 	b := []byte("permessage-deflate; client_max_window_bits; server_max_window_bits=10")
 	f := func() {
-		if _, ok := extension.ParseDeflateOffer(b); !ok {
-			t.Fatal("ParseDeflateOffer: ok = false")
+		if _, ok := firstValidDeflateOffer(b); !ok {
+			t.Fatal("firstValidDeflateOffer: ok = false")
 		}
 	}
 	if avg := testing.AllocsPerRun(200, f); avg != 0 {
-		t.Fatalf("ParseDeflateOffer: %.2f allocs/op, want 0", avg)
+		t.Fatalf("firstValidDeflateOffer: %.2f allocs/op, want 0", avg)
 	}
 }
 
@@ -278,8 +296,8 @@ func BenchmarkParseDeflateOffer(b *testing.B) {
 	raw := []byte("permessage-deflate; client_max_window_bits; server_max_window_bits=10")
 	b.ReportAllocs()
 	for b.Loop() {
-		if _, ok := extension.ParseDeflateOffer(raw); !ok {
-			b.Fatal("ParseDeflateOffer: ok = false")
+		if _, ok := firstValidDeflateOffer(raw); !ok {
+			b.Fatal("firstValidDeflateOffer: ok = false")
 		}
 	}
 }

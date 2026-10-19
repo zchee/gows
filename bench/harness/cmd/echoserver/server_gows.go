@@ -24,14 +24,13 @@ import (
 // rbuf1kSize is the read-buffer size for the gows-rbuf1k variant: a 1 KiB
 // payload plus gows's maximum frame-header size ([gows.MaxHeaderSize]), so a
 // full 1 KiB binary frame (header + payload) fits in a single buffered read.
-// This tracks quickws's ~1038-byte default window, isolating read-buffer
-// geometry as the manipulated variable in hypothesis H1.
+// This tracks quickws's ~1038-byte default window, so comparing it with the
+// other gows variants changes the read-buffer size and nothing else.
 const rbuf1kSize = 1024 + gows.MaxHeaderSize
 
 // gowsVariant is one gows echo-server configuration, keyed by -lib name in
 // gowsVariants. Keeping the variants in a table means the read-buffer sweep
-// (hypothesis H1) is data-driven rather than a family of near-identical
-// server functions.
+// is data-driven rather than a family of near-identical server functions.
 type gowsVariant struct {
 	// readBufSize is passed to [gows.WithReadBufferSize].
 	readBufSize int
@@ -45,8 +44,8 @@ type gowsVariant struct {
 
 // gowsVariants enumerates every -lib name served by runGoWS. "gows" and
 // "gows-noutf8" keep the harness's shared 4096-byte read buffer (bufferSize);
-// "gows-rbuf1k" and "gows-rbuf16k" are the read-buffer geometry variants for
-// hypothesis H1. UTF-8 validation stays on for every variant except
+// "gows-rbuf1k" and "gows-rbuf16k" are the read-buffer size variants that
+// sweep around it. UTF-8 validation stays on for every variant except
 // "gows-noutf8" (the paired validation-OFF reference config), matching gows's
 // RFC 6455 §8.1-by-default posture used by the comparative echo gate.
 var gowsVariants = map[string]gowsVariant{
@@ -64,25 +63,7 @@ var gowsVariants = map[string]gowsVariant{
 // the -notsent-lowat and -trace-file accept hooks apply here identically to the
 // net/http-based backends.
 func runGoWS(ctx context.Context, addr string, cfg serverConfig) error {
-	ln, err := newListener(addr, cfg)
-	if err != nil {
-		return err
-	}
-	go func() {
-		<-ctx.Done()
-		_ = ln.Close()
-	}()
-
-	for {
-		conn, err := ln.Accept()
-		if err != nil {
-			if ctx.Err() != nil {
-				return nil
-			}
-			return err
-		}
-		go serveGoWSConn(conn, cfg)
-	}
+	return serveRaw(ctx, addr, cfg, func(conn net.Conn) { serveGoWSConn(conn, cfg) })
 }
 
 // serveGoWSConn upgrades one accepted connection and runs its echo loop until

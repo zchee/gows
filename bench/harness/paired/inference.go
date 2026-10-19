@@ -2,6 +2,7 @@ package paired
 
 import (
 	"cmp"
+	"errors"
 	"fmt"
 	"math"
 	"slices"
@@ -135,13 +136,13 @@ func groupRatios(ratios []BlockRatio, cfg InferenceConfig) ([]sessionRatios, err
 		return nil, fmt.Errorf("paired: inference confidence must be in (0,1), got %g", cfg.Confidence)
 	}
 	if len(ratios) == 0 {
-		return nil, fmt.Errorf("paired: no block ratios")
+		return nil, errors.New("paired: no block ratios")
 	}
 	bySession := make(map[string][]BlockRatio)
 	seen := make(map[string]struct{}, len(ratios))
 	for _, ratio := range ratios {
 		if ratio.SessionID == "" || ratio.Scenario == "" || ratio.BlockID == "" {
-			return nil, fmt.Errorf("paired: ratio has empty session_id, scenario, or block_id")
+			return nil, errors.New("paired: ratio has empty session_id, scenario, or block_id")
 		}
 		if ratio.Order != OrderAB && ratio.Order != OrderBA {
 			return nil, fmt.Errorf("paired: ratio %s/%s/%s has invalid order %q", ratio.SessionID, ratio.Scenario, ratio.BlockID, ratio.Order)
