@@ -19,7 +19,6 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -39,7 +38,7 @@ func TestFeatureRunServerLaunchReceiptAndCleanup(t *testing.T) {
 	app := writeFeatureApp(t, bin, "server-app", "trap 'exit 143' TERM; while :; do sleep 1; done")
 	cmd := exec.Command("bash", "./feature-run.sh", "server", "--", app, "-mode", "server")
 	cmd.Dir = "."
-	cmd.Env = featureEnv(cmd.Environ(), bin, dir, reports, fixture, "server-success")
+	cmd.Env = featureEnv(t, cmd.Environ(), bin, dir, reports, fixture, "server-success")
 	cmd.Env = append(cmd.Env, "AUTOBAHN_EXPECTED_APPLICATION_SHA256="+fileSHA256(t, app))
 	cmd.Env = setEnv(cmd.Env, "AUTOBAHN_CASE_DELAY", "10ms")
 	auditLog := filepath.Join(dir, "ownership-audit.log")
@@ -108,7 +107,7 @@ func TestFeatureRunCanonicalizesImageID(t *testing.T) {
 			app := writeFeatureApp(t, bin, "image-id-app", "trap 'exit 143' TERM; while :; do sleep 1; done")
 			cmd := exec.Command("bash", "./feature-run.sh", "server", "--", app, "-mode", "server")
 			cmd.Dir = "."
-			cmd.Env = featureEnv(cmd.Environ(), bin, dir, reports, fixture, "image-id")
+			cmd.Env = featureEnv(t, cmd.Environ(), bin, dir, reports, fixture, "image-id")
 			cmd.Env = append(
 				cmd.Env,
 				"AUTOBAHN_EXPECTED_APPLICATION_SHA256="+fileSHA256(t, app),
@@ -149,7 +148,7 @@ func TestFeatureRunClientCreatesCompletionAfterNaturalExit(t *testing.T) {
 	app := writeFeatureApp(t, bin, "client-success-app", "exit 0")
 	cmd := exec.Command("bash", "./feature-run.sh", "client", "--", app, "-mode=client")
 	cmd.Dir = "."
-	cmd.Env = featureEnv(cmd.Environ(), bin, dir, reports, fixture, "client-success")
+	cmd.Env = featureEnv(t, cmd.Environ(), bin, dir, reports, fixture, "client-success")
 	cmd.Env = append(
 		cmd.Env,
 		"AUTOBAHN_EXPECTED_APPLICATION_SHA256="+fileSHA256(t, app),
@@ -182,7 +181,7 @@ func TestFeatureRunClientReapsFailedRunnerWithoutSecondKill(t *testing.T) {
 	audit := filepath.Join(dir, "runner-ownership-audit.log")
 	cmd := exec.Command("bash", "./feature-run.sh", "client", "--", app, "-mode=client")
 	cmd.Dir = "."
-	cmd.Env = featureEnv(cmd.Environ(), bin, dir, reports, fixture, "client-runner-failure")
+	cmd.Env = featureEnv(t, cmd.Environ(), bin, dir, reports, fixture, "client-runner-failure")
 	cmd.Env = append(cmd.Env, "AUTOBAHN_EXPECTED_APPLICATION_SHA256="+fileSHA256(t, app), "AUTOBAHN_RUNNER_OWNERSHIP_AUDIT_LOG="+audit, "READY_REPORT_ROOT="+reports)
 	out, err := cmd.CombinedOutput()
 	if err == nil || !strings.Contains(string(out), "behavior=FAILED") {
@@ -202,7 +201,7 @@ func TestFeatureRunInterruptWritesFailureReceipt(t *testing.T) {
 	reports := filepath.Join(dir, "interrupt-run-reports")
 	cmd := exec.Command("bash", "./feature-run.sh", "server", "--", app, "-mode", "server")
 	cmd.Dir = "."
-	cmd.Env = featureEnv(cmd.Environ(), bin, dir, reports, filepath.Join(dir, "unused"), "interrupt-run")
+	cmd.Env = featureEnv(t, cmd.Environ(), bin, dir, reports, filepath.Join(dir, "unused"), "interrupt-run")
 	cmd.Env = append(cmd.Env, "AUTOBAHN_EXPECTED_APPLICATION_SHA256="+fileSHA256(t, app))
 	if err := cmd.Start(); err != nil {
 		t.Fatal(err)
@@ -236,7 +235,7 @@ func TestFeatureRunRejectsOccupiedPortBeforeLaunch(t *testing.T) {
 	reports := filepath.Join(dir, "occupied-run-reports")
 	cmd := exec.Command("bash", "./feature-run.sh", "server", "--", app, "-mode", "server")
 	cmd.Dir = "."
-	cmd.Env = featureEnv(cmd.Environ(), bin, dir, reports, filepath.Join(dir, "unused"), "occupied-run")
+	cmd.Env = featureEnv(t, cmd.Environ(), bin, dir, reports, filepath.Join(dir, "unused"), "occupied-run")
 	cmd.Env = append(cmd.Env, "AUTOBAHN_EXPECTED_APPLICATION_SHA256="+fileSHA256(t, app))
 	out, err := cmd.CombinedOutput()
 	if err == nil || !strings.Contains(string(out), "port 9001 is already occupied") {
@@ -253,7 +252,7 @@ func TestFeatureRunRejectsUnreviewedBinaryBeforeLaunch(t *testing.T) {
 	reports := filepath.Join(dir, "unreviewed-run-reports")
 	cmd := exec.Command("bash", "./feature-run.sh", "server", "--", app, "-mode", "server")
 	cmd.Dir = "."
-	cmd.Env = featureEnv(cmd.Environ(), bin, dir, reports, filepath.Join(dir, "unused"), "unreviewed-run")
+	cmd.Env = featureEnv(t, cmd.Environ(), bin, dir, reports, filepath.Join(dir, "unused"), "unreviewed-run")
 	cmd.Env = append(cmd.Env, "AUTOBAHN_EXPECTED_APPLICATION_SHA256="+strings.Repeat("0", 64))
 	out, err := cmd.CombinedOutput()
 	if err == nil || !strings.Contains(string(out), "does not match reviewed binary") {
@@ -268,7 +267,7 @@ func TestFeatureRunRejectsInvalidNetworkModeBeforeLaunch(t *testing.T) {
 	dir, bin := featureSandbox(t)
 	app := writeFeatureApp(t, bin, "network-app", "exit 0")
 	reports := filepath.Join(dir, "invalid-network-reports")
-	env := featureEnv(os.Environ(), bin, dir, reports, filepath.Join(dir, "unused"), "invalid-network")
+	env := featureEnv(t, os.Environ(), bin, dir, reports, filepath.Join(dir, "unused"), "invalid-network")
 	env = setEnv(env, "AUTOBAHN_EXPECTED_APPLICATION_SHA256", fileSHA256(t, app))
 	env = setEnv(env, "AUTOBAHN_NETWORK_MODE", "invalid")
 	cmd := exec.Command("bash", "./feature-run.sh", "server", "--", app, "-mode", "server")
@@ -293,7 +292,7 @@ func TestFeatureRunRejectsGeneratorEvidenceBeforeLaunch(t *testing.T) {
 			dir, bin := featureSandbox(t)
 			app := writeFeatureApp(t, bin, "generator-app", "exit 0")
 			reports := filepath.Join(dir, "generator-"+tc.name+"-reports")
-			env := featureEnv(os.Environ(), bin, dir, reports, filepath.Join(dir, "unused"), "generator-"+tc.name)
+			env := featureEnv(t, os.Environ(), bin, dir, reports, filepath.Join(dir, "unused"), "generator-"+tc.name)
 			env = setEnv(env, "AUTOBAHN_EXPECTED_APPLICATION_SHA256", fileSHA256(t, app))
 			if tc.name == "hash-mismatch" {
 				path := filepath.Join(dir, "generator.txt")
@@ -321,7 +320,7 @@ func TestFeatureRunRejectsInvalidTimeoutsBeforeLaunch(t *testing.T) {
 				dir, bin := featureSandbox(t)
 				app := writeFeatureApp(t, bin, "timeout-app", "exit 0")
 				reports := filepath.Join(dir, "timeout-validation-reports")
-				env := featureEnv(os.Environ(), bin, dir, reports, filepath.Join(dir, "unused"), "timeout-validation")
+				env := featureEnv(t, os.Environ(), bin, dir, reports, filepath.Join(dir, "unused"), "timeout-validation")
 				env = setEnv(env, "AUTOBAHN_EXPECTED_APPLICATION_SHA256", fileSHA256(t, app))
 				env = setEnv(env, key, value)
 				cmd := exec.Command("bash", "./feature-run.sh", "server", "--", app, "-mode", "server")
@@ -345,7 +344,7 @@ func TestFeatureRunRejectsInvalidCaseDelayBeforeLaunch(t *testing.T) {
 			dir, bin := featureSandbox(t)
 			app := writeFeatureApp(t, bin, "delay-app", "exit 0")
 			reports := filepath.Join(dir, "delay-validation-reports")
-			env := featureEnv(os.Environ(), bin, dir, reports, filepath.Join(dir, "unused"), "delay-validation")
+			env := featureEnv(t, os.Environ(), bin, dir, reports, filepath.Join(dir, "unused"), "delay-validation")
 			env = setEnv(env, "AUTOBAHN_EXPECTED_APPLICATION_SHA256", fileSHA256(t, app))
 			env = setEnv(env, "AUTOBAHN_CASE_DELAY", value)
 			cmd := exec.Command("bash", "./feature-run.sh", "server", "--", app, "-mode", "server")
@@ -380,7 +379,7 @@ func TestFeatureRunClientFailureAndTimeoutReceipts(t *testing.T) {
 			app := writeFeatureApp(t, bin, "client-app", tc.body)
 			cmd := exec.Command("bash", "./feature-run.sh", "client", "--", app, "-mode=client")
 			cmd.Dir = "."
-			cmd.Env = featureEnv(cmd.Environ(), bin, dir, reports, fixture, "client-"+tc.name)
+			cmd.Env = featureEnv(t, cmd.Environ(), bin, dir, reports, fixture, "client-"+tc.name)
 			cmd.Env = append(cmd.Env, "AUTOBAHN_EXPECTED_APPLICATION_SHA256="+fileSHA256(t, app))
 			auditLog := filepath.Join(dir, "ownership-audit.log")
 			cmd.Env = append(cmd.Env, "AUTOBAHN_OWNERSHIP_AUDIT_LOG="+auditLog)
@@ -391,8 +390,7 @@ func TestFeatureRunClientFailureAndTimeoutReceipts(t *testing.T) {
 			if err == nil {
 				t.Fatalf("unexpected success: %s", out)
 			}
-			var ee *exec.ExitError
-			if !strings.Contains(fmt.Sprint(err), "exit status") || !errors.As(err, &ee) {
+			if _, ok := errors.AsType[*exec.ExitError](err); !ok {
 				t.Fatalf("err=%v", err)
 			}
 			var r map[string]any
@@ -431,13 +429,9 @@ func featureSandbox(t *testing.T) (string, string) {
 	return dir, bin
 }
 
-func featureEnv(base []string, bin, dir, reports, fixture, runID string) []string {
-	generator := filepath.Join(dir, "generator.txt")
-	_ = os.WriteFile(generator, []byte("generator\n"), 0o644)
-	generator, _ = filepath.EvalSymlinks(generator)
-	data, _ := os.ReadFile(generator)
-	sum := sha256.Sum256(data)
-	return append(base, "PATH="+bin+":"+os.Getenv("PATH"), "AUTOBAHN_REPORTS_DIR="+reports, "AUTOBAHN_RUN_ID="+runID, "REPORT_FIXTURE="+fixture, "APP_PID_LOG="+filepath.Join(dir, "app.pid"), "AUTOBAHN_READY_TIMEOUT=2", "AUTOBAHN_CLIENT_TIMEOUT=5", "AUTOBAHN_GENERATOR_EVIDENCE="+generator+"@sha256:"+hex.EncodeToString(sum[:]))
+func featureEnv(t *testing.T, base []string, bin, dir, reports, fixture, runID string) []string {
+	t.Helper()
+	return append(base, "PATH="+bin+":"+os.Getenv("PATH"), "AUTOBAHN_REPORTS_DIR="+reports, "AUTOBAHN_RUN_ID="+runID, "REPORT_FIXTURE="+fixture, "APP_PID_LOG="+filepath.Join(dir, "app.pid"), "AUTOBAHN_READY_TIMEOUT=2", "AUTOBAHN_CLIENT_TIMEOUT=5", "AUTOBAHN_GENERATOR_EVIDENCE="+writeGeneratorArtifact(t, dir))
 }
 
 func writeFeatureDocker(t *testing.T, bin string, slow bool) {

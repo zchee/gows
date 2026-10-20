@@ -390,7 +390,7 @@ func TestNextWriterFragmentBoundaries(t *testing.T) {
 			t.Errorf("frame %d Fin = %v, want %v", i, f.h.Fin, wantFin)
 		}
 		if f.h.Rsv != 0 {
-			t.Errorf("frame %d Rsv = %#x, want 0 (NextWriter never compresses)", i, f.h.Rsv)
+			t.Errorf("frame %d Rsv = %#x, want 0 (compression disabled on this connection)", i, f.h.Rsv)
 		}
 		reassembled = append(reassembled, f.payload...)
 	}
@@ -568,7 +568,7 @@ func TestNextWriterCompressesAboveThreshold(t *testing.T) {
 	sc := &scriptConn{}
 	c := NewServerConn(sc, WithCompression(true))
 	// Well above the compression threshold and highly compressible; still
-	// under one fragment buffer so CLOSE-LARGE emits a single Fin frame.
+	// under one fragment buffer so Close emits a single Fin frame.
 	payload := bytes.Repeat([]byte("A"), 4000)
 	w, err := c.NextWriter(OpcodeBinary)
 	if err != nil {
@@ -582,7 +582,7 @@ func TestNextWriterCompressesAboveThreshold(t *testing.T) {
 	}
 	frames := parseFrames(t, sc.out.Bytes())
 	if len(frames) != 1 {
-		t.Fatalf("got %d frames, want 1 (CLOSE-LARGE single Fin)", len(frames))
+		t.Fatalf("got %d frames, want 1 (single Fin frame)", len(frames))
 	}
 	f := frames[0]
 	if f.h.Opcode != OpcodeBinary || !f.h.Fin {
@@ -597,45 +597,19 @@ func TestNextWriterCompressesAboveThreshold(t *testing.T) {
 	}
 }
 
-// TestNextWriterStreamingCompression covers the streaming compression cases
-// required by gows v0.3 item 2: multi-fragment RSV1 framing, threshold
-// boundaries, takeover continuity, and mid-stream failure disable.
+// TestNextWriterStreamingCompression covers multi-fragment RSV1 framing,
+// threshold boundaries, takeover continuity, and mid-stream failure disable.
 func TestNextWriterStreamingCompression(t *testing.T) {
 	// Not t.Parallel: several cases call withDeflateBackend (process-global).
 
-	tests := map[string]struct {
-		run func(t *testing.T)
-	}{
-		"success: compressed roundtrip multi-fragment": {
-			run: testNextWriterCompressedMultiFragment,
-		},
-		"success: sub-threshold stays uncompressed": {
-			run: testNextWriterSubThresholdUncompressed,
-		},
-		"success: threshold boundary compressed single frame": {
-			run: testNextWriterThresholdBoundary,
-		},
-		"success: empty message uncompressed": {
-			run: testNextWriterEmptyStaysUncompressed,
-		},
-		"success: context takeover across NextWriter and WriteMessage": {
-			run: testNextWriterTakeoverAcrossAPIs,
-		},
-		"success: takeover sub-threshold NextWriter leaves window untouched": {
-			run: testNextWriterTakeoverSubThresholdLeavesWindow,
-		},
-		"success: incompressible data multi-fragment roundtrip": {
-			run: testNextWriterIncompressibleMultiFragment,
-		},
-		"error: takeover mid-stream emit failure disables outgoing": {
-			run: testNextWriterTakeoverEmitFailureDisables,
-		},
-	}
-	for name, tt := range tests {
-		t.Run(name, func(t *testing.T) {
-			tt.run(t)
-		})
-	}
+	t.Run("success: compressed roundtrip multi-fragment", testNextWriterCompressedMultiFragment)
+	t.Run("success: sub-threshold stays uncompressed", testNextWriterSubThresholdUncompressed)
+	t.Run("success: threshold boundary compressed single frame", testNextWriterThresholdBoundary)
+	t.Run("success: empty message uncompressed", testNextWriterEmptyStaysUncompressed)
+	t.Run("success: context takeover across NextWriter and WriteMessage", testNextWriterTakeoverAcrossAPIs)
+	t.Run("success: takeover sub-threshold NextWriter leaves window untouched", testNextWriterTakeoverSubThresholdLeavesWindow)
+	t.Run("success: incompressible data multi-fragment roundtrip", testNextWriterIncompressibleMultiFragment)
+	t.Run("error: takeover mid-stream emit failure disables outgoing", testNextWriterTakeoverEmitFailureDisables)
 }
 
 // testNextWriterCompressedMultiFragment writes enough expanding data that

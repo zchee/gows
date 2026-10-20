@@ -256,9 +256,9 @@ type Upgrader struct {
 
 	// EnableCompression, when true, makes [Upgrader.Upgrade] and
 	// [Upgrader.UpgradeHTTP] negotiate permessage-deflate (RFC 7692) with
-	// a client that offers it. This phase only ever responds with both
+	// a client that offers it. By default it responds with both
 	// server_no_context_takeover and client_no_context_takeover set
-	// (context takeover is a later opt-in), and -- unless
+	// (see [Upgrader.AllowContextTakeover]), and -- unless
 	// [Upgrader.NegotiateWindowBits] is also set -- declines any offer
 	// requesting a server_max_window_bits other than 15 (the only window
 	// size compress.go's default stdlib compress/flate backend can
@@ -462,9 +462,9 @@ type Dialer struct {
 	CheckRedirect func(req *http.Request, via []*http.Request) error
 
 	// EnableCompression, when true, makes [Dialer.Dial] offer
-	// permessage-deflate (RFC 7692) in its handshake request, requesting
+	// permessage-deflate (RFC 7692) in its handshake request, by default requesting
 	// both server_no_context_takeover and client_no_context_takeover
-	// (context takeover is a later opt-in) and no particular window size.
+	// (see [Dialer.AllowContextTakeover]) and no particular window size.
 	// If the server declines (no Sec-WebSocket-Extensions in its
 	// response), that is not a Dial failure: [Handshake.Compressed] is
 	// simply false. If the server's response is present but invalid (see

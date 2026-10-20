@@ -7,11 +7,59 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/go-cmp/cmp"
+
 	"github.com/zchee/gows/bench/harness/artifact"
 	"github.com/zchee/gows/bench/harness/paired"
 	"github.com/zchee/gows/bench/harness/policy"
 	"github.com/zchee/gows/bench/harness/support"
 )
+
+func TestSampleMetric(t *testing.T) {
+	t.Parallel()
+	sample := paired.Sample{
+		LoadgenResult: support.LoadgenResult{
+			ThroughputMessagesPerSecond: 123.5,
+			P99Nanoseconds:              456,
+			P999Nanoseconds:             789,
+		},
+		ServerCPUSecondsPerMessage:  0.001,
+		ServerRSSBytesPerConnection: 2048.5,
+		ClientCPUSecondsPerMessage:  0.002,
+	}
+	tests := map[string]struct {
+		metric    string
+		want      float64
+		wantError string
+	}{
+		"throughput": {metric: metricThroughput, want: 123.5},
+		"p99":        {metric: metricP99, want: 456},
+		"p999":       {metric: metricP999, want: 789},
+		"server CPU": {metric: metricServerCPU, want: 0.001},
+		"server RSS": {metric: metricServerRSS, want: 2048.5},
+		"client CPU": {metric: metricClientCPU, want: 0.002},
+		"unknown metric": {
+			metric:    "unknown",
+			wantError: `evidence: unknown metric "unknown"`,
+		},
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			got, err := sampleMetric(sample, tt.metric)
+			if tt.wantError != "" {
+				if err == nil || err.Error() != tt.wantError {
+					t.Fatalf("sampleMetric error = %v, want %q", err, tt.wantError)
+				}
+			} else if err != nil {
+				t.Fatalf("sampleMetric: %v", err)
+			}
+			if diff := cmp.Diff(tt.want, got); diff != "" {
+				t.Fatalf("sampleMetric (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
 
 func TestEvaluateAAPassesExactSameBinaryAndIsOrderStable(t *testing.T) {
 	pol := aaTestPolicy()

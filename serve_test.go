@@ -38,53 +38,40 @@ func serveBufferedEcho(c *Conn) error {
 func TestServeEchoRoundTrip(t *testing.T) {
 	t.Parallel()
 
-	tests := map[string]struct {
-		msgs []struct {
-			op Opcode
-			p  []byte
-		}
+	msgs := []struct {
+		op Opcode
+		p  []byte
 	}{
-		"mixed sizes and encodings": {msgs: []struct {
-			op Opcode
-			p  []byte
-		}{
-			{OpcodeText, []byte("hello")},
-			{OpcodeText, []byte("日本語 mixed ascii")},
-			{OpcodeBinary, bytes.Repeat([]byte{0x00, 0x9f}, 32)},
-			{OpcodeBinary, bytes.Repeat([]byte{0x5a}, 8000)}, // exceeds read buffer
-			{OpcodeText, []byte("")},                         // empty payload
-		}},
+		{OpcodeText, []byte("hello")},
+		{OpcodeText, []byte("日本語 mixed ascii")},
+		{OpcodeBinary, bytes.Repeat([]byte{0x00, 0x9f}, 32)},
+		{OpcodeBinary, bytes.Repeat([]byte{0x5a}, 8000)}, // exceeds read buffer
+		{OpcodeText, []byte("")},                         // empty payload
 	}
 
-	for name, tt := range tests {
-		t.Run(name, func(t *testing.T) {
-			t.Parallel()
+	a, b := net.Pipe()
+	srv := NewServerConn(a)
+	cli := NewClientConn(b)
 
-			a, b := net.Pipe()
-			srv := NewServerConn(a)
-			cli := NewClientConn(b)
+	done := make(chan error, 1)
+	go func() { done <- serveBufferedEcho(srv) }()
 
-			done := make(chan error, 1)
-			go func() { done <- serveBufferedEcho(srv) }()
+	for i, m := range msgs {
+		if err := cli.WriteMessage(m.op, m.p); err != nil {
+			t.Fatalf("client write %d: %v", i, err)
+		}
+		op, got, err := cli.ReadMessage()
+		if err != nil {
+			t.Fatalf("client read %d: %v", i, err)
+		}
+		if op != m.op || !bytes.Equal(got, m.p) {
+			t.Fatalf("echo %d: op=%v len(got)=%d len(want)=%d", i, op, len(got), len(m.p))
+		}
+	}
 
-			for i, m := range tt.msgs {
-				if err := cli.WriteMessage(m.op, m.p); err != nil {
-					t.Fatalf("client write %d: %v", i, err)
-				}
-				op, got, err := cli.ReadMessage()
-				if err != nil {
-					t.Fatalf("client read %d: %v", i, err)
-				}
-				if op != m.op || !bytes.Equal(got, m.p) {
-					t.Fatalf("echo %d: op=%v len(got)=%d len(want)=%d", i, op, len(got), len(m.p))
-				}
-			}
-
-			_ = cli.Close(CloseNormalClosure, "bye")
-			if err := <-done; !errors.As(err, new(*CloseError)) {
-				t.Fatalf("Serve returned %v, want *CloseError", err)
-			}
-		})
+	_ = cli.Close(CloseNormalClosure, "bye")
+	if err := <-done; !errors.As(err, new(*CloseError)) {
+		t.Fatalf("Serve returned %v, want *CloseError", err)
 	}
 }
 

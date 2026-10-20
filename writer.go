@@ -354,12 +354,14 @@ type messageWriter struct {
 	started bool   // the first fragment has been emitted (subsequent => Continuation)
 	closed  bool   // Close has been called
 
-	// mayCompress is fixed at NextWriter time from the Conn's compression
-	// gate (negotiated && !outgoingDisabled); the Conn's compression fields
-	// never change mid-life, so a single check is enough for the message.
+	// mayCompress starts from the Conn's compression gate at NextWriter time
+	// (negotiated && !outgoingDisabled). It only ever falls to false: once a
+	// fragment has gone out RSV1-clear the message stays uncompressed, so a
+	// compressor that becomes available later is never spliced in.
 	mayCompress bool
 
-	// compressed is set once the message engages DEFLATE (FILL or CLOSE-LARGE).
+	// compressed is set once the message engages DEFLATE, either when the
+	// buffer first fills or when Close compresses a whole buffered message.
 	compressed bool
 
 	// fedToCompressor is true once any plaintext has been written into the
@@ -426,8 +428,9 @@ func (c *Conn) NextWriter(op Opcode) (io.WriteCloser, error) {
 }
 
 // Write buffers p into the fragment buffer, flushing a non-final fragment each
-// time the buffer fills. When compression engages (FILL), subsequent bytes are
-// fed straight through the compressor. It implements [io.Writer].
+// time the buffer fills. Once a full buffer has engaged compression,
+// subsequent bytes are fed straight through the compressor. It implements
+// [io.Writer].
 func (w *messageWriter) Write(p []byte) (int, error) {
 	if w.err != nil {
 		return 0, w.err
@@ -446,7 +449,7 @@ func (w *messageWriter) Write(p []byte) (int, error) {
 		if len(w.buf) < cap(w.buf) {
 			continue
 		}
-		// FILL: buffer full => total plaintext is necessarily
+		// Buffer full => total plaintext is necessarily
 		// >= defaultWriteBufferSize >= defaultCompressMinSize.
 		if w.mayCompress {
 			if err := w.engageCompression(); err != nil {
@@ -468,7 +471,7 @@ func (w *messageWriter) Write(p []byte) (int, error) {
 			// frame declared it uncompressed.
 			w.mayCompress = false
 		}
-		if err := w.flush(false); err != nil {
+		if err := w.flush(); err != nil {
 			w.err = err
 			return total - len(p), err
 		}
@@ -524,11 +527,11 @@ func (w *messageWriter) Close() error {
 	return err
 }
 
-// flush emits the buffered bytes as one frame under the write mutex.
-func (w *messageWriter) flush(fin bool) error {
+// flush emits the buffered bytes as one non-final frame under the write mutex.
+func (w *messageWriter) flush() error {
 	w.c.wmu.Lock()
 	defer w.c.wmu.Unlock()
-	return w.flushLocked(fin)
+	return w.flushLocked(false)
 }
 
 // flushLocked emits the buffered plaintext bytes as one uncompressed frame
@@ -551,7 +554,7 @@ func (w *messageWriter) flushLocked(fin bool) error {
 	return nil
 }
 
-// engageCompression switches into compressed mode for the FILL path: acquire
+// engageCompression switches into compressed mode when the buffer fills: acquire
 // a compressor, feed the buffered plaintext, and emit any full compressed
 // fragments. On ceiling violation it leaves compressed false so the caller
 // can fall through to the uncompressed path. The caller must not hold wmu.
@@ -623,7 +626,7 @@ func (w *messageWriter) drainCompressedFragmentsLocked() error {
 	return nil
 }
 
-// closeLargeLocked handles CLOSE-LARGE: nothing emitted yet, buffered
+// closeLargeLocked handles a Close with nothing emitted yet and buffered
 // plaintext at or above the compression threshold. It compresses the whole
 // buffer and emits one Fin+RSV1 frame, matching WriteMessage framing. The
 // caller must hold wmu.

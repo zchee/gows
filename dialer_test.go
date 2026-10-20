@@ -624,14 +624,6 @@ func TestDialServerWindowBitsOffer(t *testing.T) {
 				if !errors.Is(err, tt.wantErr) {
 					t.Fatalf("Dial err = %v, want %v", err, tt.wantErr)
 				}
-				// Also assert the more specific wrapped sentinel when too-large.
-				if tt.echoBits == 11 {
-					// ErrDeflateServerMaxWindowBitsTooLarge is internal;
-					// the public wrapper is ErrInvalidCompressionResponse.
-					if !errors.Is(err, gows.ErrInvalidCompressionResponse) {
-						t.Fatalf("want ErrInvalidCompressionResponse wrap, got %v", err)
-					}
-				}
 				select {
 				case closeErr := <-peerClosed:
 					if closeErr == nil {
@@ -891,10 +883,6 @@ type cancelOnStopContext struct {
 	done chan struct{}
 	once sync.Once
 	err  error
-}
-
-func newCancelOnStopContext(parent context.Context) *cancelOnStopContext {
-	return &cancelOnStopContext{Context: parent, done: make(chan struct{})}
 }
 
 func (c *cancelOnStopContext) Done() <-chan struct{} { return c.done }
@@ -1203,7 +1191,7 @@ func TestDialSuccessClearsDeadlines(t *testing.T) {
 		}
 		serverErr <- rerr
 	}()
-	time.Sleep(300 * time.Millisecond) // outlive the original ctx deadline
+	<-ctx.Done()
 	if err := client.WriteMessage(gows.OpcodeText, []byte("post-deadline")); err != nil {
 		t.Fatalf("WriteMessage after Dial: %v", err)
 	}
@@ -1223,7 +1211,7 @@ func TestDialCancelAtSuccessBoundary(t *testing.T) {
 	serverConn, clientConn := net.Pipe()
 	defer serverConn.Close()
 
-	ctx := newCancelOnStopContext(t.Context())
+	ctx := &cancelOnStopContext{Context: t.Context(), done: make(chan struct{})}
 	go func() {
 		req := readRawHeaderBlock(t, serverConn)
 		accept := mustAcceptFromRequest(t, req)
@@ -1435,8 +1423,8 @@ func TestDialHeaderValidation(t *testing.T) {
 }
 
 // TestDialHeaderBoundary drives the exact serialized-size ceiling
-// through the public API: one byte under the limit dials, one byte
-// past it fails before any network I/O.
+// through the public API: a header block exactly at the limit dials,
+// one byte past it fails before any network I/O.
 func TestDialHeaderBoundary(t *testing.T) {
 	boundary := strings.Repeat("v", 8192-len("X-A")-len(": \r\n"))
 

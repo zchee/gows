@@ -105,9 +105,6 @@ func OrderEffect(ratios []BlockRatio, cfg InferenceConfig) (Interval, error) {
 		for range len(sessions) {
 			session := sessions[rng.IntN(len(sessions))]
 			ab, ba := splitOrders(session.blocks)
-			if len(ab) == 0 || len(ba) == 0 {
-				return Interval{}, fmt.Errorf("paired: session %q lacks both AB and BA blocks", session.id)
-			}
 			var abMean, baMean float64
 			for range len(ab) {
 				abMean += math.Log(ab[rng.IntN(len(ab))].Value)

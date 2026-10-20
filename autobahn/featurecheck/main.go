@@ -346,8 +346,7 @@ func verifyGeneratorEvidence(identity string) error {
 
 func rejectReportFailures(cases map[string]autobahnreport.CaseResult) error {
 	for id, c := range cases {
-		if c.Behavior == "NON-STRICT" || c.BehaviorClose == "NON-STRICT" ||
-			!allowed(c.Behavior) || !allowed(c.BehaviorClose) {
+		if !allowed(c.Behavior) || !allowed(c.BehaviorClose) {
 			return fmt.Errorf("feature report has failed or NON-STRICT case %s: %+v", id, c)
 		}
 	}

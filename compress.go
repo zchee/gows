@@ -160,12 +160,9 @@ func init() {
 // compress/decompress paths adopt b.
 //
 // This is a process-wide setting, not a per-Upgrader/per-Dialer/per-Conn
-// [ConnOption], because [Conn] itself has no per-connection backend,
-// level, or window-bits state -- only a compression bool (see
-// [WithCompression]) -- so compress.go's pools have nowhere to store a
-// different configuration per connection. [Upgrader.NegotiateWindowBits]
-// and [Dialer.WindowBits] still exist as explicit, independent
-// per-instance opt-ins: whether a *specific* Upgrader/Dialer negotiates
+// [ConnOption]. [Upgrader.NegotiateWindowBits] and [Dialer.WindowBits]
+// still exist as explicit, independent per-instance opt-ins: whether a
+// *specific* Upgrader/Dialer negotiates
 // (or offers) a non-default window size with its peers is a legitimate
 // policy choice to make per handshake surface even though the actual
 // compressor those connections end up sharing is process-wide -- see
@@ -205,14 +202,6 @@ func currentDeflateWindowBits() int {
 	return activeDeflate.Load().windowBits
 }
 
-// currentDeflateConfig returns the process's currently active
-// permessage-deflate configuration snapshot. Package-internal; used by
-// Dial's unsupported-ceiling fail-fast and the per-emission pooled-path
-// ceiling guard.
-func currentDeflateConfig() *deflateConfig {
-	return activeDeflate.Load()
-}
-
 // effectiveWindowBits maps a negotiated (or offered) window-bits field
 // to the ceiling actually used: the value itself when in the RFC 7692
 // valid range 8..15, otherwise the RFC default 15. Zero ("no bound")
@@ -235,7 +224,7 @@ func checkWindowBitsSupported(bits int) error {
 	if ceil >= deflateWindowBits {
 		return nil
 	}
-	cfg := currentDeflateConfig()
+	cfg := activeDeflate.Load()
 	if cfg.windowBits > ceil && cfg.backend.MinWindowBits > ceil {
 		return fmt.Errorf("%w: ceiling %d, backend %q MinWindowBits %d", ErrUnsupportedWindowBits, ceil, cfg.backend.Name, cfg.backend.MinWindowBits)
 	}
@@ -532,7 +521,7 @@ func (c *Conn) acquireCompressor() (lease compressorLease, reset, ok bool) {
 	if ds := c.deflate; ds != nil && ds.outgoing != nil {
 		return compressorLease{w: ds.outgoing, sw: ds.outgoingDst}, !ds.outgoingTakeover, true
 	}
-	cfg := currentDeflateConfig()
+	cfg := activeDeflate.Load()
 	// Per-emission ceiling guard: a concurrent SetDeflateBackend may have
 	// swapped in a larger window than this Conn negotiated; refuse the pool
 	// rather than emit a window the peer cannot accept.
@@ -544,7 +533,7 @@ func (c *Conn) acquireCompressor() (lease compressorLease, reset, ok bool) {
 }
 
 // compressMessage is compressPayloadWithConfig's per-Conn counterpart,
-// used by [Conn.WriteMessage]/writeFrameLocked. When c's own outgoing direction did not negotiate context
+// used by [Conn.WriteMessage]. When c's own outgoing direction did not negotiate context
 // takeover and no sub-ceiling per-Conn writer is installed (c.deflate ==
 // nil or c.deflate.outgoing == nil -- this package's original, zero-per-
 // Conn-state path and overwhelmingly the common case), it is identical

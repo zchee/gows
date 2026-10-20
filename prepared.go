@@ -63,8 +63,7 @@ var ErrPreparedMessageClientRole = errors.New("gows: WritePreparedMessage is not
 type PreparedMessage struct {
 	plain          []byte // unmasked header + uncompressed payload
 	compressed     []byte // unmasked header + compressed payload, RSV1 set
-	hasCompressed  bool
-	prepWindowBits int // activeDeflate windowBits at NewPreparedMessage time (meaningful when hasCompressed)
+	prepWindowBits int    // activeDeflate windowBits at NewPreparedMessage time (meaningful when compressed is non-empty)
 }
 
 // NewPreparedMessage precomputes op/payload's wire frame(s): an
@@ -95,7 +94,6 @@ func NewPreparedMessage(op Opcode, payload []byte) (*PreparedMessage, error) {
 		}
 		pm.compressed = AppendHeader(nil, Header{Fin: true, Opcode: op, Rsv: RSV1, Length: int64(len(compressed))})
 		pm.compressed = append(pm.compressed, compressed...)
-		pm.hasCompressed = true
 		pm.prepWindowBits = cfg.windowBits
 	}
 	return pm, nil
@@ -132,7 +130,7 @@ func (c *Conn) WritePreparedMessage(pm *PreparedMessage) error {
 	}
 
 	frame := pm.plain
-	if c.compression && pm.hasCompressed {
+	if c.compression && len(pm.compressed) != 0 {
 		useCompressed := true
 		if c.deflate != nil && c.deflate.outgoing != nil && c.deflate.outgoingTakeover {
 			useCompressed = false

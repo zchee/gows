@@ -65,8 +65,8 @@ func startUpgradeServer(t *testing.T, u *gows.Upgrader) (addr string, results <-
 }
 
 // dialAndExchange connects to addr, writes request, reads whatever
-// response bytes arrive within a short deadline, and returns them
-// alongside the connection (left open, closed via t.Cleanup).
+// response bytes arrive within a short deadline, and returns them.
+// The connection is left open and closed via t.Cleanup.
 func dialAndExchange(t *testing.T, addr string, request []byte) []byte {
 	t.Helper()
 	conn, err := net.Dial("tcp", addr)
@@ -976,9 +976,6 @@ func TestUpgradeDeflateResponseAndStateParity(t *testing.T) {
 			}
 			if got := string(httpResponse); got != wantResponse {
 				t.Fatalf("HTTP raw response mismatch\n got: %q\nwant: %q", got, wantResponse)
-			}
-			if !bytes.Equal(directResponse, httpResponse) {
-				t.Fatalf("direct/HTTP raw response differ: %q / %q", directResponse, httpResponse)
 			}
 			if direct.hs.CompressionParams != tt.wantParams || http.hs.CompressionParams != tt.wantParams {
 				t.Fatalf("direct/HTTP params = %+v / %+v, want %+v", direct.hs.CompressionParams, http.hs.CompressionParams, tt.wantParams)

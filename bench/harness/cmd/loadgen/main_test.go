@@ -134,21 +134,18 @@ func TestOfferArrival(t *testing.T) {
 		make(chan arrival, 1),
 		make(chan arrival, 1),
 	}
-	first := arrival{Sequence: 1}
-	second := arrival{Sequence: 2}
-	third := arrival{Sequence: 3}
 
-	next, accepted := offerArrival(queues, 0, first)
+	next, accepted := offerArrival(queues, 0, arrival{})
 	if !accepted || next != 1 {
 		t.Fatalf("first offer = next %d accepted %v, want 1/true", next, accepted)
 	}
-	next, accepted = offerArrival(queues, next, second)
+	next, accepted = offerArrival(queues, next, arrival{})
 	if !accepted || next != 0 {
 		t.Fatalf("second offer = next %d accepted %v, want 0/true", next, accepted)
 	}
 	// Both queues are full. The offer is rejected explicitly instead of a
 	// ticker channel silently coalescing it.
-	next, accepted = offerArrival(queues, next, third)
+	next, accepted = offerArrival(queues, next, arrival{})
 	if accepted || next != 1 {
 		t.Fatalf("third offer = next %d accepted %v, want 1/false", next, accepted)
 	}
@@ -193,10 +190,11 @@ func TestDispatchOpenLoopRejectsMissedSlotsInsteadOfBursting(t *testing.T) {
 	if got := len(queue); got != 7 {
 		t.Fatalf("dispatched arrivals = %d, want 7 without catch-up burst", got)
 	}
-	for want := int64(3); want < 10; want++ {
+	for slot := 3; slot < 10; slot++ {
 		got := <-queue
-		if got.Sequence != want {
-			t.Fatalf("dispatched sequence = %d, want %d", got.Sequence, want)
+		want := start.Add(time.Duration(slot) * 100 * time.Millisecond)
+		if !got.Scheduled.Equal(want) {
+			t.Fatalf("dispatched arrival = %s, want %s", got.Scheduled, want)
 		}
 	}
 }

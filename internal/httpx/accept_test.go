@@ -45,19 +45,13 @@ func TestAppendAcceptAppendsToExistingDst(t *testing.T) {
 }
 
 func TestAppendKey(t *testing.T) {
-	got, err := httpx.AppendKey(nil)
-	if err != nil {
-		t.Fatalf("AppendKey: unexpected error %v", err)
-	}
+	got := httpx.AppendKey(nil)
 	if len(got) != 24 {
 		t.Fatalf("AppendKey: len = %d, want 24", len(got))
 	}
 
 	// Two calls must not produce the same nonce (crypto/rand entropy).
-	got2, err := httpx.AppendKey(nil)
-	if err != nil {
-		t.Fatalf("AppendKey: unexpected error %v", err)
-	}
+	got2 := httpx.AppendKey(nil)
 	if string(got) == string(got2) {
 		t.Fatalf("AppendKey produced identical output on successive calls: %q", got)
 	}
