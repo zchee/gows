@@ -19,6 +19,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"slices"
 
 	"github.com/zchee/gows/internal/extension"
 	"github.com/zchee/gows/internal/httpx"
@@ -111,6 +112,20 @@ func (u *Upgrader) UpgradeHTTP(w http.ResponseWriter, r *http.Request) (net.Conn
 	if u.ForwardResponseHeaders {
 		responseHeaders = w.Header().Clone()
 		if err := validateExtraHeaders(responseHeaders); err != nil {
+			// The rejection answers the request itself, so a caller that
+			// just returns on error does not leave net/http to send an
+			// implicit 200. Only the headers the validator refuses are
+			// removed first: net/http would echo a reserved header such as
+			// a non-identity Transfer-Encoding next to its own framing and
+			// make the 500 unparseable, while the handler's other headers
+			// (e.g. CORS set by middleware) still belong on the reply.
+			pending := w.Header()
+			for name, values := range pending {
+				if !httpx.IsToken(name) || reservedHeaderName(name) || slices.ContainsFunc(values, func(v string) bool { return !validHeaderValue(v) }) {
+					deleteHeaderFold(pending, name)
+				}
+			}
+			http.Error(w, "gows: invalid pending response headers", http.StatusInternalServerError)
 			return nil, Handshake{}, err
 		}
 	}
