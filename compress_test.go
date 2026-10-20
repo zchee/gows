@@ -35,11 +35,9 @@ import (
 
 func TestNegotiateDeflate(t *testing.T) {
 	tests := map[string]struct {
-		extensions           string
-		negotiateWindowBits  bool
-		allowContextTakeover bool
-		wantOK               bool
-		want                 extension.DeflateParams
+		extensions string
+		wantOK     bool
+		want       extension.DeflateParams
 	}{
 		"simplest offer": {
 			extensions: "permessage-deflate",
@@ -87,10 +85,7 @@ func TestNegotiateDeflate(t *testing.T) {
 
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
-			got, _, ok := negotiateDeflateWithHint([]byte(tt.extensions), deflateNegotiatePolicy{
-				negotiateWindowBits:  tt.negotiateWindowBits,
-				allowContextTakeover: tt.allowContextTakeover,
-			})
+			got, _, ok := negotiateDeflateWithHint([]byte(tt.extensions), deflateNegotiatePolicy{})
 			if ok != tt.wantOK {
 				t.Fatalf("ok = %v, want %v (got=%+v)", ok, tt.wantOK, got)
 			}
@@ -668,15 +663,7 @@ func TestCompressionEchoRoundTrip(t *testing.T) {
 			// handshake is always answered -- a fixed iteration count
 			// would return before the client's Close frame arrives and
 			// deadlock cli.Close's net.Pipe write waiting for a reader.
-			for {
-				op, p, err := srv.ReadMessage()
-				if err != nil {
-					return
-				}
-				if err := srv.WriteMessage(op, p); err != nil {
-					return
-				}
-			}
+			runEcho(srv)
 		}()
 
 		for name, tt := range tests {
@@ -913,15 +900,7 @@ func TestCompressionPooledReuseNoStateLeak(t *testing.T) {
 			// loop until error (the client's Close frame), not a fixed
 			// count, or cli.Close's net.Pipe write deadlocks waiting for
 			// a reader that already exited.
-			for {
-				op, p, err := srv.ReadMessage()
-				if err != nil {
-					return
-				}
-				if err := srv.WriteMessage(op, p); err != nil {
-					return
-				}
-			}
+			runEcho(srv)
 		}()
 
 		var retErr error
@@ -1471,15 +1450,7 @@ func runContextTakeoverEchoLoop(srv *Conn) (done chan struct{}) {
 	done = make(chan struct{})
 	go func() {
 		defer close(done)
-		for {
-			op, p, err := srv.ReadMessage()
-			if err != nil {
-				return
-			}
-			if err := srv.WriteMessage(op, p); err != nil {
-				return
-			}
-		}
+		runEcho(srv)
 	}()
 	return done
 }
@@ -1606,21 +1577,6 @@ func TestNegotiateDeflateContextTakeoverAllCombinations(t *testing.T) {
 	}
 }
 
-// TestNegotiateDeflateContextTakeoverOff confirms AllowContextTakeover's
-// zero value (false) preserves this package's original behavior exactly,
-// even for an offer that would otherwise allow context takeover on both
-// directions.
-func TestNegotiateDeflateContextTakeoverOff(t *testing.T) {
-	got, _, ok := negotiateDeflateWithHint([]byte("permessage-deflate"), deflateNegotiatePolicy{})
-	if !ok {
-		t.Fatalf("negotiateDeflateWithHint: ok = false, want true")
-	}
-	want := extension.DeflateParams{ServerNoContextTakeover: true, ClientNoContextTakeover: true}
-	if got != want {
-		t.Fatalf("params = %+v, want %+v (AllowContextTakeover off must force no-context-takeover)", got, want)
-	}
-}
-
 // --- interop: context-takeover Conn <-> no-context-takeover Conn -----------
 
 // TestContextTakeoverInteropWithNoContextPeer confirms a context-takeover
@@ -1706,9 +1662,8 @@ func TestContextTakeoverTeardownReleasesState(t *testing.T) {
 
 // TestContextTakeoverBackendPinning confirms a context-takeover Conn's
 // persistent compressor, once built, is unaffected by a later
-// SetDeflateBackend call -- the agreed decision from this package's T2
-// report: a Conn using persistent compressor state pins its backend at
-// construction time.
+// SetDeflateBackend call: a Conn using persistent compressor state pins
+// its backend at construction time.
 func TestContextTakeoverBackendPinning(t *testing.T) {
 	withDeflateBackend(t, DefaultDeflateBackend(), 6, deflateWindowBits)
 

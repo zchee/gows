@@ -63,9 +63,6 @@ func detectWith(t *testing.T, simd string) features {
 
 // TestNativeDetection sanity-checks detection under the ambient environment.
 func TestNativeDetection(t *testing.T) {
-	t.Logf("GOARCH=%s HasNEON=%v X86.HasAVX2=%v X86.HasAVX512=%v",
-		runtime.GOARCH, HasNEON, X86.HasAVX2, X86.HasAVX512)
-
 	switch runtime.GOARCH {
 	case "arm64":
 		if !HasNEON {
@@ -106,9 +103,6 @@ func TestKillSwitchCaps(t *testing.T) {
 	if runtime.GOARCH != "amd64" {
 		t.Skipf("cap levels only affect amd64; GOARCH=%s", runtime.GOARCH)
 	}
-
-	full := detectWith(t, "avx512")
-	t.Logf("baseline (avx512): %+v", full)
 
 	if got := detectWith(t, "sse2"); got.avx2 || got.avx512 {
 		t.Errorf("GOWS_SIMD=sse2 must cap below AVX2: %+v", got)

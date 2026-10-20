@@ -67,6 +67,7 @@ func startHopServer(t *testing.T, tlsCert *tls.Certificate, respond func(n int, 
 
 	var mu sync.Mutex
 	var recs []*hopRecord
+	published := make(chan struct{})
 	go func() {
 		for n := 0; ; n++ {
 			conn, aerr := ln.Accept()
@@ -76,6 +77,8 @@ func startHopServer(t *testing.T, tlsCert *tls.Certificate, respond func(n int, 
 			rec := &hopRecord{ready: make(chan struct{}), closed: make(chan struct{})}
 			mu.Lock()
 			recs = append(recs, rec)
+			close(published)
+			published = make(chan struct{})
 			mu.Unlock()
 			go func(n int, conn net.Conn) {
 				defer conn.Close()
@@ -100,13 +103,15 @@ func startHopServer(t *testing.T, tlsCert *tls.Certificate, respond func(n int, 
 
 	return ln.Addr().String(), func(i int) *hopRecord {
 		t.Helper()
-		deadline := time.Now().Add(3 * time.Second)
+		timer := time.NewTimer(3 * time.Second)
+		defer timer.Stop()
 		for {
 			mu.Lock()
 			var rec *hopRecord
 			if i < len(recs) {
 				rec = recs[i]
 			}
+			changed := published
 			mu.Unlock()
 			if rec != nil {
 				select {
@@ -116,10 +121,11 @@ func startHopServer(t *testing.T, tlsCert *tls.Certificate, respond func(n int, 
 				}
 				return rec
 			}
-			if time.Now().After(deadline) {
+			select {
+			case <-changed:
+			case <-timer.C:
 				t.Fatalf("hop server never saw connection %d", i)
 			}
-			time.Sleep(5 * time.Millisecond)
 		}
 	}
 }
