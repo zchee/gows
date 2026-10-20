@@ -217,6 +217,19 @@ type Upgrader struct {
 	// [Upgrader.UpgradeHTTP]); OriginCheck must not retain it.
 	OriginCheck func(origin []byte) bool
 
+	// ForwardResponseHeaders opts UpgradeHTTP in to emitting the pending
+	// ResponseWriter.Header values on its 101 response, one line per value
+	// (including multiple Set-Cookie values). Upgrade ignores this field.
+	// Headers are copied and validated before hijacking. Invalid names or
+	// values return ErrMalformedHeader; protocol-owned or framing headers
+	// return ErrReservedHeader: Host, Upgrade, Connection, Sec-WebSocket-*,
+	// Content-Length, Transfer-Encoding, Trailer, TE, Keep-Alive,
+	// Proxy-Authorization and Proxy-Connection. Additional serialized
+	// headers exceeding 8KB return ErrHeaderTooLarge. Errors never include
+	// header values. The caller must not mutate headers during the call.
+	// The zero value ignores pending headers, preserving existing behavior.
+	ForwardResponseHeaders bool
+
 	// MaxHeaderBytes caps the size of the request line plus header block
 	// [Upgrader.Upgrade] will read before giving up with
 	// [ErrHeaderTooLarge]. Zero means [defaultMaxHeaderBytes] (8KB).
