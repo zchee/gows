@@ -263,14 +263,12 @@ type Policy struct {
 }
 
 // Resolved describes how benchrun should build and launch one policy library
-// name after applying any matching entry in LibraryOverrides. Name is the
-// policy-facing library name (preserved verbatim in samples so paired analysis
-// can distinguish variants); Lib is the echoserver -lib value; Bin is "" for
-// the shared default echoserver binary or the override name when a dedicated
-// binary must be built; BuildEnv is appended to that binary's build
-// environment; and ServerArgs are appended to the echoserver command line.
+// name after applying any matching entry in LibraryOverrides. Lib is the
+// echoserver -lib value; Bin is "" for the shared default echoserver binary
+// or the override name when a dedicated binary must be built; BuildEnv is
+// appended to that binary's build environment; and ServerArgs are appended
+// to the echoserver command line.
 type Resolved struct {
-	Name       string
 	Lib        string
 	Bin        string
 	BuildEnv   []string
@@ -286,13 +284,13 @@ type Resolved struct {
 func (p *Policy) Resolve(name string) Resolved {
 	ov, ok := p.LibraryOverrides[name]
 	if !ok {
-		return Resolved{Name: name, Lib: name}
+		return Resolved{Lib: name}
 	}
 	lib := ov.Lib
 	if lib == "" {
 		lib = name
 	}
-	r := Resolved{Name: name, Lib: lib, BuildEnv: ov.BuildEnv, ServerArgs: ov.ServerArgs}
+	r := Resolved{Lib: lib, BuildEnv: ov.BuildEnv, ServerArgs: ov.ServerArgs}
 	if len(ov.BuildEnv) > 0 {
 		r.Bin = name
 	}

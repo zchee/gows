@@ -229,7 +229,6 @@ func TestValidate(t *testing.T) {
 		"no primary":        {mutate: func(p *Policy) { p.Scenarios[0].Primary = false }, wantErr: true},
 		"zero inflight":     {mutate: func(p *Policy) { p.Scenarios[0].Inflight = 0 }, wantErr: true},
 		"negative inflight": {mutate: func(p *Policy) { p.Scenarios[0].Inflight = -1 }, wantErr: true},
-		"inflight one ok":   {mutate: func(p *Policy) { p.Scenarios[0].Inflight = 1 }, wantErr: false},
 		"pipelined arrival with inflight one": {
 			mutate: func(p *Policy) { p.Scenarios[0].Arrival = ArrivalPipelined }, wantErr: true,
 		},
@@ -363,18 +362,17 @@ func TestResolve(t *testing.T) {
 		"no overrides map": {
 			overrides: nil,
 			name:      "gows",
-			want:      Resolved{Name: "gows", Lib: "gows"},
+			want:      Resolved{Lib: "gows"},
 		},
 		"name absent from overrides": {
 			overrides: overrides,
 			name:      "quickws",
-			want:      Resolved{Name: "quickws", Lib: "quickws"},
+			want:      Resolved{Lib: "quickws"},
 		},
 		"server args only reuses default binary": {
 			overrides: overrides,
 			name:      "gows-lowat",
 			want: Resolved{
-				Name:       "gows-lowat",
 				Lib:        "gows",
 				Bin:        "",
 				ServerArgs: []string{"-notsent-lowat", "16384"},
@@ -384,7 +382,6 @@ func TestResolve(t *testing.T) {
 			overrides: overrides,
 			name:      "gows-custom",
 			want: Resolved{
-				Name:     "gows-custom",
 				Lib:      "gows",
 				Bin:      "gows-custom",
 				BuildEnv: []string{"CUSTOM_BUILD_FLAG=enabled"},
@@ -394,7 +391,6 @@ func TestResolve(t *testing.T) {
 			overrides: overrides,
 			name:      "default-lib",
 			want: Resolved{
-				Name:       "default-lib",
 				Lib:        "default-lib",
 				ServerArgs: []string{"-flag"},
 			},

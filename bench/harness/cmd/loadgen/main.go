@@ -678,7 +678,6 @@ func measureClosedLoop(clients []wsClient, recorders []*support.LatencyRecorder,
 }
 
 type arrival struct {
-	Sequence  int64
 	Scheduled time.Time
 }
 
@@ -828,7 +827,7 @@ func dispatchOpenLoop(queues []chan arrival, start, end time.Time, rate int, max
 			rejectSchedulerLate(counters, 1, lateness)
 		} else {
 			var accepted bool
-			nextQueue, accepted = offerArrival(queues, nextQueue, arrival{Sequence: latestSequence, Scheduled: latestScheduled})
+			nextQueue, accepted = offerArrival(queues, nextQueue, arrival{Scheduled: latestScheduled})
 			if !accepted {
 				counters.rejected.Add(1)
 				counters.queueOverflows.Add(1)

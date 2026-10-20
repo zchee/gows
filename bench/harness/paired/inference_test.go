@@ -2,6 +2,7 @@ package paired
 
 import (
 	"math"
+	"slices"
 	"testing"
 )
 
@@ -97,15 +98,37 @@ func TestOrderEffect(t *testing.T) {
 	tests := map[string]struct {
 		orderBias float64
 		wantPass  bool
+		missing   OrderPattern
+		wantError string
 	}{
 		"success: no order bias stays inside one percent":  {wantPass: true},
 		"failure signal: two percent log bias is detected": {orderBias: 0.02},
+		"error: missing AB blocks": {
+			missing:   OrderAB,
+			wantError: `paired: session "session-c" lacks both AB and BA blocks`,
+		},
+		"error: missing BA blocks": {
+			missing:   OrderBA,
+			wantError: `paired: session "session-c" lacks both AB and BA blocks`,
+		},
 	}
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 
-			got, err := OrderEffect(syntheticRatios(3, 20, tt.orderBias), cfg)
+			ratios := syntheticRatios(3, 20, tt.orderBias)
+			if tt.missing != "" {
+				ratios = slices.DeleteFunc(ratios, func(ratio BlockRatio) bool {
+					return ratio.SessionID == "session-c" && ratio.Order == tt.missing
+				})
+			}
+			got, err := OrderEffect(ratios, cfg)
+			if tt.wantError != "" {
+				if err == nil || err.Error() != tt.wantError {
+					t.Fatalf("OrderEffect error = %v, want %q", err, tt.wantError)
+				}
+				return
+			}
 			if err != nil {
 				t.Fatalf("OrderEffect: %v", err)
 			}

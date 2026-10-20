@@ -346,18 +346,6 @@ func metricRatios(pairs []measuredPair, metric string, flips map[string]bool) ([
 
 func sampleMetric(sample paired.Sample, metric string) (float64, error) {
 	switch metric {
-	case metricThroughput:
-		return sample.LoadgenResult.ThroughputMessagesPerSecond, nil
-	case metricP99:
-		return float64(sample.LoadgenResult.P99Nanoseconds), nil
-	case metricP999:
-		return float64(sample.LoadgenResult.P999Nanoseconds), nil
-	case metricServerCPU:
-		return sample.ServerCPUSecondsPerMessage, nil
-	case metricServerRSS:
-		return sample.ServerRSSBytesPerConnection, nil
-	case metricClientCPU:
-		return sample.ClientCPUSecondsPerMessage, nil
 	case metricClientRSS:
 		return float64(sample.LoadgenResult.ClientUsage.MaxRSSBytes) / float64(sample.LoadgenResult.Connections), nil
 	case metricServerAllocs:
@@ -369,7 +357,11 @@ func sampleMetric(sample paired.Sample, metric string) (float64, error) {
 	case metricClientAllocBytes:
 		return sample.LoadgenResult.ClientAllocations.AllocatedBytesPerMessage, nil
 	default:
-		return 0, fmt.Errorf("evidence: unknown metric %q", metric)
+		value, err := sample.Metric(metric)
+		if err != nil {
+			return 0, fmt.Errorf("evidence: unknown metric %q", metric)
+		}
+		return value, nil
 	}
 }
 

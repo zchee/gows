@@ -446,7 +446,6 @@ type listedModule struct {
 	Path    string
 	Main    bool
 	Dir     string
-	GoMod   string
 	Replace *listedModule
 }
 

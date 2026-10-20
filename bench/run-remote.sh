@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# run-remote.sh — sync bench/ (plus the parent repo, needed once gows joins
-# the harness in Phase 5) to a remote host, run the same baseline commands
+# run-remote.sh — sync the repository (bench/ replaces gows with ../) to a
+# remote host, run the same baseline commands
 # there with the remote's own Go toolchain, and copy results/ back.
 #
-# Intended target per plan: ssh debian-trixie-xslq.asia-northeast1-c.gaudiy-platform
+# Intended target: ssh debian-trixie-xslq.asia-northeast1-c.gaudiy-platform
 # (linux/amd64, Sapphire Rapids 8481C). Confirmed provisioned: Go 1.26.5 at
 # ~/sdk/go1.26.5/bin/go, docker working non-root. Bare `go` does NOT resolve
 # over non-interactive ssh (no login shell, no PATH sourcing) — every go
@@ -14,9 +14,9 @@ REMOTE="${1:?usage: run-remote.sh <remote-host> [remote-go-bin]}"
 REMOTE_GO="${2:-\$HOME/sdk/go1.26.5/bin/go}"
 REMOTE_DIR="\$HOME/gows"
 
-# Disjoint CPU sets for the echo harness (plan §8: isolate harness load from
-# server load so the client driver never steals cycles from the process
-# being measured). taskset is available at /usr/bin/taskset on the remote.
+# Disjoint CPU sets isolate harness load from server load so the client
+# driver never steals cycles from the process being measured.
+# taskset is available at /usr/bin/taskset on the remote.
 SERVER_CPUSET="0-19"
 LOADGEN_CPUSET="22-41"
 
@@ -25,7 +25,7 @@ repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 echo "==> checking for a Go toolchain on ${REMOTE}"
 if ! ssh "${REMOTE}" "test -x ${REMOTE_GO}"; then
 	echo "error: ${REMOTE_GO} not found on ${REMOTE}." >&2
-	echo "       install Go there first (plan §6 Phase 0 item 1), then re-run." >&2
+	echo "       install Go there first, then re-run." >&2
 	exit 1
 fi
 

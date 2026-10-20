@@ -18,7 +18,6 @@ import (
 
 type RepositoryState struct {
 	Root string
-	Head string
 }
 
 // CollectRepositoryIdentity captures the clean current implementation source
@@ -162,7 +161,7 @@ func ValidateRepository(evidenceDir string, identity RepositoryIdentity, require
 	if runtime.GOOS != identity.GOOS || runtime.GOARCH != identity.GOARCH {
 		return RepositoryState{}, fmt.Errorf("evidence: evaluator host = %s/%s, want %s/%s", runtime.GOOS, runtime.GOARCH, identity.GOOS, identity.GOARCH)
 	}
-	return RepositoryState{Root: root, Head: head}, nil
+	return RepositoryState{Root: root}, nil
 }
 
 func validateTrackedEvidenceState(root, currentHead, evidenceDir string, changed []string, requireTrackedVerdict bool) error {
