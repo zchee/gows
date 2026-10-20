@@ -62,7 +62,10 @@ var (
 	// block did not fit within the configured (or default) size limit
 	// before its terminating blank line was found, or that the extra
 	// request headers supplied via [Dialer.HTTPHeader] would serialize
-	// past that same ceiling (reported before any network I/O).
+	// past that same ceiling (reported before any network I/O). With
+	// [Upgrader.ForwardResponseHeaders] set, [Upgrader.UpgradeHTTP] also
+	// returns it when the pending response headers would serialize past
+	// that ceiling, before hijacking and after writing a 500 response.
 	ErrHeaderTooLarge = errors.New("gows: handshake header block too large")
 	// ErrMissingHost indicates a handshake request had no Host header,
 	// which RFC 6455 §4.2.1 requires.
@@ -167,14 +170,20 @@ var (
 	// field where one exists (e.g. [Dialer.Subprotocols] for
 	// Sec-WebSocket-Protocol, the [Dialer.Proxy] URL for proxy
 	// credentials). [Dialer.Dial] returns it (wrapped with the
-	// offending name) before any network I/O.
+	// offending name) before any network I/O. With
+	// [Upgrader.ForwardResponseHeaders] set, [Upgrader.UpgradeHTTP] also
+	// returns it for a pending response header with one of those names,
+	// before hijacking and after writing a 500 response.
 	ErrReservedHeader = errors.New("gows: extra handshake header overrides a reserved header")
 	// ErrMalformedHeader indicates a [Dialer.HTTPHeader] entry had a
 	// name that is not a valid RFC 7230 token, or a value containing
 	// bytes outside RFC 7230 field-content (CR, LF, NUL, or another
 	// control byte), which could otherwise inject header lines into the
 	// handshake block. [Dialer.Dial] returns it (wrapped with the
-	// offending name, never the value) before any network I/O.
+	// offending name, never the value) before any network I/O. With
+	// [Upgrader.ForwardResponseHeaders] set, [Upgrader.UpgradeHTTP] also
+	// returns it for a malformed pending response header, before
+	// hijacking and after writing a 500 response.
 	ErrMalformedHeader = errors.New("gows: extra handshake header is malformed")
 	// ErrCloseTimeout indicates a [Conn.CloseContext] closing handshake
 	// did not complete within the Conn's own close-timeout budget

@@ -226,8 +226,13 @@ type Upgrader struct {
 	// Content-Length, Transfer-Encoding, Trailer, TE, Keep-Alive,
 	// Proxy-Authorization and Proxy-Connection. Additional serialized
 	// headers exceeding 8KB return ErrHeaderTooLarge. Errors never include
-	// header values. The caller must not mutate headers during the call.
-	// The zero value ignores pending headers, preserving existing behavior.
+	// header values. On any of these failures UpgradeHTTP removes from
+	// ResponseWriter.Header every header whose name or value it refused
+	// (none for the size limit), writes a generic 500 Internal Server Error
+	// carrying the remaining headers, and returns the error, so a caller
+	// that simply returns on error has already answered the request. The
+	// caller must not mutate headers during the call. The zero value
+	// ignores pending headers, preserving existing behavior.
 	ForwardResponseHeaders bool
 
 	// MaxHeaderBytes caps the size of the request line plus header block
