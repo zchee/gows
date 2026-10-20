@@ -71,14 +71,7 @@ func write(t *testing.T, dir, name string, cases map[string]autobahnreport.CaseR
 
 func writeReport(t *testing.T, dir, name string, reports map[string]map[string]autobahnreport.CaseResult) string {
 	t.Helper()
-	raw := make(map[string]map[string]map[string]string, len(reports))
-	for agent, cases := range reports {
-		raw[agent] = make(map[string]map[string]string, len(cases))
-		for id, r := range cases {
-			raw[agent][id] = map[string]string{"behavior": r.Behavior, "behaviorClose": r.BehaviorClose}
-		}
-	}
-	b, err := json.Marshal(raw)
+	b, err := json.Marshal(reports)
 	if err != nil {
 		t.Fatal(err)
 	}
