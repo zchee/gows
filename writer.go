@@ -468,7 +468,7 @@ func (w *messageWriter) Write(p []byte) (int, error) {
 			// frame declared it uncompressed.
 			w.mayCompress = false
 		}
-		if err := w.flush(false); err != nil {
+		if err := w.flush(); err != nil {
 			w.err = err
 			return total - len(p), err
 		}
@@ -524,11 +524,11 @@ func (w *messageWriter) Close() error {
 	return err
 }
 
-// flush emits the buffered bytes as one frame under the write mutex.
-func (w *messageWriter) flush(fin bool) error {
+// flush emits the buffered bytes as one non-final frame under the write mutex.
+func (w *messageWriter) flush() error {
 	w.c.wmu.Lock()
 	defer w.c.wmu.Unlock()
-	return w.flushLocked(fin)
+	return w.flushLocked(false)
 }
 
 // flushLocked emits the buffered plaintext bytes as one uncompressed frame

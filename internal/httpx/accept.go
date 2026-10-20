@@ -71,12 +71,10 @@ func AppendAccept(dst, key []byte) []byte {
 // entropy from crypto/rand on every call. This is expected to be
 // acceptable, since a client generates at most one key per handshake, not
 // on a steady-state hot path.
-func AppendKey(dst []byte) ([]byte, error) {
+func AppendKey(dst []byte) []byte {
 	var nonce [16]byte
-	if _, err := rand.Read(nonce[:]); err != nil {
-		return dst, err
-	}
+	_, _ = rand.Read(nonce[:])
 	var enc [acceptKeyLen]byte
 	base64.StdEncoding.Encode(enc[:], nonce[:])
-	return append(dst, enc[:]...), nil
+	return append(dst, enc[:]...)
 }

@@ -43,8 +43,8 @@ func TestNewPreparedMessage(t *testing.T) {
 			if err != nil {
 				t.Fatalf("NewPreparedMessage: %v", err)
 			}
-			if pm.hasCompressed != tt.wantHasCompressed {
-				t.Fatalf("hasCompressed = %v, want %v", pm.hasCompressed, tt.wantHasCompressed)
+			if got := len(pm.compressed) != 0; got != tt.wantHasCompressed {
+				t.Fatalf("has compressed frame = %v, want %v", got, tt.wantHasCompressed)
 			}
 
 			// The uncompressed frame must always decode back to the exact
@@ -85,8 +85,8 @@ func TestWritePreparedMessage(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewPreparedMessage: %v", err)
 	}
-	if !pm.hasCompressed {
-		t.Fatalf("hasCompressed = false, want true for a %d-byte payload", len(payload))
+	if len(pm.compressed) == 0 {
+		t.Fatalf("compressed frame missing, want present for a %d-byte payload", len(payload))
 	}
 
 	tests := map[string]struct {
@@ -210,8 +210,7 @@ func TestWritePreparedMessageClientRoleRejected(t *testing.T) {
 // TestPreparedMessageBroadcastFreshWindow confirms a PreparedMessage's
 // compressed frame -- built once -- decodes correctly for a peer with no
 // prior compression state on the connection, i.e. it was compressed
-// against a fresh window as compress-design.md §6 requires for a message
-// reused across many connections.
+// against a fresh window for a message reused across many connections.
 func TestPreparedMessageBroadcastFreshWindow(t *testing.T) {
 	payload := []byte(strings.Repeat("shared broadcast message ", 60))
 	pm, err := NewPreparedMessage(OpcodeBinary, payload)
@@ -263,8 +262,8 @@ func TestWritePreparedMessageOutgoingTakeoverSendsPlain(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewPreparedMessage: %v", err)
 	}
-	if !pm.hasCompressed {
-		t.Fatalf("hasCompressed = false, want true")
+	if len(pm.compressed) == 0 {
+		t.Fatalf("compressed frame missing, want present")
 	}
 
 	sc := &scriptConn{}

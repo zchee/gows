@@ -572,10 +572,7 @@ func findLocation(headers []byte) (string, error) {
 // handshake returns that Location with a nil error and lets the caller
 // decide; any other non-101 status fails with [*UnexpectedStatusError].
 func (d *Dialer) handshake(conn net.Conn, u *url.URL, hdr http.Header, absoluteForm bool, proxyAuth string) (Handshake, string, error) {
-	wsKey, err := httpx.AppendKey(nil)
-	if err != nil {
-		return Handshake{}, "", fmt.Errorf("gows: generate Sec-WebSocket-Key: %w", err)
-	}
+	wsKey := httpx.AppendKey(nil)
 
 	var req bytes.Buffer
 	if absoluteForm {
