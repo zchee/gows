@@ -88,8 +88,10 @@ WebSocket library for Go, engineered for performance and conformance.
 - **Client handshake through your own `*http.Client`.** Set
   `Dialer.HTTPClient` and the opening handshake goes out as one HTTP/1.1
   request through that client: its transport, wrapping `RoundTripper`s,
-  redirect policy and cookie jar apply, and the response passes the same
-  validation as the built-in dial path. The dial context and the client's
+  redirect policy and cookie jar apply. `net/http` parses the response, and
+  the 101's handshake fields then pass the same checks as the built-in dial
+  path; the few responses the two paths treat differently are listed on
+  `Dialer.HTTPClient`. The dial context and the client's
   `Timeout` bound the handshake only, never the established connection.
   A refused handshake fails with `*UnexpectedStatusError`, which carries
   the response `Header` and, when `Dialer.MaxErrorBodyBytes` is positive,
@@ -522,7 +524,12 @@ func main() {
 A transport that does not report its connection through
 `net/http/httptrace`, or whose 101 response body is not writable, is refused
 with `ErrUnsupportedHTTPTransport`, because the connection's deadlines could
-not be honoured. This example is verified to compile like the ones above.
+not be honoured. When the client's request fails with an error whose
+`net/http` text could quote the peer (a malformed response, a proxy's
+refusal reason, an unparseable `Location`), `Dial` returns
+`ErrHTTPRequestFailed` instead of that text; context, network, TLS and
+timeout errors are reported as on the built-in path. This example is
+verified to compile like the ones above.
 
 ## Conformance
 
