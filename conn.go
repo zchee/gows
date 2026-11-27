@@ -72,9 +72,13 @@ const maxCoalescedWriteSize = 2 << 10
 // appends to one batch shared by every goroutine: a Flush, a direct write, or
 // a Serve drain round from any goroutine sends all pending frames, and a
 // Serve handler error discards all of them. A deadline set with
-// [Conn.SetWriteDeadline] applies to every writer. A write that fails may
-// leave part of a frame on the wire, and the Conn does not refuse later
-// writes because of it, so treat any write error as fatal for the connection.
+// [Conn.SetWriteDeadline] applies to every writer, including the read side's
+// automatic Pong. A write that fails may leave part of a frame on the wire.
+// After a failed application write the Conn still accepts later writes, so
+// treat any write error as fatal for the connection. A failed automatic Pong
+// instead ends the connection: the read side closes the transport and
+// returns the error, and later writes fail. That includes a Pong that times
+// out on a write deadline the application set for its own writes.
 //
 // [Conn.Close] participates in the read
 // side and must not run concurrently with [Conn.ReadMessage] -- nor with
@@ -605,7 +609,9 @@ func (c *Conn) closeTransport() {
 // in the read buffer are still delivered first: the read path checks no
 // flag, so that the common read costs nothing for CloseNow's sake.
 // [Conn.WriteClose] and a [Conn.Flush] with nothing buffered write nothing
-// and return nil.
+// and return nil. A Write to an open [Conn.NextWriter] stream that only fills
+// the stream's buffer still succeeds; the error appears at the stream's next
+// flush or at its Close.
 // The transport is closed exactly once, however CloseNow, [Conn.Close],
 // [Conn.CloseContext], and the read side's own failure handling overlap.
 //
@@ -616,6 +622,13 @@ func (c *Conn) closeTransport() {
 // returns nil, also when called again or after the connection has closed.
 // Like the other message-mode methods, the first call selects message mode;
 // on a frame-mode Conn it returns [ErrConnMode] (use [Conn.Abort] there).
+//
+// CloseNow returns once the transport's Close has. Over crypto/tls, that
+// Close first sends a close_notify alert under a five-second write deadline
+// when no write is in progress on the TLS connection, so CloseNow -- and a
+// [Conn.ReadMessageContext] or [Conn.WriteMessageContext] whose ctx ended,
+// which waits for the same close -- can block for up to five seconds when the
+// peer has stopped reading and the send buffer is full.
 func (c *Conn) CloseNow() error {
 	if err := c.selectMode(connModeMessage); err != nil {
 		return err

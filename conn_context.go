@@ -36,9 +36,13 @@ import (
 // returns, so a ctx that ends after a successful return never closes the
 // connection.
 //
+// When ctx ends exactly as the read completes, the connection is closed all
+// the same, and the call drops the message it read and returns the context
+// error.
+//
 // ReadMessageContext never sets a deadline on the transport, so it leaves a
 // concurrent writer's write deadline alone. A ctx that can never end
-// (ctx.Done() returns nil) costs nothing over ReadMessage.
+// (ctx.Done() returns nil) allocates nothing beyond ReadMessage.
 func (c *Conn) ReadMessageContext(ctx context.Context) (Opcode, []byte, error) {
 	if ctx.Done() == nil {
 		return c.ReadMessage()
@@ -88,9 +92,13 @@ func (c *Conn) readMessageContext(ctx context.Context) (Opcode, []byte, error) {
 // WriteMessageContext returns, so a ctx that ends after a successful return
 // never closes the connection.
 //
+// When ctx ends exactly as the write completes, the connection is closed all
+// the same, and the call reports failure for a frame that was written: the
+// peer may have received the message.
+//
 // WriteMessageContext never sets a deadline on the transport, so it leaves a
 // concurrent reader's read deadline alone. A ctx that can never end
-// (ctx.Done() returns nil) costs nothing over WriteMessage.
+// (ctx.Done() returns nil) allocates nothing beyond WriteMessage.
 func (c *Conn) WriteMessageContext(ctx context.Context, op Opcode, p []byte) error {
 	if ctx.Done() == nil {
 		return c.WriteMessage(op, p)
