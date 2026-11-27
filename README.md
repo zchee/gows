@@ -86,8 +86,8 @@ WebSocket library for Go, engineered for performance and conformance.
   klauspost backend lives in the separate zero-impact `flatekp/` module (see
   [`options.go`](options.go)'s "permessage-deflate backend seam" comment).
 - **Client handshake through your own `*http.Client`.** Set
-  `Dialer.HTTPClient` and the opening handshake goes out as one HTTP/1.1
-  request through that client: its transport, wrapping `RoundTripper`s,
+  `Dialer.HTTPClient` and the opening handshake goes out as an HTTP/1.1
+  GET through that client: its transport, wrapping `RoundTripper`s,
   redirect policy and cookie jar apply. `net/http` parses the response, and
   the 101's handshake fields then pass the same checks as the built-in dial
   path; the few responses the two paths treat differently are listed on
@@ -98,12 +98,15 @@ WebSocket library for Go, engineered for performance and conformance.
   up to that many bytes of the `Body` (a 401's JSON error document, for
   example); its `Error()` text never includes peer content.
 - **Writes from any number of goroutines, abrupt close, context-bound
-  I/O.** Every frame is written whole under one lock, so several
-  goroutines may send beside the single reader. `Conn.CloseNow` closes a
+  I/O.** `WriteMessage` and the other whole-frame writes are safe from
+  any number of goroutines beside the single reader; while a `NextWriter`
+  stream is open they return `ErrWriterBusy`. `Conn.CloseNow` closes a
   connection from any goroutine, also while another one is blocked
   reading or writing. `Conn.ReadMessageContext` and
   `Conn.WriteMessageContext` close it the same way when their context
-  ends, without touching the connection's deadlines.
+  ends during the call (a context that had already ended fails the call
+  without closing anything), and neither touches the connection's
+  deadlines.
 - **Autobahn|Testsuite conformance**: the full 517-case matrix passes in
   both directions ("All cases passed"), most recently on 2026-10-13 on
   GitHub-hosted linux/amd64 and on darwin/arm64. See
@@ -488,6 +491,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"time"
 
 	"github.com/zchee/gows"
 )
@@ -499,7 +503,7 @@ func open(ctx context.Context, hc *http.Client, url string) (*gows.Conn, error) 
 	conn, hs, err := dialer.Dial(ctx, url)
 	if refused, ok := errors.AsType[*gows.UnexpectedStatusError](err); ok {
 		// refused.Header and refused.Body hold the server's response.
-		return nil, fmt.Errorf("handshake refused with status %d", refused.StatusCode)
+		return nil, fmt.Errorf("handshake refused with status %d: %w", refused.StatusCode, err)
 	}
 	if err != nil {
 		return nil, err
@@ -511,7 +515,11 @@ func open(ctx context.Context, hc *http.Client, url string) (*gows.Conn, error) 
 }
 
 func main() {
-	c, err := open(context.Background(), http.DefaultClient, "ws://127.0.0.1:9001/ws")
+	// MaxErrorBodyBytes makes Dial read a refusal's body, and only the
+	// context bounds that read: give it a deadline.
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	c, err := open(ctx, http.DefaultClient, "ws://127.0.0.1:9001/ws")
 	if err != nil {
 		panic(err)
 	}
@@ -523,11 +531,20 @@ func main() {
 `HTTPClient` (`ErrConflictingHTTPClient`): the client owns those concerns.
 A transport that does not report its connection through
 `net/http/httptrace`, or whose 101 response body is not writable, is refused
-with `ErrUnsupportedHTTPTransport`, because the connection's deadlines could
-not be honoured. A failed request reports context, network, TLS,
-timeout and redirect-policy errors as the built-in path does; any other
-failure (a malformed response, a proxy's refusal, an error of your own
-`RoundTripper`) is reported as `ErrHTTPRequestFailed` without `net/http`'s
+with `ErrUnsupportedHTTPTransport`, because gows could not write frames
+through it or set its deadlines. A `RoundTripper` wrapped around the
+transport must pass the request's context on, and must not send other
+requests with it after the handshake request, or the deadlines would reach
+the wrong connection.
+
+A failed request keeps only the kinds of error the built-in path also
+reports: the context's error and cause, network and TLS errors
+(`net/http.ErrSchemeMismatch` for a plain-HTTP answer to a `wss` dial), an
+early end of the response, a transport timeout (as
+`os.ErrDeadlineExceeded`), and your `CheckRedirect`'s error
+(`ErrTooManyRedirects` when the client has none). Any other failure, such
+as a malformed response, a proxy's refusal or another error of your own
+`RoundTripper`, is reported as `ErrHTTPRequestFailed` without `net/http`'s
 text, which could quote the peer. This example is verified to compile
 like the ones above.
 

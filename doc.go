@@ -21,8 +21,10 @@
 // and wraps the underlying [net.Conn] with [NewServerConn]; a client
 // establishes a connection with [Dial] (or a configured [Dialer]) and
 // wraps it with [NewClientConn]. [Dialer.HTTPClient] sends the opening
-// handshake through a caller's [net/http.Client] instead, and a refused
-// handshake reports the response in an [UnexpectedStatusError].
+// handshake through a caller's [net/http.Client] instead. On either path a
+// refused handshake fails with an [UnexpectedStatusError] carrying the
+// status, the response headers and, with [Dialer.MaxErrorBodyBytes] set,
+// the start of the body.
 //
 // A [Conn] exchanges messages either whole, with [Conn.ReadMessage] and
 // [Conn.WriteMessage], or as streams, with [Conn.NextReader] and
@@ -40,8 +42,9 @@
 // [Conn.CloseNow] closes a connection abruptly from any goroutine, also
 // while another one is blocked reading or writing, and
 // [Conn.ReadMessageContext] and [Conn.WriteMessageContext] close it the
-// same way when their context ends. Any number of goroutines may write;
-// reads belong to one goroutine at a time. The frame-level primitives
+// same way when their context ends during the call. Any number of
+// goroutines may write; reads belong to one goroutine at a time. The
+// frame-level primitives
 // ([Header], [DecodeHeader], [AppendHeader]) are exported for callers
 // that need to process frames directly.
 //

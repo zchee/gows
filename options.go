@@ -610,7 +610,10 @@ type Dialer struct {
 	// (as [os.ErrDeadlineExceeded]), and an error the client's
 	// CheckRedirect returned. A client without a CheckRedirect follows
 	// redirects up to net/http's default limit and then fails with
-	// [ErrTooManyRedirects]. As on the native path, a TLS or network
+	// [ErrTooManyRedirects]. The client follows a redirect only to an http
+	// or https Location: one naming a ws or wss URL, which the native path
+	// follows, fails with [ErrHTTPRequestFailed]. As on the native path, a
+	// TLS or network
 	// error can name a host or certificate name the peer chose, such as a
 	// redirect target's host. Every other failure, such as a malformed
 	// response, a proxy's refusal, or an error of the caller's own
