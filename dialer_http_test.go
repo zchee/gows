@@ -328,6 +328,13 @@ func TestDialHandshakeResponseRejections(t *testing.T) {
 			},
 			wantErr: gows.ErrInvalidCompressionResponse,
 		},
+		"error: server_max_window_bits response above the offer": {
+			dialer: gows.Dialer{EnableCompression: true, ServerWindowBits: 10},
+			respond: func(t *testing.T, req []byte) string {
+				return upgradeResponseWith(t, req, "Sec-WebSocket-Extensions: "+noTakeover+"; server_max_window_bits=11\r\n")
+			},
+			wantErr: gows.ErrInvalidCompressionResponse,
+		},
 		"error: permessage-deflate accepted but never offered": {
 			respond: func(t *testing.T, req []byte) string {
 				return upgradeResponseWith(t, req, "Sec-WebSocket-Extensions: permessage-deflate\r\n")
