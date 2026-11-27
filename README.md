@@ -98,11 +98,11 @@ WebSocket library for Go, engineered for performance and conformance.
   up to that many bytes of the `Body` (a 401's JSON error document, for
   example); its `Error()` text never includes peer content.
 - **Writes from any number of goroutines, abrupt close, context-bound
-  I/O.** `WriteMessage` and the other whole-frame writes are safe from
-  any number of goroutines beside the single reader; while a `NextWriter`
-  stream is open they return `ErrWriterBusy`. `Conn.CloseNow` closes a
-  connection from any goroutine, also while another one is blocked
-  reading or writing. `Conn.ReadMessageContext` and
+  I/O.** `WriteMessage`, `WriteMessageBuffered` and `WritePreparedMessage`
+  are safe from any number of goroutines beside the single reader; while a
+  `NextWriter` stream is open they return `ErrWriterBusy`. `Conn.CloseNow`
+  closes a connection from any goroutine, also while another one is
+  blocked reading or writing. `Conn.ReadMessageContext` and
   `Conn.WriteMessageContext` close it the same way when their context
   ends during the call (a context that had already ended fails the call
   without closing anything), and neither touches the connection's
