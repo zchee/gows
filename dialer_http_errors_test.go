@@ -23,6 +23,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"os"
 	"strings"
 	"syscall"
 	"testing"
@@ -319,6 +320,48 @@ func TestDialHTTPClientContextEndsAfterUpgrade(t *testing.T) {
 			case <-peerGone:
 			case <-time.After(5 * time.Second):
 				t.Fatal("peer did not observe the connection closing")
+			}
+		})
+	}
+}
+
+// TestDialHTTPClientKeepsFixedTransportErrors makes the transport fail with
+// errors net/http words itself, with no peer text: its response-header
+// timeout, and the scheme mismatch it reports for a wss dial answered by a
+// plain HTTP server (where the native path reports the TLS record error).
+// Dial must keep them matchable instead of reporting ErrHTTPRequestFailed.
+func TestDialHTTPClientKeepsFixedTransportErrors(t *testing.T) {
+	tests := map[string]struct {
+		target  func(t *testing.T, hc *http.Client) string
+		wantErr error
+	}{
+		"error: response header timeout": {
+			target: func(t *testing.T, hc *http.Client) string {
+				hc.Transport.(*http.Transport).ResponseHeaderTimeout = 100 * time.Millisecond
+				return serveEachConn(t, func(conn net.Conn) { _, _ = io.Copy(io.Discard, conn) })
+			},
+			wantErr: os.ErrDeadlineExceeded,
+		},
+		"error: wss dial answered by a plain HTTP server": {
+			target: func(t *testing.T, _ *http.Client) string {
+				srv := httptest.NewServer(http.NotFoundHandler())
+				t.Cleanup(srv.Close)
+				return "wss" + strings.TrimPrefix(srv.URL, "http") + "/"
+			},
+			wantErr: http.ErrSchemeMismatch,
+		},
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			hc := newHTTPClient(t)
+			target := tt.target(t, hc)
+			conn, err := dialWithin(t, t.Context(), &gows.Dialer{HTTPClient: hc}, target, 5*time.Second)
+			if conn != nil {
+				conn.Close()
+				t.Fatalf("Dial conn = %v, want nil", conn)
+			}
+			if !errors.Is(err, tt.wantErr) || errors.Is(err, gows.ErrHTTPRequestFailed) {
+				t.Fatalf("Dial err = %v, want errors.Is %v and not ErrHTTPRequestFailed", err, tt.wantErr)
 			}
 		})
 	}

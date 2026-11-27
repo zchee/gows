@@ -151,8 +151,9 @@ var (
 	// original error is dropped, not wrapped. Dial passes on only what the
 	// native path also reports: the dial context's error and cause,
 	// network errors ([*net.OpError], [*net.DNSError]), the TLS handshake
-	// error, an early end of the response ([io.EOF],
-	// [io.ErrUnexpectedEOF]), and an error returned by the client's own
+	// error or [net/http.ErrSchemeMismatch], an early end of the response
+	// ([io.EOF], [io.ErrUnexpectedEOF]), a transport timeout (as
+	// [os.ErrDeadlineExceeded]), and an error returned by the client's own
 	// CheckRedirect. Any other error, including one a RoundTripper or a
 	// dial function of the caller's returns, is reported as this one.
 	ErrHTTPRequestFailed = errors.New("gows: HTTP client request failed")

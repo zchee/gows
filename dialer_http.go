@@ -25,6 +25,7 @@ import (
 	"net/http"
 	"net/http/httptrace"
 	"net/url"
+	"os"
 	"strings"
 	"sync"
 	"time"
@@ -157,7 +158,9 @@ func (d *Dialer) dialHTTP(ctx context.Context, u *url.URL, hdr http.Header) (net
 // the native path also reports is kept, each rebuilt from the part net/http
 // wrapped: the dial context's error and cause, the caller's own
 // CheckRedirect error (policyErr), the TLS handshake error the transport
-// reported to trace, network errors, and an early end of the response.
+// reported to trace (or net/http's scheme-mismatch sentinel standing in
+// for it), network errors, an early end of the response, and the fact of
+// a transport timeout.
 // Anything else becomes [ErrHTTPRequestFailed].
 func httpDoError(ctx context.Context, host string, err, policyErr error, trace *connTrace) error {
 	// The transport reports an ended request context as ctx.Err or as its
@@ -171,6 +174,10 @@ func httpDoError(ctx context.Context, host string, err, policyErr error, trace *
 		kept = fmt.Errorf("gows: redirect blocked: %w", policyErr)
 	case tlsErr != nil:
 		kept = fmt.Errorf("gows: tls handshake: %w", tlsErr)
+	case errors.Is(err, http.ErrSchemeMismatch):
+		// net/http replaces the TLS record error of a plain HTTP answer
+		// to a TLS handshake with this fixed-text sentinel.
+		kept = fmt.Errorf("gows: tls handshake: %w", http.ErrSchemeMismatch)
 	default:
 		if te := transportError(err); te != nil {
 			kept = fmt.Errorf("gows: dial %s: %w", host, te)
@@ -205,6 +212,13 @@ func transportError(err error) error {
 		return io.ErrUnexpectedEOF
 	case errors.Is(err, io.EOF):
 		return io.EOF
+	}
+	// A timeout of the transport's own, such as its response-header
+	// timeout, is reported as a deadline error; only the fact is kept.
+	if ue, ok := errors.AsType[*url.Error](err); ok {
+		if ne, ok := errors.AsType[net.Error](ue.Err); ok && ne.Timeout() {
+			return os.ErrDeadlineExceeded
+		}
 	}
 	return nil
 }

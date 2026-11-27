@@ -600,11 +600,17 @@ type Dialer struct {
 	// Connection header also carries "close" fails with
 	// [ErrNotConnectionUpgrade], because net/http removes that header,
 	// where the native path accepts it. When the client's Do fails, Dial keeps
-	// only errors whose text the peer cannot control: the context's error
-	// and cause, network and TLS handshake errors, an early end of the
-	// response, and an error the client's CheckRedirect returned. Every
-	// other failure, such as a malformed response or a proxy's refusal,
-	// is reported as [ErrHTTPRequestFailed] without net/http's error.
+	// only the errors the native path also reports, never net/http's
+	// wording of the peer's bytes: the context's error and cause, network
+	// errors, the TLS handshake error ([net/http.ErrSchemeMismatch] for a
+	// plain HTTP answer to a wss dial, where the native path reports the
+	// TLS record error), an early end of the response, a transport timeout
+	// (as [os.ErrDeadlineExceeded]), and an error the client's
+	// CheckRedirect returned. As on the native path, a TLS or network
+	// error can name a host or certificate name the peer chose, such as a
+	// redirect target's host. Every other failure, such as a malformed
+	// response or a proxy's refusal, is reported as [ErrHTTPRequestFailed]
+	// without net/http's error.
 	HTTPClient *http.Client
 }
 
