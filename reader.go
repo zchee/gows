@@ -404,8 +404,10 @@ func (c *Conn) handleControl(h Header) error {
 		// side must keep draining toward the peer's Close frame rather
 		// than failing mid-closing-handshake. A genuine transport failure
 		// is a different error and still propagates.
+		// A Pong that fails on the transport ends the read side like a
+		// failed read: the error is sticky and the buffers are released.
 		if err := c.writeControl(OpcodePong, payload); err != nil && !errors.Is(err, errWriteClosed) {
-			return err
+			return c.ioError(err)
 		}
 		return nil
 	case OpcodePong:
