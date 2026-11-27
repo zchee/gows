@@ -911,3 +911,23 @@ func TestSkipUTF8Validation(t *testing.T) {
 		t.Fatalf("skip: reply close code = %d ok=%v, want 1000", code, ok)
 	}
 }
+
+// TestPongWriteFailureEndsReadSide pins that a transport failure while the
+// read side answers a Ping ends the read side exactly like a failed read:
+// the error is returned and sticky, and the read buffers are released.
+func TestPongWriteFailureEndsReadSide(t *testing.T) {
+	t.Parallel()
+	boom := errors.New("transport write failed")
+	sc := &scriptConn{in: clientFrame(true, OpcodePing, []byte("p"))}
+	c := NewServerConn(&failWriteConn{Conn: sc, err: boom})
+
+	if _, _, err := c.ReadMessage(); !errors.Is(err, boom) {
+		t.Fatalf("ReadMessage = %v, want the Pong write failure", err)
+	}
+	if _, _, err := c.ReadMessage(); !errors.Is(err, boom) {
+		t.Fatalf("second ReadMessage = %v, want the same sticky error", err)
+	}
+	if c.rbuf != nil || !c.tornDown.Load() {
+		t.Fatal("the read side kept its buffers after the Pong write failed")
+	}
+}

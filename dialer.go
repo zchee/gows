@@ -15,12 +15,14 @@
 package gows
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"crypto/tls"
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"net/url"
@@ -103,7 +105,9 @@ func Dial(ctx context.Context, rawURL string) (net.Conn, Handshake, error) {
 // Sec-WebSocket-Protocol not in [Dialer.Subprotocols], Dial fails with
 // [ErrUnrequestedSubprotocol]. A well-formed response status other than
 // 101 fails Dial with a [*UnexpectedStatusError] (matching
-// [ErrUnexpectedStatus]) carrying the numeric status.
+// [ErrUnexpectedStatus]) carrying the numeric status, the response
+// headers, and -- only when [Dialer.MaxErrorBodyBytes] is positive -- up to
+// that many bytes of the response body.
 //
 // ctx governs every phase of the exchange, not just the TCP dial: the
 // proxy CONNECT, the TLS handshake, the request write, the
@@ -124,9 +128,20 @@ func Dial(ctx context.Context, rawURL string) (net.Conn, Handshake, error) {
 // [Dialer.CheckRedirect] opts in to following redirects. See each
 // field's documentation.
 //
-// On any failure after a connection was established, Dial closes it and
-// returns a non-nil error alongside a nil net.Conn; a canceled or
-// failed connection is never reused. On success, the caller owns the
+// With [Dialer.HTTPClient] set, Dial sends the handshake request through
+// that client instead of connecting itself: dialing, TLS, proxying, and
+// redirects are the client's, and ctx and the client's Timeout bound the
+// handshake only. net/http parses the response, and the handshake fields
+// of its 101 go through the same checks as above. See the field's
+// documentation for the responses whose outcome differs by path and for
+// the returned connection.
+//
+// On any failure after a connection was established, Dial returns a
+// non-nil error alongside a nil net.Conn. On the native path Dial closes
+// that connection, so a canceled or failed connection is never reused. On
+// the [Dialer.HTTPClient] path the client's transport owns it instead: a
+// refused handshake whose response body was read to its end leaves the
+// connection in the client's idle pool for reuse. On success, the caller owns the
 // returned net.Conn (e.g. to build a Conn on top of it) and any bytes
 // the server had already sent past the handshake response (e.g. a
 // pipelined first WebSocket frame) are returned as Handshake.Buffered;
@@ -140,6 +155,9 @@ func Dial(ctx context.Context, rawURL string) (net.Conn, Handshake, error) {
 func (d *Dialer) Dial(ctx context.Context, rawURL string) (net.Conn, Handshake, error) {
 	if d.WindowBits != 0 && d.OfferClientMaxWindowBits {
 		return nil, Handshake{}, ErrConflictingClientWindowBits
+	}
+	if d.HTTPClient != nil && (d.NetDial != nil || d.TLSConfig != nil || d.Proxy != nil || d.CheckRedirect != nil) {
+		return nil, Handshake{}, ErrConflictingHTTPClient
 	}
 	if d.WindowBits != 0 && (d.WindowBits < minDeflateWindowBits || d.WindowBits > deflateWindowBits) {
 		return nil, Handshake{}, ErrInvalidWindowBits
@@ -172,6 +190,10 @@ func (d *Dialer) Dial(ctx context.Context, rawURL string) (net.Conn, Handshake, 
 	}
 	if u.Hostname() == "" {
 		return nil, Handshake{}, fmt.Errorf("gows: dial URL: %w", net.InvalidAddrError("missing hostname"))
+	}
+
+	if d.HTTPClient != nil {
+		return d.dialHTTP(ctx, u, hdr)
 	}
 
 	var via []*http.Request
@@ -654,19 +676,102 @@ func (d *Dialer) handshake(conn net.Conn, u *url.URL, hdr http.Header, absoluteF
 				return Handshake{}, loc, nil
 			}
 		}
-		return Handshake{}, "", &UnexpectedStatusError{StatusCode: code, Reason: string(status.Reason)}
+		return Handshake{}, "", d.refusedHandshake(&UnexpectedStatusError{StatusCode: code, Reason: string(status.Reason)}, data[:filled], idx+4, conn)
 	}
 
 	hf, err := scanWSHandshakeHeaders(headers)
 	if err != nil {
 		return Handshake{}, "", fmt.Errorf("gows: scan handshake response headers: %w", err)
 	}
+	h, err := d.checkUpgradeResponse(hf, wsKey, offerHeader)
+	if err != nil {
+		return Handshake{}, "", err
+	}
+	if idx+4 < filled {
+		h.Buffered = append([]byte(nil), data[idx+4:filled]...)
+	}
+	return h, "", nil
+}
 
+// refusedHandshake fills e's Header, and its Body when
+// [Dialer.MaxErrorBodyBytes] is positive, from a non-101 opening-handshake
+// response. data holds everything read so far, of which the first
+// headerEnd bytes are the status line and header block. net/http parses
+// the response, so Header and the body framing (Content-Length, chunked,
+// read-until-close) match what a [Dialer.HTTPClient] reports. With a zero
+// limit only the bytes already read are parsed and conn is never touched.
+// A body read is bounded by the dial hop's guard, which owns conn's
+// deadline and closes it when the dial context ends.
+func (d *Dialer) refusedHandshake(e *UnexpectedStatusError, data []byte, headerEnd int, conn net.Conn) error {
+	var src io.Reader = bytes.NewReader(data[:headerEnd])
+	if d.MaxErrorBodyBytes > 0 {
+		src = io.MultiReader(bytes.NewReader(data), conn)
+	}
+	resp, err := http.ReadResponse(bufio.NewReader(src), nil)
+	if err != nil {
+		// The status line already parsed; only the header block failed
+		// net/http's rules. Report the status without headers or body.
+		e.Header = make(http.Header)
+		return e
+	}
+	e.Header = resp.Header
+	return refusalError(e, resp.Body, d.MaxErrorBodyBytes)
+}
+
+// refusalError reads at most limit bytes of body into e.Body and returns
+// e. When the read fails, it keeps the bytes read before the failure and
+// returns an error wrapping both e and the read error as [bodyReadError]
+// reduces it, so errors.As still finds e and a context, network, or
+// deadline error stays in the chain. A non-positive limit leaves body
+// unread.
+func refusalError(e *UnexpectedStatusError, body io.Reader, limit int) error {
+	if limit <= 0 {
+		return e
+	}
+	b, err := io.ReadAll(io.LimitReader(body, int64(limit)))
+	if len(b) > 0 {
+		e.Body = b
+	}
+	if err != nil {
+		return fmt.Errorf("%w: read response body: %w", e, bodyReadError(err))
+	}
+	return e
+}
+
+// bodyReadError reduces an error from reading a refused handshake's body
+// to one whose text the peer cannot control. net/http's body errors can
+// quote the peer's bytes (a malformed chunked trailer line), so the
+// original error is never returned or wrapped. Kept are the network-level
+// errors [transportError] vets, the context errors, and a deadline expiry,
+// which the dial paths test for: the native path waits for the context
+// when the read ran into its deadline, and both paths add the context's
+// error and cause when the context ended. Anything else becomes
+// [ErrRefusalBodyRead].
+func bodyReadError(err error) error {
+	if te := transportError(err); te != nil {
+		return te
+	}
+	for _, kept := range []error{context.Canceled, context.DeadlineExceeded, os.ErrDeadlineExceeded} {
+		if errors.Is(err, kept) {
+			return kept
+		}
+	}
+	return ErrRefusalBodyRead
+}
+
+// checkUpgradeResponse validates the header fields of a 101 opening-handshake
+// response against the request this Dialer sent (RFC 6455 §4.1, RFC 7692
+// §7): the Upgrade and Connection tokens, the Sec-WebSocket-Accept value
+// derived from wsKey, the selected subprotocol, and the permessage-deflate
+// response to offerHeader, including the window-bits ceilings. It works on
+// the extracted header fields rather than the raw header block, so any
+// transport that carries the handshake can share this one validator.
+func (d *Dialer) checkUpgradeResponse(hf wsHandshakeHeaders, wsKey []byte, offerHeader string) (Handshake, error) {
 	if !hf.upgradeOK {
-		return Handshake{}, "", ErrNotUpgrade
+		return Handshake{}, ErrNotUpgrade
 	}
 	if !hf.connectionOK {
-		return Handshake{}, "", ErrNotConnectionUpgrade
+		return Handshake{}, ErrNotConnectionUpgrade
 	}
 	// The Sec-WebSocket-Accept comparison need not run in constant time:
 	// it is a proof that the peer echoed a value derived from a nonce we
@@ -674,7 +779,7 @@ func (d *Dialer) handshake(conn net.Conn, u *url.URL, hdr http.Header, absoluteF
 	// anything an attacker doesn't already know.
 	wantAccept := httpx.AppendAccept(nil, wsKey)
 	if !bytes.Equal(hf.accept, wantAccept) {
-		return Handshake{}, "", ErrAcceptMismatch
+		return Handshake{}, ErrAcceptMismatch
 	}
 
 	selected := ""
@@ -686,7 +791,7 @@ func (d *Dialer) handshake(conn net.Conn, u *url.URL, hdr http.Header, absoluteF
 			}
 		}
 		if selected == "" {
-			return Handshake{}, "", ErrUnrequestedSubprotocol
+			return Handshake{}, ErrUnrequestedSubprotocol
 		}
 	}
 
@@ -696,7 +801,7 @@ func (d *Dialer) handshake(conn net.Conn, u *url.URL, hdr http.Header, absoluteF
 	}
 	cp, compressed, err := ParseCompression(offer, []string{string(hf.extensions)})
 	if err != nil {
-		return Handshake{}, "", err
+		return Handshake{}, err
 	}
 
 	h := Handshake{Subprotocol: selected, Compressed: compressed}
@@ -713,12 +818,9 @@ func (d *Dialer) handshake(conn net.Conn, u *url.URL, hdr http.Header, absoluteF
 		// A response may tighten the ceiling below what the offer-time check
 		// already accepted (e.g. we offered 10, server replied 8).
 		if err := checkWindowBitsSupported(cp.ClientMaxWindowBits); err != nil {
-			return Handshake{}, "", err
+			return Handshake{}, err
 		}
 		h.CompressionParams = cp
 	}
-	if idx+4 < filled {
-		h.Buffered = append([]byte(nil), data[idx+4:filled]...)
-	}
-	return h, "", nil
+	return h, nil
 }

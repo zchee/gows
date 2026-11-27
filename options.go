@@ -407,6 +407,13 @@ type Dialer struct {
 	// port) differs from the previous hop's, and stay dropped even if a
 	// later hop returns to the original origin. A nil map adds no
 	// headers and no cost.
+	//
+	// With [Dialer.HTTPClient] set, a cookie jar on that client adds its
+	// cookies through [net/http.Request.AddCookie]: they are appended to
+	// the first value of a Cookie entry given here under the canonical key
+	// "Cookie", whose other values are then dropped, and an entry under
+	// any other spelling of the name stays beside a second Cookie line
+	// holding the jar's cookies.
 	HTTPHeader http.Header
 
 	// Proxy, if non-nil, selects the HTTP proxy for the handshake
@@ -530,6 +537,89 @@ type Dialer struct {
 	// The zero value adds no server_max_window_bits restriction to the
 	// offer, matching this package's original behavior exactly.
 	ServerWindowBits int
+
+	// MaxErrorBodyBytes, if positive, makes [Dialer.Dial] read up to that
+	// many bytes of the body of an opening-handshake response whose status
+	// is not 101 into [UnexpectedStatusError.Body] -- e.g. the JSON error
+	// document a server sends with a 401. The read is bounded by this
+	// limit and by Dial's context only: a server that stalls mid-body
+	// holds Dial until the context ends, so give the context a deadline
+	// when setting this field.
+	//
+	// The zero value (or a negative value) preserves this package's
+	// original behavior exactly: the body is never read.
+	// [UnexpectedStatusError.Header] is reported either way.
+	MaxErrorBodyBytes int
+
+	// HTTPClient, if non-nil, makes [Dialer.Dial] perform the opening
+	// handshake as one HTTP/1.1 GET through this client instead of over a
+	// connection Dial establishes itself, so the client's Transport (and
+	// any RoundTripper wrapping it), redirect policy, and cookie jar apply.
+	// The ws and wss schemes are requested as http and https, and URL
+	// userinfo is dropped, as on the native path. The request carries the
+	// same handshake headers the native path sends, including the
+	// [Dialer.HTTPHeader] snapshot. net/http parses the response first;
+	// the handshake fields of the 101 it returns then go through the same
+	// checks as on the native path. The few responses whose outcome
+	// differs because of that parsing are listed below.
+	//
+	// The client owns dialing, TLS, proxying, and redirects: setting
+	// NetDial, TLSConfig, Proxy, or CheckRedirect as well fails Dial with
+	// [ErrConflictingHTTPClient] before any network I/O.
+	//
+	// Dial's context and the client's Timeout bound the handshake only,
+	// including any [Dialer.MaxErrorBodyBytes] body read; neither applies
+	// to the returned connection. Dial never modifies the client: it turns
+	// a Timeout into a bound on the handshake context and sends with a
+	// copy whose Timeout is zero, because net/http otherwise wraps the 101
+	// body in a timer that makes it read-only.
+	//
+	// The returned net.Conn reads, writes, and closes through the 101
+	// response body, which first yields any bytes the transport read past
+	// the response (a frame the server sent together with the 101), so
+	// [Handshake.Buffered] is always nil on this path. Its deadlines and
+	// addresses are those of the connection the transport reported through
+	// [net/http/httptrace.ClientTrace.GotConn]; Dial adds its hook to any
+	// trace already in the context and keeps the last connection reported.
+	// A transport that reports no connection, or whose 101 body is not
+	// writable, fails Dial with [ErrUnsupportedHTTPTransport]. Round
+	// trippers wrapped around the transport must not send other requests
+	// with the handshake request's context after the handshake request:
+	// the transport reports those requests' connections too, and the
+	// returned connection's deadlines and addresses would then belong to
+	// a connection that does not carry its frames.
+	//
+	// Limits and parsing on this path are the transport's: the response
+	// header size limit is its own (net/http's MaxResponseHeaderBytes, not
+	// this package's 8KB ceiling, so an oversized header is reported as
+	// [ErrHTTPRequestFailed] and not [ErrHeaderTooLarge]), and a refusal
+	// body it received
+	// gzip-encoded is reported decompressed. Three responses also have a
+	// different outcome: informational (1xx) responses before the 101 are
+	// skipped, where the native path fails with [ErrUnexpectedStatus]; a
+	// header continuation line (obs-fold) is joined to the line before
+	// it, where the native path rejects the response; and a 101 whose
+	// Connection header also carries "close" fails with
+	// [ErrNotConnectionUpgrade], because net/http removes that header,
+	// where the native path accepts it. When the client's Do fails, Dial keeps
+	// only the errors the native path also reports, never net/http's
+	// wording of the peer's bytes: the context's error and cause, network
+	// errors, the TLS handshake error ([net/http.ErrSchemeMismatch] for a
+	// plain HTTP answer to a wss dial, where the native path reports the
+	// TLS record error), an early end of the response, a transport timeout
+	// (as [os.ErrDeadlineExceeded]), and an error the client's
+	// CheckRedirect returned. A client without a CheckRedirect follows
+	// redirects up to net/http's default limit and then fails with
+	// [ErrTooManyRedirects]. When the client's policy follows it, a
+	// redirect to a ws or wss Location fails with [ErrHTTPRequestFailed],
+	// where the native path with a CheckRedirect follows it: net/http
+	// follows only http and https. As on the native path, a TLS or network
+	// error can name a host or certificate name the peer chose, such as a
+	// redirect target's host. Every other failure, such as a malformed
+	// response, a proxy's refusal, or an error of the caller's own
+	// RoundTripper, is reported as [ErrHTTPRequestFailed] without
+	// net/http's error.
+	HTTPClient *http.Client
 }
 
 // Handshake describes a completed WebSocket opening handshake, returned

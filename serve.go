@@ -64,19 +64,27 @@ const (
 // before returning an error if they must be sent); the peer sends a Close frame
 // or a protocol violation fails the connection (the corresponding [*CloseError]
 // is returned, matching errors.Is(err, [net.ErrClosed])); or the transport
-// fails (that I/O error is returned). Before every blocking read, Serve flushes
-// pending buffered replies, so a handler that only ever calls
-// WriteMessageBuffered still sends its output promptly. Once Serve returns an
-// error it is sticky, exactly as for ReadMessage: a later Serve or ReadMessage
-// call returns the same error.
+// fails, on a read or on Serve's own flush of buffered replies (that I/O error
+// is returned; after [Conn.CloseNow] it matches errors.Is(err,
+// [net.ErrClosed])). Before every blocking read, Serve flushes pending buffered
+// replies, so a handler that only ever calls WriteMessageBuffered still sends
+// its output promptly.
+//
+// An error from h is the application's, not the connection's: Serve does not
+// record it and leaves the Conn usable, so the caller may read on with
+// Serve or ReadMessage (messages already buffered are delivered next) or end
+// the connection with [Conn.Close] and a close code of its choosing. Every
+// other error Serve returns is sticky, exactly as for ReadMessage: the read
+// side has released its buffers, and a later Serve or ReadMessage call
+// returns the same error.
 //
 // Concurrency: Serve occupies the Conn's single reader role for its whole
 // duration and must not run concurrently with [Conn.ReadMessage],
 // [Conn.NextReader], or [Conn.Close] (the same contract those methods share
 // with each other); to end a Serve blocked in another goroutine, call
 // [Conn.WriteClose] for a graceful closing handshake (Serve then returns the
-// [*CloseError] once the peer replies), or set a past [Conn.SetReadDeadline]
-// and only then Close for an abrupt interrupt. The handler runs on Serve's
+// [*CloseError] once the peer replies), or [Conn.CloseNow] for an abrupt one
+// (Serve then returns an error matching [net.ErrClosed]). The handler runs on Serve's
 // goroutine, so writes it issues (WriteMessageBuffered, [Conn.WriteMessage], or
 // a [Conn.NextWriter] stream) need no additional synchronization; a concurrent
 // writer on another goroutine is still permitted and stays serialized by the
@@ -107,8 +115,11 @@ func (c *Conn) Serve(h func(op Opcode, p []byte) error) error {
 		// blocking for more input, so buffered output is never stranded behind
 		// a read wait. On the first iteration, and whenever h wrote directly
 		// rather than buffering, the batch is empty and this is a no-op.
+		// A failed flush ends the read side like a failed read: the
+		// connection cannot carry the replies, and Serve owns the read side,
+		// so it records the error and releases the buffers.
 		if err := c.Flush(); err != nil {
-			return err
+			return c.ioError(err)
 		}
 
 		op, p, err := c.readMessageBody()
@@ -186,10 +197,12 @@ func (c *Conn) bufferedMessageReady() bool {
 // read) is safe to pass and safe to let expire.
 //
 // Like [Conn.WriteMessage] it serializes with every other frame write via the
-// connection's write mutex and returns [ErrWriterBusy] while a [Conn.NextWriter]
-// stream is open. It is designed for the single-goroutine [Conn.Serve] model;
-// the accumulated batch is Conn state, so overlapping buffered writes from
-// multiple goroutines, while serialized, share one batch and should be avoided.
+// connection's write lock, is safe to call from several goroutines at once,
+// and returns [ErrWriterBusy] while a [Conn.NextWriter] stream is open. It is
+// designed for the single-goroutine [Conn.Serve] model: the batch is shared by
+// every goroutine, so a Flush, a direct write, or a Serve drain round from any
+// goroutine sends every goroutine's pending frames, and a Serve handler error
+// discards them all.
 func (c *Conn) WriteMessageBuffered(op Opcode, p []byte) error {
 	if err := c.selectMode(connModeMessage); err != nil {
 		return err
@@ -281,5 +294,8 @@ func (c *Conn) flushBufferedLocked() error {
 	}
 	_, err := c.conn.Write(c.wbatch)
 	c.wbatch = c.wbatch[:0]
-	return err
+	if err != nil {
+		return c.closedError(err)
+	}
+	return nil
 }

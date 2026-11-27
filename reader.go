@@ -404,8 +404,14 @@ func (c *Conn) handleControl(h Header) error {
 		// side must keep draining toward the peer's Close frame rather
 		// than failing mid-closing-handshake. A genuine transport failure
 		// is a different error and still propagates.
+		// A Pong that fails on the transport ends the read side like a
+		// failed read: the error is sticky, the buffers are released, and
+		// the transport is closed, so later writes fail too. The Pong is
+		// written under the connection's write deadline, so one that times
+		// out on a deadline the application set for its own writes ends
+		// the connection as well.
 		if err := c.writeControl(OpcodePong, payload); err != nil && !errors.Is(err, errWriteClosed) {
-			return err
+			return c.ioError(err)
 		}
 		return nil
 	case OpcodePong:
@@ -506,6 +512,7 @@ func (c *Conn) ioError(err error) error {
 	if c.readErr != nil {
 		return c.readErr
 	}
+	err = c.closedError(err)
 	c.readErr = err
 	c.teardown()
 	return err
@@ -579,6 +586,7 @@ type messageReader struct {
 // single-reader contract), and -- per [Conn]'s own concurrency doc -- a Read
 // on the returned reader must not run concurrently with [Conn.Close] either;
 // it drives the same read side and shares the same buffers ReadMessage does.
+// [Conn.CloseNow] may run concurrently with it and unblocks a pending Read.
 // Starting a new read -- via either method -- while a previously returned
 // reader has not been drained to io.EOF discards the unread remainder of
 // that message (it is consumed off the wire and thrown away), matching
@@ -769,7 +777,9 @@ func (r *messageReader) Read(p []byte) (int, error) {
 // is still incomplete. The lower-level read path has already torn down the
 // connection; replace its sticky EOF with the streaming-specific error.
 func (r *messageReader) promoteIncompleteEOF(err error) error {
-	if !errors.Is(err, io.EOF) {
+	// An abrupt local close is reported as such, even over a transport that
+	// answers a closed connection with io.EOF.
+	if !errors.Is(err, io.EOF) || errors.Is(err, net.ErrClosed) {
 		return err
 	}
 	r.c.readErr = io.ErrUnexpectedEOF

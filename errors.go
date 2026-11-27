@@ -17,6 +17,7 @@ package gows
 import (
 	"context"
 	"errors"
+	"net/http"
 	"strconv"
 )
 
@@ -124,6 +125,49 @@ var (
 	// mutually exclusive valued and bare client_max_window_bits offer
 	// forms. [Dialer.Dial] returns this before URL parsing or network I/O.
 	ErrConflictingClientWindowBits = errors.New("gows: conflicting valued and bare client_max_window_bits offers")
+	// ErrConflictingHTTPClient indicates that [Dialer.HTTPClient] was set
+	// together with [Dialer.NetDial], [Dialer.TLSConfig], [Dialer.Proxy],
+	// or [Dialer.CheckRedirect]. The HTTP client owns dialing, TLS,
+	// proxying, and redirects for the handshake it carries, so those
+	// fields would be silently ignored. [Dialer.Dial] returns this before
+	// URL parsing or network I/O.
+	ErrConflictingHTTPClient = errors.New("gows: Dialer.HTTPClient conflicts with NetDial, TLSConfig, Proxy, or CheckRedirect")
+	// ErrUnsupportedHTTPTransport indicates that the transport of a
+	// [Dialer.HTTPClient] completed the opening handshake (status 101)
+	// without handing over a connection [Dialer.Dial] can return: it did
+	// not report the connection through
+	// [net/http/httptrace.ClientTrace.GotConn] (e.g. a RoundTripper that
+	// sends the request with a context other than the one it received),
+	// or the 101 response body is not an [io.ReadWriteCloser]. A
+	// connection whose deadlines would do nothing is never returned; Dial
+	// closes the response body and fails with this error, wrapped with
+	// which condition failed.
+	ErrUnsupportedHTTPTransport = errors.New("gows: HTTP client transport did not hand over the upgraded connection")
+	// ErrHTTPRequestFailed indicates that the handshake request sent
+	// through a [Dialer.HTTPClient] failed with an error [Dialer.Dial]
+	// does not pass on, because net/http's text for it can quote what the
+	// peer sent: a malformed response line or header, an unparseable
+	// Location value (userinfo included), a proxy's refusal reason. The
+	// original error is dropped, not wrapped. Dial passes on only what the
+	// native path also reports: the dial context's error and cause,
+	// network errors ([*net.OpError], [*net.DNSError]), the TLS handshake
+	// error or [net/http.ErrSchemeMismatch], an early end of the response
+	// ([io.EOF], [io.ErrUnexpectedEOF]), a transport timeout (as
+	// [os.ErrDeadlineExceeded]), and an error returned by the client's own
+	// CheckRedirect. Any other error, including one a RoundTripper or a
+	// dial function of the caller's returns, is reported as this one.
+	ErrHTTPRequestFailed = errors.New("gows: HTTP client request failed")
+	// ErrRefusalBodyRead indicates that reading the body of a refused
+	// opening handshake into [UnexpectedStatusError.Body] (with
+	// [Dialer.MaxErrorBodyBytes] positive) failed with an error
+	// [Dialer.Dial] does not pass on, because its text can quote what the
+	// peer sent, such as a malformed chunked trailer line. The original
+	// error is dropped, not wrapped. Dial passes on only a read error that
+	// cannot carry peer text: the dial context's error, a network error, an
+	// early end of the body ([io.EOF], [io.ErrUnexpectedEOF]), and a
+	// deadline expiry ([os.ErrDeadlineExceeded]). The [*UnexpectedStatusError]
+	// stays in the chain either way, its Body holding the bytes received.
+	ErrRefusalBodyRead = errors.New("gows: reading the refused handshake's response body failed")
 	// ErrUnsupportedWindowBits reports that a negotiated (or offered)
 	// client_max_window_bits ceiling is smaller than anything the process's
 	// active permessage-deflate backend can actually compress within
@@ -229,6 +273,28 @@ type UnexpectedStatusError struct {
 	// echo credentials or other request material) never reaches logs
 	// through the error chain.
 	Reason string
+	// Header holds the header fields of an opening-handshake response, as
+	// net/http parses them (canonical keys; e.g. Header.Get("Content-Type")).
+	// [Dialer.Dial] sets it for every opening-handshake response that is not
+	// 101, on both dial paths; it is an empty map when the header block does
+	// not parse as net/http requires. It is nil for a proxy CONNECT refusal
+	// (see [ErrProxyConnectFailed]). Like Reason, it is peer-controlled and
+	// never part of Error's text. For a "ws" dial through a proxy, which
+	// sends the handshake to the proxy as an absolute-form request, the
+	// response may be the proxy's own, so Header and Body can carry
+	// proxy-controlled content.
+	Header http.Header
+	// Body holds up to [Dialer.MaxErrorBodyBytes] bytes of an
+	// opening-handshake response's body, e.g. the JSON document of a 401.
+	// It is read only when that limit is positive; otherwise, and for a
+	// proxy CONNECT refusal, it is nil. When the read stops early (the
+	// dial context ended, the peer closed mid-body), Body keeps the bytes
+	// received until then, and the error [Dialer.Dial] returns also wraps
+	// the read error when it cannot carry peer text (a context, network, or
+	// deadline error, or an early end of the body) and
+	// [ErrRefusalBodyRead] in its place otherwise. Like Reason, it is
+	// peer-controlled and never part of Error's text.
+	Body []byte
 }
 
 // Error implements the error interface. The text carries only the

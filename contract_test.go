@@ -80,8 +80,9 @@ func TestConnFieldLayout(t *testing.T) {
 		t.Errorf("conn at offset %d, want 0", off)
 	}
 
-	// Compression-only scratch must sit below both hot lines (off the write
-	// block core), never within the first 128B read line.
+	// Compression-only scratch and the abrupt-close state must sit below
+	// both hot lines (off the write block core), never within the first 128B
+	// read line.
 	cold := []struct {
 		name string
 		off  uintptr
@@ -91,6 +92,8 @@ func TestConnFieldLayout(t *testing.T) {
 		{"inflateBuf", unsafe.Offsetof(c.inflateBuf)},
 		{"deflate", unsafe.Offsetof(c.deflate)},
 		{"outgoingWindowCeil", unsafe.Offsetof(c.outgoingWindowCeil)},
+		{"transportOnce", unsafe.Offsetof(c.transportOnce)},
+		{"closedNow", unsafe.Offsetof(c.closedNow)},
 	}
 	writeCoreEnd := unsafe.Offsetof(c.tornDown)
 	for _, f := range cold {

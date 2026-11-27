@@ -139,6 +139,6 @@ func (c *Conn) failFrameWrite(err error) error {
 	c.frameWrite.err = err
 	c.releaseFrameCompressor()
 	// No later writes may repair a partially emitted frame or compressor context.
-	c.frameStopOnce.Do(func() { _ = c.conn.Close() })
+	c.closeTransport()
 	return err
 }

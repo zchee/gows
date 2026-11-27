@@ -166,12 +166,13 @@ func (c *Conn) relayTransportError(err error) error {
 // or draining inbound data. It safely interrupts blocked frame reads and writes,
 // waits for their buffer use to finish, and releases connection buffers exactly
 // once. Repeated calls return nil. Calling Abort on a message-mode Conn returns
-// ErrConnMode; use the message-mode closing handshake on that connection.
+// ErrConnMode; use the message-mode closing handshake or [Conn.CloseNow] on
+// that connection.
 func (c *Conn) Abort() error {
 	if err := c.selectMode(connModeFrame); err != nil {
 		return err
 	}
-	c.frameStopOnce.Do(func() { _ = c.conn.Close() })
+	c.closeTransport()
 	c.frameReadMu.Lock()
 	defer c.frameReadMu.Unlock()
 	c.teardown()

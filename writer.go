@@ -52,9 +52,12 @@ import (
 // client role RFC 6455 §5.1 requires masking; p is copied into internal scratch
 // and masked there so the caller's slice is left untouched.
 //
-// WriteMessage serializes with every other frame write on the connection
-// (including the automatic ping/close replies issued by the read path); at
-// most one WriteMessage may be in flight at a time.
+// WriteMessage is safe to call from several goroutines at once: it writes
+// its frame under the connection's write lock, serialized with every other
+// frame write (including the automatic Pong and Close replies issued by the
+// read path), so concurrent messages never interleave on the wire; see
+// [Conn] for the full write-side contract. It returns [ErrWriterBusy] without
+// writing while a [Conn.NextWriter] stream is open.
 func (c *Conn) WriteMessage(op Opcode, p []byte) error {
 	if err := c.selectMode(connModeMessage); err != nil {
 		return err
@@ -87,7 +90,9 @@ func (c *Conn) WriteMessage(op Opcode, p []byte) error {
 		if len(p) <= maxCoalescedWriteSize {
 			c.wpay = append(c.wpay[:0], c.whdr...)
 			c.wpay = append(c.wpay, p...)
-			_, err = c.conn.Write(c.wpay)
+			if _, err = c.conn.Write(c.wpay); err != nil {
+				err = c.closedError(err)
+			}
 		} else {
 			err = c.writeFrame(c.whdr, p)
 		}
@@ -272,10 +277,13 @@ func (c *Conn) writev(a, b []byte) error {
 	c.wiov[0], c.wiov[1] = a, b
 	c.wbufs = c.wiov[:]
 	n, err := c.wbufs.WriteTo(c.conn)
-	if err == nil && n != int64(len(a)+len(b)) {
+	if err != nil {
+		return c.closedError(err)
+	}
+	if n != int64(len(a)+len(b)) {
 		return io.ErrShortWrite
 	}
-	return err
+	return nil
 }
 
 // stageWrite sends header a followed by non-empty payload b as one frame on a
@@ -308,10 +316,13 @@ func (c *Conn) stageWrite(a, b []byte) error {
 
 func (c *Conn) writeFrameBytes(p []byte) error {
 	n, err := c.conn.Write(p)
-	if err == nil && n != len(p) {
+	if err != nil {
+		return c.closedError(err)
+	}
+	if n != len(p) {
 		return io.ErrShortWrite
 	}
-	return err
+	return nil
 }
 
 // maskingKey returns an unpredictable 32-bit masking key. RFC 6455 §5.3
@@ -380,15 +391,15 @@ type messageWriter struct {
 // mandatory: it both terminates the message on the wire and releases the
 // writer's buffer.
 //
-// Concurrency: each fragment is written under the Conn's write mutex, so the
-// read path's automatic Pong/Close replies remain safe and may interleave
-// between this message's fragments (RFC 6455 §5.4 permits control frames
-// between fragments). A concurrent [Conn.WriteMessage] or a second NextWriter
-// is refused with [ErrWriterBusy] until this writer is Closed -- a Conn
-// permits only one writer at a time (the same single-writer contract as
-// gorilla/websocket). An un-Closed writer therefore blocks all future data
-// writes on the Conn; the refusal is the safety net rather than silent stream
-// corruption.
+// Concurrency: each fragment is written under the Conn's write lock, so the
+// read path's automatic Pong/Close replies and a concurrent [Conn.WriteClose]
+// remain safe and may interleave between this message's fragments (RFC 6455
+// §5.4 permits control frames between fragments). A data message cannot: a
+// concurrent [Conn.WriteMessage], [Conn.WriteMessageBuffered],
+// [Conn.WritePreparedMessage], or second NextWriter, from any goroutine,
+// returns [ErrWriterBusy] without writing until this writer is Closed. An
+// un-Closed writer therefore blocks all future data writes on the Conn; the
+// refusal is the safety net rather than silent stream corruption.
 //
 // Compression: when permessage-deflate ([WithCompression]) is negotiated and
 // outgoing compression is not disabled, NextWriter uses the same threshold
@@ -558,8 +569,16 @@ func (w *messageWriter) flushLocked(fin bool) error {
 // a compressor, feed the buffered plaintext, and emit any full compressed
 // fragments. On ceiling violation it leaves compressed false so the caller
 // can fall through to the uncompressed path. The caller must not hold wmu.
+//
+// Choosing the compressor reads the Conn's deflate state, which a teardown on
+// the reading goroutine clears under wmu, so the choice is made under wmu.
+// Only the compression itself runs unlocked: the stream owns the leased
+// compressor, and every other data write is refused while it is open.
 func (w *messageWriter) engageCompression() error {
-	lease, reset, ok := w.c.acquireCompressor()
+	c := w.c
+	c.wmu.Lock()
+	lease, reset, ok := c.acquireCompressor()
+	c.wmu.Unlock()
 	if !ok {
 		return nil
 	}
@@ -571,40 +590,46 @@ func (w *messageWriter) engageCompression() error {
 	w.compressed = true
 
 	if len(w.buf) > 0 {
-		if _, err := w.lease.w.Write(w.buf); err != nil {
-			w.fedToCompressor = true
+		_, err := w.lease.w.Write(w.buf)
+		w.fedToCompressor = true
+		if err != nil {
+			c.wmu.Lock()
 			w.disableTakeoverIfFed()
+			c.wmu.Unlock()
 			return fmt.Errorf("gows: compress message: %w", err)
 		}
-		w.fedToCompressor = true
 		w.buf = w.buf[:0]
 	}
-	w.c.wmu.Lock()
+	c.wmu.Lock()
 	err := w.drainCompressedFragmentsLocked()
-	w.c.wmu.Unlock()
 	if err != nil {
 		w.disableTakeoverIfFed()
-		return err
 	}
-	return nil
+	c.wmu.Unlock()
+	return err
 }
 
 // writeCompressed feeds p through the active compressor and emits any full
 // fixed-size compressed fragments. The caller must already be in compressed
-// mode.
+// mode and must not hold wmu.
 func (w *messageWriter) writeCompressed(p []byte) (int, error) {
-	if _, err := w.lease.w.Write(p); err != nil {
-		w.fedToCompressor = true
+	c := w.c
+	_, err := w.lease.w.Write(p)
+	w.fedToCompressor = true
+	if err != nil {
+		c.wmu.Lock()
 		w.disableTakeoverIfFed()
+		c.wmu.Unlock()
 		w.err = fmt.Errorf("gows: compress message: %w", err)
 		return 0, w.err
 	}
-	w.fedToCompressor = true
-	w.c.wmu.Lock()
-	err := w.drainCompressedFragmentsLocked()
-	w.c.wmu.Unlock()
+	c.wmu.Lock()
+	err = w.drainCompressedFragmentsLocked()
 	if err != nil {
 		w.disableTakeoverIfFed()
+	}
+	c.wmu.Unlock()
+	if err != nil {
 		w.err = err
 		return 0, err
 	}
@@ -707,6 +732,8 @@ func (w *messageWriter) releaseCompressor() {
 // disableTakeoverIfFed marks outgoing compression disabled when a
 // context-takeover compressor has already consumed plaintext for this
 // incomplete message, so later messages cannot desync the peer's window.
+// The caller must hold wmu: the deflate state it reads and writes is shared
+// with every other writer and with teardown.
 func (w *messageWriter) disableTakeoverIfFed() {
 	if !w.fedToCompressor {
 		return
