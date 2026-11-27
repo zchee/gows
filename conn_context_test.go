@@ -207,7 +207,8 @@ func TestReadMessageContextEndsWhileBlocked(t *testing.T) {
 			}()
 			awaitEntered(t, "ReadMessageContext", cc.readEntered, readErr)
 			end()
-			wantContextError(t, "ReadMessageContext", awaitResult(t, "ReadMessageContext", readErr), ctx, cause)
+			err := awaitResult(t, "ReadMessageContext", readErr)
+			wantContextError(t, "ReadMessageContext", err, ctx, cause)
 
 			// The connection is closed, once, and the read side released.
 			if n := cc.closes.Load(); n != 1 {
@@ -219,8 +220,7 @@ func TestReadMessageContextEndsWhileBlocked(t *testing.T) {
 			if n, err := b.Read(make([]byte, 1)); n != 0 || !errors.Is(err, io.EOF) {
 				t.Fatalf("peer Read = (%d, %v), want (0, io.EOF)", n, err)
 			}
-			_, _, err := c.ReadMessage()
-			wantClosed(t, "later ReadMessage", err)
+			wantStickyReadError(t, c, err)
 		})
 	}
 }
@@ -396,8 +396,25 @@ func TestReadMessageContextEndsAsReadSucceeds(t *testing.T) {
 	if c.rbuf != nil || !c.tornDown.Load() {
 		t.Fatal("ReadMessageContext returned without releasing the read side")
 	}
+	wantStickyReadError(t, c, err)
+}
+
+// wantStickyReadError fails the test unless every later read entry point
+// returns exactly err, the error a context call returned when its context
+// closed the connection.
+func wantStickyReadError(t *testing.T, c *Conn, err error) {
+	t.Helper()
 	if _, _, again := c.ReadMessage(); again != err {
 		t.Fatalf("later ReadMessage = %v, want the same error %v", again, err)
+	}
+	if _, _, again := c.ReadMessageContext(t.Context()); again != err {
+		t.Fatalf("later ReadMessageContext = %v, want the same error %v", again, err)
+	}
+	if again := c.Serve(func(Opcode, []byte) error { return nil }); again != err {
+		t.Fatalf("later Serve = %v, want the same error %v", again, err)
+	}
+	if _, _, again := c.NextReader(); again != err {
+		t.Fatalf("later NextReader = %v, want the same error %v", again, err)
 	}
 }
 

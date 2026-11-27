@@ -27,12 +27,10 @@ import (
 // abruptly as by [Conn.CloseNow] -- a WebSocket read cannot be abandoned
 // halfway through a message and resumed -- and the returned error wraps
 // ctx.Err and any distinct cancellation cause, so errors.Is matches both. The
-// read side's buffers are released before the call returns, and the read
-// error a later ReadMessage returns depends on where the read was. When the
-// closed transport failed the read -- the usual case -- that failure is
-// recorded, and later reads return an error matching errors.Is(err,
-// [net.ErrClosed]). When the read had already completed, nothing failed it,
-// so the context error is recorded instead and later reads return it.
+// read side's buffers are released before the call returns, and that error is
+// sticky: a later ReadMessage, ReadMessageContext, [Conn.NextReader], or
+// [Conn.Serve] returns exactly the same error, whatever the interrupted read
+// had recorded.
 //
 // A ctx that has already ended fails the call with the context error without
 // any I/O, without closing the connection, and without recording the error.
@@ -71,13 +69,11 @@ func (c *Conn) readMessageContext(ctx context.Context) (Opcode, []byte, error) {
 	}
 	// ctx ended during the read and the connection is closed. This goroutine
 	// owns the read side, so release its buffers now rather than leaving them
-	// to a later call. A read error already recorded stays sticky; otherwise
-	// the context error becomes the sticky one, so a later read reports why
-	// the connection ended rather than a bare closed transport.
+	// to a later call. The context error replaces whatever the read recorded
+	// (usually the closed transport the context caused), so every later read
+	// returns exactly the error this call returns, however the read ended.
 	ctxErr := fmt.Errorf("gows: read: %w", contextError(ctx))
-	if c.readErr == nil {
-		c.readErr = ctxErr
-	}
+	c.readErr = ctxErr
 	c.teardown()
 	return 0, nil, ctxErr
 }
