@@ -87,11 +87,11 @@ const maxCoalescedWriteSize = 2 << 10
 // (write-only, safe alongside the reader) and let that reader observe
 // the peer's Close reply as its usual [*CloseError]. Once the read side
 // is quiescent, [Conn.Close] or the context-bounded [Conn.CloseContext]
-// performs the full closing handshake. To instead abruptly interrupt a
-// blocked read, first call [Conn.SetReadDeadline] with a time in the
-// past (which unblocks the pending read with a timeout error) and only
-// then call [Conn.Close]; calling Close directly while either is still
-// blocked races the read side's buffers.
+// performs the full closing handshake. To instead shut the connection down
+// abruptly from any goroutine, call [Conn.CloseNow]: it closes the
+// transport, which unblocks every pending read and write, and the blocked
+// reader releases the read side's buffers as it returns. Calling Close
+// directly while a read is still blocked races the read side's buffers.
 //
 // The zero value is not usable; construct a Conn with [NewServerConn] or
 // [NewClientConn].
@@ -153,7 +153,8 @@ type Conn struct {
 	closeTimeout       time.Duration
 	mode               atomic.Uint32 // permanent message/frame API selection.
 	frameReadMu        sync.Mutex    // coordinates frame reads and Abort.
-	frameStopOnce      sync.Once     // closes the frame-mode transport once.
+	transportOnce      sync.Once     // closes the transport once, for teardown, Abort, and CloseNow alike.
+	closedNow          atomic.Bool   // CloseNow (or a context ending a call) closed the transport; read only on error paths.
 	frameRead          frameReadState
 	frameWrite         frameWriteState  // guarded by wmu.
 	frameDecode        frameDecodeState // guarded by frameReadMu.
@@ -484,7 +485,9 @@ func (c *Conn) SetWriteDeadline(t time.Time) error {
 // concurrently with [Conn.ReadMessage]; it takes over the read side.
 // For the same handshake bounded by a context and one absolute
 // deadline, use [Conn.CloseContext]; to send the Close frame from
-// another goroutine while a reader is active, use [Conn.WriteClose].
+// another goroutine while a reader is active, use [Conn.WriteClose]; to
+// close abruptly from any goroutine, use [Conn.CloseNow]. After CloseNow,
+// Close writes nothing, releases the buffers, and returns nil.
 func (c *Conn) Close(code CloseCode, reason string) error {
 	if err := c.selectMode(connModeMessage); err != nil {
 		return err
@@ -494,6 +497,12 @@ func (c *Conn) Close(code CloseCode, reason string) error {
 	// left to do and, critically, nothing left to read — re-entering the read
 	// path here would index a freed buffer. Return nil per the doc contract.
 	if c.tornDown.Load() {
+		return nil
+	}
+	if c.closedNow.Load() {
+		// CloseNow already closed the transport: there is no handshake left
+		// to perform, only the buffers to release.
+		c.teardown()
 		return nil
 	}
 	if err := validateCloseArgs(code, reason); err != nil {
@@ -519,11 +528,7 @@ func (c *Conn) Close(code CloseCode, reason string) error {
 // later call can index the freed read buffer with stale offsets.
 func (c *Conn) teardown() {
 	c.teardownOnce.Do(func() {
-		if c.mode.Load() == connModeFrame {
-			c.frameStopOnce.Do(func() { _ = c.conn.Close() })
-		} else {
-			_ = c.conn.Close()
-		}
+		c.closeTransport()
 		if c.rbuf != nil {
 			pool.Put(c.rbuf)
 			c.rbuf = nil
@@ -580,6 +585,68 @@ func (c *Conn) teardown() {
 	})
 }
 
+// closeTransport closes the underlying connection, exactly once across
+// teardown, [Conn.Abort], [Conn.CloseNow], and a frame write failure.
+func (c *Conn) closeTransport() {
+	c.transportOnce.Do(func() { _ = c.conn.Close() })
+}
+
+// CloseNow closes the connection abruptly, without the closing handshake: it
+// closes the underlying transport and returns, writing no Close frame and
+// waiting for no reply. It is the message-mode counterpart of [Conn.Abort].
+//
+// CloseNow is safe to call from any goroutine at any time, including while
+// other goroutines are blocked in [Conn.ReadMessage], [Conn.Serve], a
+// [Conn.NextReader] stream's Read, or any write: it closes the transport
+// before taking the write lock, so a writer blocked on a peer that stopped
+// reading is released too. Afterwards a blocked or later read, and a blocked
+// or later write, returns an error matching errors.Is(err, [net.ErrClosed]).
+// The transport is closed exactly once, however CloseNow, [Conn.Close],
+// [Conn.CloseContext], and the read side's own failure handling overlap.
+//
+// CloseNow does not release the Conn's buffers, because a reader may still be
+// using them. The read side releases them when it observes the closed
+// transport; when no goroutine is reading, [Conn.Close] or
+// [Conn.CloseContext] releases them and returns nil without writing. CloseNow
+// returns nil, also when called again or after the connection has closed.
+// Like the other message-mode methods, the first call selects message mode;
+// on a frame-mode Conn it returns [ErrConnMode] (use [Conn.Abort] there).
+func (c *Conn) CloseNow() error {
+	if err := c.selectMode(connModeMessage); err != nil {
+		return err
+	}
+	c.closeNow()
+	return nil
+}
+
+// closeNow closes the transport and then marks the write side closed. The
+// flag is set first so that every error the closed transport produces is
+// reported as a closed connection; the write lock is taken only after the
+// transport is closed, so a writer blocked on the transport has already been
+// released when closeNow waits for it.
+func (c *Conn) closeNow() {
+	c.closedNow.Store(true)
+	c.closeTransport()
+	c.wmu.Lock()
+	c.closeSent = true
+	c.wmu.Unlock()
+}
+
+// closedError reports a transport error caused by [Conn.CloseNow] as a
+// closed-connection error: a closed net.Pipe, for one, reports
+// io.ErrClosedPipe, which does not match [net.ErrClosed]. Other errors are
+// returned unchanged. It runs only on error paths.
+func (c *Conn) closedError(err error) error {
+	if !c.closedNow.Load() || errors.Is(err, net.ErrClosed) {
+		return err
+	}
+	return fmt.Errorf("%w: %w", errClosedNow, err)
+}
+
+// errClosedNow prefixes a transport error observed after [Conn.CloseNow]. It
+// wraps [net.ErrClosed] so errors.Is(err, net.ErrClosed) holds.
+var errClosedNow = fmt.Errorf("gows: connection closed abruptly: %w", net.ErrClosed)
+
 // WriteClose sends a Close frame with the given code and reason -- the
 // write-only half of the closing handshake (RFC 6455 §7) -- without
 // touching the read side. Unlike [Conn.Close] and [Conn.CloseContext],
@@ -631,7 +698,8 @@ func (c *Conn) WriteClose(code CloseCode, reason string) error {
 // stream) -- from the reading goroutine itself, or after that goroutine
 // has returned. It is not a cross-goroutine interrupt: to nudge a live
 // connection toward closure while a reader is active elsewhere, use
-// [Conn.WriteClose] and let that reader observe the peer's reply.
+// [Conn.WriteClose] and let that reader observe the peer's reply, or use
+// [Conn.CloseNow] to close it abruptly.
 //
 // The whole handshake -- the Close-frame write and the wait for the
 // peer's Close -- shares a single absolute deadline fixed once on entry.
@@ -651,12 +719,17 @@ func (c *Conn) WriteClose(code CloseCode, reason string) error {
 //
 // code and reason are validated exactly as for [Conn.Close] before any
 // I/O, and like Close, CloseContext is idempotent: once the connection
-// is torn down it returns nil immediately.
+// is torn down it returns nil immediately. After [Conn.CloseNow] it writes
+// nothing, releases the buffers, and returns nil.
 func (c *Conn) CloseContext(ctx context.Context, code CloseCode, reason string) error {
 	if err := c.selectMode(connModeMessage); err != nil {
 		return err
 	}
 	if c.tornDown.Load() {
+		return nil
+	}
+	if c.closedNow.Load() {
+		c.teardown()
 		return nil
 	}
 	if err := validateCloseArgs(code, reason); err != nil {

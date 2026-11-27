@@ -90,7 +90,9 @@ func (c *Conn) WriteMessage(op Opcode, p []byte) error {
 		if len(p) <= maxCoalescedWriteSize {
 			c.wpay = append(c.wpay[:0], c.whdr...)
 			c.wpay = append(c.wpay, p...)
-			_, err = c.conn.Write(c.wpay)
+			if _, err = c.conn.Write(c.wpay); err != nil {
+				err = c.closedError(err)
+			}
 		} else {
 			err = c.writeFrame(c.whdr, p)
 		}
@@ -275,10 +277,13 @@ func (c *Conn) writev(a, b []byte) error {
 	c.wiov[0], c.wiov[1] = a, b
 	c.wbufs = c.wiov[:]
 	n, err := c.wbufs.WriteTo(c.conn)
-	if err == nil && n != int64(len(a)+len(b)) {
+	if err != nil {
+		return c.closedError(err)
+	}
+	if n != int64(len(a)+len(b)) {
 		return io.ErrShortWrite
 	}
-	return err
+	return nil
 }
 
 // stageWrite sends header a followed by non-empty payload b as one frame on a
@@ -311,10 +316,13 @@ func (c *Conn) stageWrite(a, b []byte) error {
 
 func (c *Conn) writeFrameBytes(p []byte) error {
 	n, err := c.conn.Write(p)
-	if err == nil && n != len(p) {
+	if err != nil {
+		return c.closedError(err)
+	}
+	if n != len(p) {
 		return io.ErrShortWrite
 	}
-	return err
+	return nil
 }
 
 // maskingKey returns an unpredictable 32-bit masking key. RFC 6455 §5.3
