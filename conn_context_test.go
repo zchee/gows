@@ -20,6 +20,7 @@ import (
 	"errors"
 	"io"
 	"net"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -301,5 +302,66 @@ func TestMessageContextModeExclusion(t *testing.T) {
 	}
 	if err := c.WriteMessageContext(ctx, OpcodeText, nil); !errors.Is(err, ErrConnMode) {
 		t.Fatalf("WriteMessageContext on a frame-mode Conn = %v, want ErrConnMode", err)
+	}
+}
+
+// cancelOnReadConn ends the call's context from inside its first Read,
+// waits until the context's callback has closed the transport, and then
+// still returns a whole frame, so the read succeeds exactly as the context
+// ends.
+type cancelOnReadConn struct {
+	net.Conn
+	frame     []byte
+	cancel    func()
+	served    bool
+	closeOnce sync.Once
+	closed    chan struct{}
+}
+
+func (c *cancelOnReadConn) Read(p []byte) (int, error) {
+	if c.served {
+		<-c.closed
+		return 0, net.ErrClosed
+	}
+	c.served = true
+	c.cancel()
+	<-c.closed
+	return copy(p, c.frame), nil
+}
+
+func (c *cancelOnReadConn) Close() error {
+	c.closeOnce.Do(func() { close(c.closed) })
+	return nil
+}
+
+// TestReadMessageContextEndsAsReadSucceeds pins the call whose context ends
+// just as its read completes: the connection is already closed, so the call
+// drops the message, reports the context error, releases the read side, and
+// leaves that error sticky for later reads.
+func TestReadMessageContextEndsAsReadSucceeds(t *testing.T) {
+	t.Parallel()
+	a, b := net.Pipe()
+	defer a.Close()
+	defer b.Close()
+	cause := errors.New("caller gave up")
+	ctx, cancel := context.WithCancelCause(t.Context())
+	tc := &cancelOnReadConn{
+		Conn:   a,
+		frame:  clientFrame(true, OpcodeText, []byte("dropped")),
+		cancel: func() { cancel(cause) },
+		closed: make(chan struct{}),
+	}
+	c := NewServerConn(tc)
+
+	op, p, err := c.ReadMessageContext(ctx)
+	if op != 0 || p != nil {
+		t.Fatalf("ReadMessageContext = (%v, %q, %v), want no message", op, p, err)
+	}
+	wantContextError(t, "ReadMessageContext", err, ctx, cause)
+	if c.rbuf != nil || !c.tornDown.Load() {
+		t.Fatal("ReadMessageContext returned without releasing the read side")
+	}
+	if _, _, again := c.ReadMessage(); again != err {
+		t.Fatalf("later ReadMessage = %v, want the same error %v", again, err)
 	}
 }

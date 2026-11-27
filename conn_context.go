@@ -26,12 +26,15 @@ import (
 // When ctx ends while the call is in progress, the connection is closed
 // abruptly as by [Conn.CloseNow] -- a WebSocket read cannot be abandoned
 // halfway through a message and resumed -- and the returned error wraps
-// ctx.Err and any distinct cancellation cause, so errors.Is matches both; the
-// read side's buffers are released before it returns. A ctx that has already
-// ended fails the call the same way without any I/O and without closing the
-// connection. The cancellation callback is stopped, and waited for if it has
-// started, before ReadMessageContext returns, so a ctx that ends after a
-// successful return never closes the connection.
+// ctx.Err and any distinct cancellation cause, so errors.Is matches both. The
+// read side's buffers are released before the call returns, and unless the
+// read had already failed with an error of its own, the context error becomes
+// sticky: a later ReadMessage returns it too. A ctx that has already ended
+// fails the call with the context error without any I/O, without closing the
+// connection, and without recording the error. The cancellation callback is
+// stopped, and waited for if it has started, before ReadMessageContext
+// returns, so a ctx that ends after a successful return never closes the
+// connection.
 //
 // ReadMessageContext never sets a deadline on the transport, so it leaves a
 // concurrent writer's write deadline alone. A ctx that can never end
@@ -60,9 +63,15 @@ func (c *Conn) readMessageContext(ctx context.Context) (Opcode, []byte, error) {
 	}
 	// ctx ended during the read and the connection is closed. This goroutine
 	// owns the read side, so release its buffers now rather than leaving them
-	// to a later call; the read error, if any, stays sticky.
+	// to a later call. A read error already recorded stays sticky; otherwise
+	// the context error becomes the sticky one, so a later read reports why
+	// the connection ended rather than a bare closed transport.
+	ctxErr := fmt.Errorf("gows: read: %w", contextError(ctx))
+	if c.readErr == nil {
+		c.readErr = ctxErr
+	}
 	c.teardown()
-	return 0, nil, fmt.Errorf("gows: read: %w", contextError(ctx))
+	return 0, nil, ctxErr
 }
 
 // WriteMessageContext is [Conn.WriteMessage] governed by ctx, and like
