@@ -16,6 +16,7 @@ package gows
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"io"
 	"net"
@@ -389,5 +390,35 @@ func TestCloseNowDeliversBufferedMessages(t *testing.T) {
 	wantClosed(t, "ReadMessage past the buffered messages", err)
 	if c.rbuf != nil {
 		t.Fatal("the read side kept its buffers after the closed transport failed it")
+	}
+}
+
+// TestCloseContextEndedMidDrainClosesOnce pins the exactly-once transport
+// close when the context bounding a closing handshake ends while the drain
+// waits for the peer's Close: the force-close the context triggers and the
+// teardown that follows must share one close.
+func TestCloseContextEndedMidDrainClosesOnce(t *testing.T) {
+	t.Parallel()
+	a, b := net.Pipe()
+	defer b.Close()
+	cc := newCloseCountConn(a)
+	c := NewServerConn(cc)
+	cause := errors.New("caller gave up")
+	ctx, cancel := context.WithCancelCause(t.Context())
+
+	// The peer takes the Close frame and never replies; the caller gives up
+	// once the drain is reading.
+	go func() {
+		readWireFrame(t, b)
+		<-cc.readEntered
+		cancel(cause)
+	}()
+	err := c.CloseContext(ctx, CloseNormalClosure, "bye")
+	wantContextError(t, "CloseContext", err, ctx, cause)
+	if n := cc.closes.Load(); n != 1 {
+		t.Fatalf("transport closed %d times, want exactly 1", n)
+	}
+	if c.rbuf != nil || !c.tornDown.Load() {
+		t.Fatal("CloseContext returned without releasing the buffers")
 	}
 }

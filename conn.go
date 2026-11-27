@@ -749,12 +749,13 @@ func (c *Conn) CloseContext(ctx context.Context, code CloseCode, reason string) 
 	// One absolute deadline for the whole handshake: the Close-frame
 	// write and the peer-Close drain share it, so the total time is
 	// bounded by a single budget rather than per-phase renewals. The
-	// guard also force-closes the connection if ctx ends mid-handshake.
+	// guard also force-closes the connection if ctx ends mid-handshake,
+	// through the same once as teardown, so the transport is closed once.
 	deadline, ctxBound := ctx.Deadline()
 	if !ctxBound {
 		deadline = time.Now().Add(c.closeTimeout)
 	}
-	g, err := guardConn(ctx, c.conn, deadline)
+	g, err := guardConnClosing(ctx, c.conn, deadline, c.closeTransport)
 	if err != nil {
 		c.teardown()
 		return fmt.Errorf("gows: set close deadline: %w", err)
