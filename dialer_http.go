@@ -199,8 +199,10 @@ func httpDoError(ctx context.Context, host string, err, policyErr error, trace *
 // transportError returns the network-level error in err's chain whose text
 // net/http does not build from the peer's bytes, or nil when there is none.
 // A proxy dial wraps its failures in a *net.OpError whose Op is
-// "proxyconnect"; that wrapper also carries the proxy's own text (its
-// CONNECT response), so its Err is vetted the same way instead of trusted.
+// "proxyconnect". net/http puts the dial to the proxy and an https proxy's
+// TLS handshake behind that wrapper today, and returns a refused CONNECT
+// unwrapped; its Err is vetted all the same instead of trusted, so the
+// result does not depend on what a later net/http wraps there.
 func transportError(err error) error {
 	if oe, ok := errors.AsType[*net.OpError](err); ok {
 		if oe.Op != "proxyconnect" {

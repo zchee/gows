@@ -591,7 +591,9 @@ type Dialer struct {
 	//
 	// Limits and parsing on this path are the transport's: the response
 	// header size limit is its own (net/http's MaxResponseHeaderBytes, not
-	// this package's 8KB ceiling), and a refusal body it received
+	// this package's 8KB ceiling, so an oversized header is reported as
+	// [ErrHTTPRequestFailed] and not [ErrHeaderTooLarge]), and a refusal
+	// body it received
 	// gzip-encoded is reported decompressed. Three responses also have a
 	// different outcome: informational (1xx) responses before the 101 are
 	// skipped, where the native path fails with [ErrUnexpectedStatus]; a

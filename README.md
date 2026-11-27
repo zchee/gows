@@ -524,12 +524,12 @@ func main() {
 A transport that does not report its connection through
 `net/http/httptrace`, or whose 101 response body is not writable, is refused
 with `ErrUnsupportedHTTPTransport`, because the connection's deadlines could
-not be honoured. When the client's request fails with an error whose
-`net/http` text could quote the peer (a malformed response, a proxy's
-refusal reason, an unparseable `Location`), `Dial` returns
-`ErrHTTPRequestFailed` instead of that text; context, network, TLS and
-timeout errors are reported as on the built-in path. This example is
-verified to compile like the ones above.
+not be honoured. A failed request reports context, network, TLS,
+timeout and redirect-policy errors as the built-in path does; any other
+failure (a malformed response, a proxy's refusal, an error of your own
+`RoundTripper`) is reported as `ErrHTTPRequestFailed` without `net/http`'s
+text, which could quote the peer. This example is verified to compile
+like the ones above.
 
 ## Conformance
 
