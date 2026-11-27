@@ -384,6 +384,114 @@ func TestDialHandshakeResponseRejections(t *testing.T) {
 	}
 }
 
+// TestDialDuplicatedResponseFields sends 101 responses that repeat a
+// handshake field. Both paths take the last value of Sec-WebSocket-Accept,
+// Sec-WebSocket-Protocol, and Sec-WebSocket-Extensions, so the same
+// response must have the same outcome on each.
+func TestDialDuplicatedResponseFields(t *testing.T) {
+	const noTakeover = "permessage-deflate; server_no_context_takeover; client_no_context_takeover"
+	tests := map[string]struct {
+		respond        func(t *testing.T, req []byte) string
+		wantErr        error
+		wantProtocol   string
+		wantCompressed bool
+	}{
+		"success: Sec-WebSocket-Accept repeated, wrong value first": {
+			respond: func(t *testing.T, req []byte) string {
+				return "HTTP/1.1 101 Switching Protocols\r\n" +
+					"Upgrade: websocket\r\n" +
+					"Connection: Upgrade\r\n" +
+					"Sec-WebSocket-Accept: dGhpc2lzd3Jvbmc9PQ==\r\n" +
+					"Sec-WebSocket-Accept: " + mustAcceptFromRequest(t, req) + "\r\n\r\n"
+			},
+		},
+		"error: Sec-WebSocket-Accept repeated, wrong value last": {
+			respond: func(t *testing.T, req []byte) string {
+				return "HTTP/1.1 101 Switching Protocols\r\n" +
+					"Upgrade: websocket\r\n" +
+					"Connection: Upgrade\r\n" +
+					"Sec-WebSocket-Accept: " + mustAcceptFromRequest(t, req) + "\r\n" +
+					"Sec-WebSocket-Accept: dGhpc2lzd3Jvbmc9PQ==\r\n\r\n"
+			},
+			wantErr: gows.ErrAcceptMismatch,
+		},
+		"success: Sec-WebSocket-Protocol repeated, offered value last": {
+			respond: func(t *testing.T, req []byte) string {
+				return upgradeResponseWith(t, req, "Sec-WebSocket-Protocol: not-offered\r\nSec-WebSocket-Protocol: chat\r\n")
+			},
+			wantProtocol: "chat",
+		},
+		"error: Sec-WebSocket-Protocol repeated, unoffered value last": {
+			respond: func(t *testing.T, req []byte) string {
+				return upgradeResponseWith(t, req, "Sec-WebSocket-Protocol: chat\r\nSec-WebSocket-Protocol: not-offered\r\n")
+			},
+			wantErr: gows.ErrUnrequestedSubprotocol,
+		},
+		"success: Sec-WebSocket-Extensions repeated, permessage-deflate last": {
+			respond: func(t *testing.T, req []byte) string {
+				return upgradeResponseWith(t, req, "Sec-WebSocket-Extensions: x-foo\r\nSec-WebSocket-Extensions: "+noTakeover+"\r\n")
+			},
+			wantCompressed: true,
+		},
+		"error: Sec-WebSocket-Extensions repeated, unrelated extension last": {
+			respond: func(t *testing.T, req []byte) string {
+				return upgradeResponseWith(t, req, "Sec-WebSocket-Extensions: "+noTakeover+"\r\nSec-WebSocket-Extensions: x-foo\r\n")
+			},
+			wantErr: gows.ErrInvalidCompressionResponse,
+		},
+	}
+	for pathName, setPath := range dialPaths {
+		for name, tt := range tests {
+			t.Run(pathName+"/"+name, func(t *testing.T) {
+				srv := startRawServer(t, func(req []byte) string { return tt.respond(t, req) })
+				d := &gows.Dialer{Subprotocols: []string{"chat"}, EnableCompression: true}
+				setPath(t, d)
+				conn, hs, err := dialHandshakeWithin(t, t.Context(), d, srv.url, 5*time.Second)
+				if tt.wantErr != nil {
+					if conn != nil {
+						conn.Close()
+						t.Fatalf("Dial conn = %v, want nil", conn)
+					}
+					if !errors.Is(err, tt.wantErr) {
+						t.Fatalf("Dial err = %v, want errors.Is %v", err, tt.wantErr)
+					}
+					srv.awaitClosed(t)
+					return
+				}
+				if err != nil {
+					t.Fatalf("Dial: %v", err)
+				}
+				conn.Close()
+				if hs.Subprotocol != tt.wantProtocol || hs.Compressed != tt.wantCompressed {
+					t.Errorf("Handshake (Subprotocol, Compressed) = (%q, %v), want (%q, %v)", hs.Subprotocol, hs.Compressed, tt.wantProtocol, tt.wantCompressed)
+				}
+			})
+		}
+	}
+}
+
+// dialHandshakeWithin is dialWithin that also returns the Handshake.
+func dialHandshakeWithin(t *testing.T, ctx context.Context, d *gows.Dialer, rawURL string, limit time.Duration) (net.Conn, gows.Handshake, error) {
+	t.Helper()
+	type result struct {
+		conn net.Conn
+		hs   gows.Handshake
+		err  error
+	}
+	done := make(chan result, 1)
+	go func() {
+		conn, hs, err := d.Dial(ctx, rawURL)
+		done <- result{conn, hs, err}
+	}()
+	select {
+	case r := <-done:
+		return r.conn, r.hs, r.err
+	case <-time.After(limit):
+		t.Fatalf("Dial did not return within %v", limit)
+		return nil, gows.Handshake{}, nil
+	}
+}
+
 // TestDialResponsesThatDifferByPath pins the responses whose outcome
 // depends on the dial path, because net/http parses the response before the
 // shared checks see its 101 fields. Each row states what each path does.
