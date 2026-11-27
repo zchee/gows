@@ -50,12 +50,33 @@ const maxCoalescedWriteSize = 2 << 10
 // RFC 6455 framing, fragmentation, control-frame, and closing-handshake
 // protocol on top of the low-level frame codec.
 //
-// Concurrency: a Conn supports at most one concurrent reader and one
-// concurrent writer, matching the gorilla/websocket and coder/websocket
-// contract. [Conn.ReadMessage] (and the automatic ping/close replies it
-// issues) may run concurrently with one [Conn.WriteMessage]; all frame writes
-// are serialized internally, so the read path's control replies never
-// interleave with an application write. [Conn.Close] participates in the read
+// Concurrency: one goroutine may read while any number of goroutines write.
+//
+// The read side -- [Conn.ReadMessage], [Conn.NextReader] and the reader it
+// returns, and [Conn.Serve] -- belongs to one goroutine at a time.
+//
+// The write side is safe for concurrent use. [Conn.WriteMessage],
+// [Conn.WriteMessageBuffered], [Conn.Flush], [Conn.WritePreparedMessage],
+// [Conn.NextWriter], [Conn.WriteClose], and the Pong and Close replies the
+// read side sends all write under one lock, so every frame reaches the
+// transport whole and frames from different goroutines never mix. Each
+// message sent by WriteMessage, WritePreparedMessage, or WriteMessageBuffered
+// is a single frame; one goroutine's messages keep that goroutine's order,
+// and messages from different goroutines go out in the order they take the
+// lock. While a NextWriter stream is open, WriteMessage,
+// WriteMessageBuffered, WritePreparedMessage, and a second NextWriter return
+// [ErrWriterBusy] without writing anything until the stream is closed;
+// control frames (the read side's replies, WriteClose) may still go out
+// between the stream's fragments, as RFC 6455 §5.4 allows. The writer
+// NextWriter returns is itself for one goroutine. WriteMessageBuffered
+// appends to one batch shared by every goroutine: a Flush, a direct write, or
+// a Serve drain round from any goroutine sends all pending frames, and a
+// Serve handler error discards all of them. A deadline set with
+// [Conn.SetWriteDeadline] applies to every writer. A write that fails may
+// leave part of a frame on the wire, and the Conn does not refuse later
+// writes because of it, so treat any write error as fatal for the connection.
+//
+// [Conn.Close] participates in the read
 // side and must not run concurrently with [Conn.ReadMessage] -- nor with
 // reading from the reader returned by [Conn.NextReader], which drives
 // the same read side and shares the same buffers -- this is a deliberate

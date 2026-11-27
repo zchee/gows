@@ -186,10 +186,12 @@ func (c *Conn) bufferedMessageReady() bool {
 // read) is safe to pass and safe to let expire.
 //
 // Like [Conn.WriteMessage] it serializes with every other frame write via the
-// connection's write mutex and returns [ErrWriterBusy] while a [Conn.NextWriter]
-// stream is open. It is designed for the single-goroutine [Conn.Serve] model;
-// the accumulated batch is Conn state, so overlapping buffered writes from
-// multiple goroutines, while serialized, share one batch and should be avoided.
+// connection's write lock, is safe to call from several goroutines at once,
+// and returns [ErrWriterBusy] while a [Conn.NextWriter] stream is open. It is
+// designed for the single-goroutine [Conn.Serve] model: the batch is shared by
+// every goroutine, so a Flush, a direct write, or a Serve drain round from any
+// goroutine sends every goroutine's pending frames, and a Serve handler error
+// discards them all.
 func (c *Conn) WriteMessageBuffered(op Opcode, p []byte) error {
 	if err := c.selectMode(connModeMessage); err != nil {
 		return err

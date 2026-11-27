@@ -52,9 +52,12 @@ import (
 // client role RFC 6455 §5.1 requires masking; p is copied into internal scratch
 // and masked there so the caller's slice is left untouched.
 //
-// WriteMessage serializes with every other frame write on the connection
-// (including the automatic ping/close replies issued by the read path); at
-// most one WriteMessage may be in flight at a time.
+// WriteMessage is safe to call from several goroutines at once: it writes
+// its frame under the connection's write lock, serialized with every other
+// frame write (including the automatic Pong and Close replies issued by the
+// read path), so concurrent messages never interleave on the wire; see
+// [Conn] for the full write-side contract. It returns [ErrWriterBusy] without
+// writing while a [Conn.NextWriter] stream is open.
 func (c *Conn) WriteMessage(op Opcode, p []byte) error {
 	if err := c.selectMode(connModeMessage); err != nil {
 		return err
@@ -380,15 +383,15 @@ type messageWriter struct {
 // mandatory: it both terminates the message on the wire and releases the
 // writer's buffer.
 //
-// Concurrency: each fragment is written under the Conn's write mutex, so the
-// read path's automatic Pong/Close replies remain safe and may interleave
-// between this message's fragments (RFC 6455 §5.4 permits control frames
-// between fragments). A concurrent [Conn.WriteMessage] or a second NextWriter
-// is refused with [ErrWriterBusy] until this writer is Closed -- a Conn
-// permits only one writer at a time (the same single-writer contract as
-// gorilla/websocket). An un-Closed writer therefore blocks all future data
-// writes on the Conn; the refusal is the safety net rather than silent stream
-// corruption.
+// Concurrency: each fragment is written under the Conn's write lock, so the
+// read path's automatic Pong/Close replies and a concurrent [Conn.WriteClose]
+// remain safe and may interleave between this message's fragments (RFC 6455
+// §5.4 permits control frames between fragments). A data message cannot: a
+// concurrent [Conn.WriteMessage], [Conn.WriteMessageBuffered],
+// [Conn.WritePreparedMessage], or second NextWriter, from any goroutine,
+// returns [ErrWriterBusy] without writing until this writer is Closed. An
+// un-Closed writer therefore blocks all future data writes on the Conn; the
+// refusal is the safety net rather than silent stream corruption.
 //
 // Compression: when permessage-deflate ([WithCompression]) is negotiated and
 // outgoing compression is not disabled, NextWriter uses the same threshold
