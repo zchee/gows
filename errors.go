@@ -125,6 +125,24 @@ var (
 	// mutually exclusive valued and bare client_max_window_bits offer
 	// forms. [Dialer.Dial] returns this before URL parsing or network I/O.
 	ErrConflictingClientWindowBits = errors.New("gows: conflicting valued and bare client_max_window_bits offers")
+	// ErrConflictingHTTPClient indicates that [Dialer.HTTPClient] was set
+	// together with [Dialer.NetDial], [Dialer.TLSConfig], [Dialer.Proxy],
+	// or [Dialer.CheckRedirect]. The HTTP client owns dialing, TLS,
+	// proxying, and redirects for the handshake it carries, so those
+	// fields would be silently ignored. [Dialer.Dial] returns this before
+	// URL parsing or network I/O.
+	ErrConflictingHTTPClient = errors.New("gows: Dialer.HTTPClient conflicts with NetDial, TLSConfig, Proxy, or CheckRedirect")
+	// ErrUnsupportedHTTPTransport indicates that the transport of a
+	// [Dialer.HTTPClient] completed the opening handshake (status 101)
+	// without handing over a connection [Dialer.Dial] can return: it did
+	// not report the connection through
+	// [net/http/httptrace.ClientTrace.GotConn] (e.g. a RoundTripper that
+	// sends the request with a context other than the one it received),
+	// or the 101 response body is not an [io.ReadWriteCloser]. A
+	// connection whose deadlines would do nothing is never returned; Dial
+	// closes the response body and fails with this error, wrapped with
+	// which condition failed.
+	ErrUnsupportedHTTPTransport = errors.New("gows: HTTP client transport did not hand over the upgraded connection")
 	// ErrUnsupportedWindowBits reports that a negotiated (or offered)
 	// client_max_window_bits ceiling is smaller than anything the process's
 	// active permessage-deflate backend can actually compress within

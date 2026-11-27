@@ -543,6 +543,43 @@ type Dialer struct {
 	// original behavior exactly: the body is never read.
 	// [UnexpectedStatusError.Header] is reported either way.
 	MaxErrorBodyBytes int
+
+	// HTTPClient, if non-nil, makes [Dialer.Dial] perform the opening
+	// handshake as one HTTP/1.1 GET through this client instead of over a
+	// connection Dial establishes itself, so the client's Transport (and
+	// any RoundTripper wrapping it), redirect policy, and cookie jar apply.
+	// The ws and wss schemes are requested as http and https, and URL
+	// userinfo is dropped, as on the native path. The request carries the
+	// same handshake headers the native path sends, including the
+	// [Dialer.HTTPHeader] snapshot, and the response goes through the same
+	// checks, so the same response is accepted or rejected on both paths.
+	//
+	// The client owns dialing, TLS, proxying, and redirects: setting
+	// NetDial, TLSConfig, Proxy, or CheckRedirect as well fails Dial with
+	// [ErrConflictingHTTPClient] before any network I/O.
+	//
+	// Dial's context and the client's Timeout bound the handshake only,
+	// including any [Dialer.MaxErrorBodyBytes] body read; neither applies
+	// to the returned connection. Dial never modifies the client: it turns
+	// a Timeout into a bound on the handshake context and sends with a
+	// copy whose Timeout is zero, because net/http otherwise wraps the 101
+	// body in a timer that makes it read-only.
+	//
+	// The returned net.Conn reads, writes, and closes through the 101
+	// response body, which first yields any bytes the transport read past
+	// the response (a frame the server sent together with the 101), so
+	// [Handshake.Buffered] is always nil on this path. Its deadlines and
+	// addresses are those of the connection the transport reported through
+	// [net/http/httptrace.ClientTrace.GotConn]; Dial adds its hook to any
+	// trace already in the context and keeps the last connection reported.
+	// A transport that reports no connection, or whose 101 body is not
+	// writable, fails Dial with [ErrUnsupportedHTTPTransport].
+	//
+	// Limits on this path are the transport's: the response header size
+	// limit is its own (net/http's MaxResponseHeaderBytes, not this
+	// package's 8KB ceiling), a malformed response fails with its error,
+	// and a refusal body it received gzip-encoded is reported decompressed.
+	HTTPClient *http.Client
 }
 
 // Handshake describes a completed WebSocket opening handshake, returned

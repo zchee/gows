@@ -128,6 +128,12 @@ func Dial(ctx context.Context, rawURL string) (net.Conn, Handshake, error) {
 // [Dialer.CheckRedirect] opts in to following redirects. See each
 // field's documentation.
 //
+// With [Dialer.HTTPClient] set, Dial sends the handshake request through
+// that client instead of connecting itself: dialing, TLS, proxying, and
+// redirects are the client's, ctx and the client's Timeout bound the
+// handshake only, and the response is validated exactly as above. See the
+// field's documentation for the returned connection.
+//
 // On any failure after a connection was established, Dial closes it and
 // returns a non-nil error alongside a nil net.Conn; a canceled or
 // failed connection is never reused. On success, the caller owns the
@@ -144,6 +150,9 @@ func Dial(ctx context.Context, rawURL string) (net.Conn, Handshake, error) {
 func (d *Dialer) Dial(ctx context.Context, rawURL string) (net.Conn, Handshake, error) {
 	if d.WindowBits != 0 && d.OfferClientMaxWindowBits {
 		return nil, Handshake{}, ErrConflictingClientWindowBits
+	}
+	if d.HTTPClient != nil && (d.NetDial != nil || d.TLSConfig != nil || d.Proxy != nil || d.CheckRedirect != nil) {
+		return nil, Handshake{}, ErrConflictingHTTPClient
 	}
 	if d.WindowBits != 0 && (d.WindowBits < minDeflateWindowBits || d.WindowBits > deflateWindowBits) {
 		return nil, Handshake{}, ErrInvalidWindowBits
@@ -176,6 +185,10 @@ func (d *Dialer) Dial(ctx context.Context, rawURL string) (net.Conn, Handshake, 
 	}
 	if u.Hostname() == "" {
 		return nil, Handshake{}, fmt.Errorf("gows: dial URL: %w", net.InvalidAddrError("missing hostname"))
+	}
+
+	if d.HTTPClient != nil {
+		return d.dialHTTP(ctx, u, hdr)
 	}
 
 	var via []*http.Request
@@ -697,15 +710,15 @@ func (d *Dialer) refusedHandshake(e *UnexpectedStatusError, data []byte, headerE
 		return e
 	}
 	e.Header = resp.Header
-	return readErrorBody(e, resp.Body, d.MaxErrorBodyBytes)
+	return refusalError(e, resp.Body, d.MaxErrorBodyBytes)
 }
 
-// readErrorBody reads at most limit bytes of body into e.Body and returns
+// refusalError reads at most limit bytes of body into e.Body and returns
 // e. When the read fails, it keeps the bytes read before the failure and
 // returns an error wrapping both e and the read error, so errors.As still
 // finds e and the read error (e.g. a context or deadline error) stays in
 // the chain. A non-positive limit leaves body unread.
-func readErrorBody(e *UnexpectedStatusError, body io.Reader, limit int) error {
+func refusalError(e *UnexpectedStatusError, body io.Reader, limit int) error {
 	if limit <= 0 {
 		return e
 	}

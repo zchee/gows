@@ -33,7 +33,8 @@ import (
 // entry adjusts a Dialer for its path; the tests that range over it expect
 // the same result from every path.
 var dialPaths = map[string]func(t *testing.T, d *gows.Dialer){
-	"native": func(*testing.T, *gows.Dialer) {},
+	"native":      func(*testing.T, *gows.Dialer) {},
+	"http client": func(t *testing.T, d *gows.Dialer) { d.HTTPClient = newHTTPClient(t) },
 }
 
 // rawServer is a loopback TCP server that answers one opening handshake
