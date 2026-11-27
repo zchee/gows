@@ -56,6 +56,20 @@ func (c *readSignalConn) Read(p []byte) (int, error) {
 	return c.Conn.Read(p)
 }
 
+// await returns the value sent on ch and fails the test if none arrives, so a
+// connection that is not released fails the test instead of hanging it.
+func await[T any](t *testing.T, what string, ch <-chan T) T {
+	t.Helper()
+	select {
+	case v := <-ch:
+		return v
+	case <-time.After(10 * time.Second):
+		t.Fatalf("%s did not happen within 10s", what)
+		var zero T
+		return zero
+	}
+}
+
 const sessionRefusal = `{"error":{"message":"Invalid API Key","type":"authentication_error"}}`
 
 // newSessionServer serves an echo endpoint that refuses any token but "good"
@@ -109,14 +123,14 @@ func dialSession(t *testing.T, srv *httptest.Server, token string) (*gows.Conn, 
 // TestClientSession drives a connection the way an API client's session type
 // does: it dials through the client's own HTTP stack, turns a refused
 // handshake into an API error, sends from several goroutines beside one
-// reader, and closes from a goroutine that is not the reader.
+// reader, and closes from a goroutine that is not the reader. Each behaviour
+// has its own tests; what only this test covers is concurrent writers,
+// CloseNow and the context-bound read on the connection an HTTP client
+// handed over.
 func TestClientSession(t *testing.T) {
 	t.Run("error: refused handshake reports the API error document", func(t *testing.T) {
 		_, _, err := dialSession(t, newSessionServer(t), "bad")
-		refused, ok := errors.AsType[*gows.UnexpectedStatusError](err)
-		if !ok {
-			t.Fatalf("Dial error = %v, want an *UnexpectedStatusError", err)
-		}
+		refused := asUnexpectedStatus(t, err, "Invalid API Key")
 		if refused.StatusCode != http.StatusUnauthorized {
 			t.Errorf("StatusCode = %d, want %d", refused.StatusCode, http.StatusUnauthorized)
 		}
@@ -125,9 +139,6 @@ func TestClientSession(t *testing.T) {
 		}
 		if string(refused.Body) != sessionRefusal {
 			t.Errorf("Body = %q, want %q", refused.Body, sessionRefusal)
-		}
-		if strings.Contains(err.Error(), "Invalid API Key") {
-			t.Errorf("error text repeats the server's message: %q", err)
 		}
 	})
 
@@ -181,7 +192,7 @@ func TestClientSession(t *testing.T) {
 		if err := c.WriteClose(gows.CloseNormalClosure, ""); err != nil {
 			t.Fatalf("WriteClose: %v", err)
 		}
-		r := <-done
+		r := await(t, "the reader ending", done)
 		closed, ok := errors.AsType[*gows.CloseError](r.err)
 		if !ok || closed.Code != gows.CloseNormalClosure {
 			t.Errorf("reader ended with %v, want a CloseError with code %d", r.err, gows.CloseNormalClosure)
@@ -218,11 +229,13 @@ func TestClientSession(t *testing.T) {
 			_, _, err := c.ReadMessage()
 			readErr <- err
 		}()
-		<-reading
+		await(t, "the reader reaching the transport", reading)
 		if err := c.CloseNow(); err != nil {
 			t.Fatalf("CloseNow: %v", err)
 		}
-		if err := <-readErr; !errors.Is(err, net.ErrClosed) {
+		// The blocked reader returning is what shows the transport closed;
+		// the write below would fail on the Conn's closed mark alone.
+		if err := await(t, "the blocked reader returning", readErr); !errors.Is(err, net.ErrClosed) {
 			t.Errorf("reader ended with %v, want an error matching net.ErrClosed", err)
 		}
 		if err := c.WriteMessage(gows.OpcodeText, []byte("late")); !errors.Is(err, net.ErrClosed) {
@@ -245,9 +258,10 @@ func TestClientSession(t *testing.T) {
 			_, _, err := c.ReadMessageContext(ctx)
 			readErr <- err
 		}()
-		<-reading
+		await(t, "the reader reaching the transport", reading)
 		cancel(cause)
-		if err := <-readErr; !errors.Is(err, context.Canceled) || !errors.Is(err, cause) {
+		// As above, the blocked reader returning shows the transport closed.
+		if err := await(t, "the blocked reader returning", readErr); !errors.Is(err, context.Canceled) || !errors.Is(err, cause) {
 			t.Errorf("reader ended with %v, want an error matching context.Canceled and the cause", err)
 		}
 		if err := c.WriteMessage(gows.OpcodeText, []byte("late")); !errors.Is(err, net.ErrClosed) {
