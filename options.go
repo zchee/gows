@@ -575,7 +575,12 @@ type Dialer struct {
 	// [net/http/httptrace.ClientTrace.GotConn]; Dial adds its hook to any
 	// trace already in the context and keeps the last connection reported.
 	// A transport that reports no connection, or whose 101 body is not
-	// writable, fails Dial with [ErrUnsupportedHTTPTransport].
+	// writable, fails Dial with [ErrUnsupportedHTTPTransport]. Round
+	// trippers wrapped around the transport must not send other requests
+	// with the handshake request's context after the handshake request:
+	// the transport reports those requests' connections too, and the
+	// returned connection's deadlines and addresses would then belong to
+	// a connection that does not carry its frames.
 	//
 	// Limits and parsing on this path are the transport's: the response
 	// header size limit is its own (net/http's MaxResponseHeaderBytes, not

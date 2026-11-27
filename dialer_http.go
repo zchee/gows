@@ -134,9 +134,9 @@ func (d *Dialer) dialHTTP(ctx context.Context, u *url.URL, hdr http.Header) (net
 	if conn == nil {
 		return fail(fmt.Errorf("%w: the transport did not report its connection", ErrUnsupportedHTTPTransport))
 	}
-	// The caller owns the connection from here: start it with no deadline,
-	// and prove deadlines reach the reported connection before handing it
-	// over.
+	// The caller owns the connection from here: clear any deadline on the
+	// reported connection. That the call succeeds shows the connection
+	// accepts deadlines, not that it is the one carrying the body.
 	if err := conn.SetDeadline(time.Time{}); err != nil {
 		return fail(fmt.Errorf("gows: clear handshake deadline: %w", err))
 	}
@@ -251,7 +251,9 @@ func lastHeaderValue(h http.Header, key string) []byte {
 // [httptrace.ClientTrace.GotConn], and every failed TLS handshake it
 // reported through [httptrace.ClientTrace.TLSHandshakeDone]. A request that
 // follows redirects or is retried reports one connection per attempt; the
-// last one carries the response that is returned. The transport may call
+// last one carries the response that is returned, provided no round tripper
+// sends another request with the same context afterwards (see
+// [Dialer.HTTPClient]). The transport may call
 // the hooks from its own goroutines, including for a dial it starts in the
 // background and never uses, hence the lock and the list.
 type connTrace struct {
