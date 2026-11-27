@@ -16,6 +16,8 @@ package gows
 
 import (
 	"context"
+	"crypto/tls"
+	"errors"
 	"fmt"
 	"io"
 	"maps"
@@ -36,19 +38,31 @@ import (
 // and on success the returned net.Conn carries I/O through the 101 response
 // body and deadlines to the connection the transport reported.
 func (d *Dialer) dialHTTP(ctx context.Context, u *url.URL, hdr http.Header) (net.Conn, Handshake, error) {
-	hc := d.HTTPClient
+	// Send with a copy, so the caller's client is never modified.
+	hc := *d.HTTPClient
 	if hc.Timeout > 0 {
 		// net/http enforces Client.Timeout by wrapping the response body
 		// in a timer, which makes a 101 body read-only and would cut the
 		// established connection when the timer fires. Bound the handshake
 		// with the same budget through its context instead, and send with
-		// a copy whose Timeout is zero; the caller's client is untouched.
+		// a Timeout of zero.
 		var cancel context.CancelFunc
 		ctx, cancel = context.WithTimeout(ctx, hc.Timeout)
 		defer cancel()
-		c := *hc
-		c.Timeout = 0
-		hc = &c
+		hc.Timeout = 0
+	}
+	// Record what the caller's redirect policy returns: that error is the
+	// caller's own text, so it is the one Do error kept apart from the
+	// transport's. A nil policy stays nil, keeping net/http's default.
+	var policyErr error
+	if policy := hc.CheckRedirect; policy != nil {
+		hc.CheckRedirect = func(req *http.Request, via []*http.Request) error {
+			err := policy(req, via)
+			if err != nil && err != http.ErrUseLastResponse {
+				policyErr = err
+			}
+			return err
+		}
 	}
 
 	target := *u
@@ -67,7 +81,7 @@ func (d *Dialer) dialHTTP(ctx context.Context, u *url.URL, hdr http.Header) (net
 	}
 
 	var trace connTrace
-	reqCtx := httptrace.WithClientTrace(ctx, &httptrace.ClientTrace{GotConn: trace.gotConn})
+	reqCtx := httptrace.WithClientTrace(ctx, &httptrace.ClientTrace{GotConn: trace.gotConn, TLSHandshakeDone: trace.tlsHandshakeDone})
 	req, err := http.NewRequestWithContext(reqCtx, http.MethodGet, target.String(), nil)
 	if err != nil {
 		return nil, Handshake{}, fmt.Errorf("gows: dial URL: %w", net.InvalidAddrError("malformed URL"))
@@ -93,12 +107,7 @@ func (d *Dialer) dialHTTP(ctx context.Context, u *url.URL, hdr http.Header) (net
 
 	resp, err := hc.Do(req)
 	if err != nil {
-		// *url.Error repeats the full request URL, query included; keep
-		// only its cause, as the native path's errors name the host alone.
-		if ue, ok := err.(*url.Error); ok {
-			err = ue.Err
-		}
-		return nil, Handshake{}, withDialContext(ctx, fmt.Errorf("gows: dial %s: %w", target.Host, err))
+		return nil, Handshake{}, httpDoError(ctx, target.Host, err, policyErr, &trace)
 	}
 
 	if resp.StatusCode != http.StatusSwitchingProtocols {
@@ -132,6 +141,66 @@ func (d *Dialer) dialHTTP(ctx context.Context, u *url.URL, hdr http.Header) (net
 		return fail(fmt.Errorf("gows: clear handshake deadline: %w", err))
 	}
 	return &httpConn{body: body, conn: conn}, hs, nil
+}
+
+// httpDoError turns an error from the HTTP client's Do into the error Dial
+// returns. net/http's errors quote what the peer sent (a malformed status
+// line or header, a Location value with its userinfo, a proxy's refusal
+// reason), and this package's error text never carries peer-controlled
+// content, so the original error is never returned or wrapped. Only what
+// the native path also reports is kept, each rebuilt from the part net/http
+// wrapped: the dial context's error and cause, the caller's own
+// CheckRedirect error (policyErr), the TLS handshake error the transport
+// reported to trace, network errors, and an early end of the response.
+// Anything else becomes [ErrHTTPRequestFailed].
+func httpDoError(ctx context.Context, host string, err, policyErr error, trace *connTrace) error {
+	// The transport reports an ended request context as ctx.Err or as its
+	// cancellation cause alone; either way the context is the error.
+	if ctx.Err() != nil && (errorContainsContext(err, ctx) || errors.Is(err, context.Cause(ctx))) {
+		return fmt.Errorf("gows: dial %s: %w", host, contextError(ctx))
+	}
+	var kept error
+	switch tlsErr := trace.tlsErrorIn(err); {
+	case policyErr != nil && errors.Is(err, policyErr):
+		kept = fmt.Errorf("gows: redirect blocked: %w", policyErr)
+	case tlsErr != nil:
+		kept = fmt.Errorf("gows: tls handshake: %w", tlsErr)
+	default:
+		if te := transportError(err); te != nil {
+			kept = fmt.Errorf("gows: dial %s: %w", host, te)
+		} else {
+			kept = fmt.Errorf("gows: dial %s: %w", host, ErrHTTPRequestFailed)
+		}
+	}
+	return withDialContext(ctx, kept)
+}
+
+// transportError returns the network-level error in err's chain whose text
+// net/http does not build from the peer's bytes, or nil when there is none.
+// A proxy dial wraps its failures in a *net.OpError whose Op is
+// "proxyconnect"; that wrapper also carries the proxy's own text (its
+// CONNECT response), so its Err is vetted the same way instead of trusted.
+func transportError(err error) error {
+	if oe, ok := errors.AsType[*net.OpError](err); ok {
+		if oe.Op != "proxyconnect" {
+			return oe
+		}
+		inner := transportError(oe.Err)
+		if inner == nil {
+			return nil
+		}
+		return &net.OpError{Op: oe.Op, Net: oe.Net, Source: oe.Source, Addr: oe.Addr, Err: inner}
+	}
+	if de, ok := errors.AsType[*net.DNSError](err); ok {
+		return de
+	}
+	switch {
+	case errors.Is(err, io.ErrUnexpectedEOF):
+		return io.ErrUnexpectedEOF
+	case errors.Is(err, io.EOF):
+		return io.EOF
+	}
+	return nil
 }
 
 // withDialContext reports ctx as the primary error when the dial context
@@ -173,13 +242,38 @@ func lastHeaderValue(h http.Header, key string) []byte {
 }
 
 // connTrace records the last connection a transport reported through
-// [httptrace.ClientTrace.GotConn]. A request that follows redirects or is
-// retried reports one connection per attempt; the last one carries the
-// response that is returned. The transport may call the hook from its own
-// goroutine, hence the lock.
+// [httptrace.ClientTrace.GotConn], and every failed TLS handshake it
+// reported through [httptrace.ClientTrace.TLSHandshakeDone]. A request that
+// follows redirects or is retried reports one connection per attempt; the
+// last one carries the response that is returned. The transport may call
+// the hooks from its own goroutines, including for a dial it starts in the
+// background and never uses, hence the lock and the list.
 type connTrace struct {
-	mu   sync.Mutex
-	conn net.Conn
+	mu      sync.Mutex
+	conn    net.Conn
+	tlsErrs []error
+}
+
+func (t *connTrace) tlsHandshakeDone(_ tls.ConnectionState, err error) {
+	if err == nil {
+		return
+	}
+	t.mu.Lock()
+	t.tlsErrs = append(t.tlsErrs, err)
+	t.mu.Unlock()
+}
+
+// tlsErrorIn returns the recorded TLS handshake error that err's chain
+// holds, or nil.
+func (t *connTrace) tlsErrorIn(err error) error {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	for _, tlsErr := range t.tlsErrs {
+		if errors.Is(err, tlsErr) {
+			return tlsErr
+		}
+	}
+	return nil
 }
 
 func (t *connTrace) gotConn(info httptrace.GotConnInfo) {

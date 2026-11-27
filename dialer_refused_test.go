@@ -315,7 +315,8 @@ func TestDialProxyConnectRefusalCarriesNoDetails(t *testing.T) {
 // TestDialRefusalWithMalformedHeader refuses the handshake with a header
 // line that has no colon. The native path still reports the refusal, with
 // an empty Header; on the HTTP client path the transport rejects the
-// response itself, so Dial fails with the transport's error instead.
+// response itself, and net/http's error quotes the line, so Dial fails
+// with ErrHTTPRequestFailed and none of the line's text.
 func TestDialRefusalWithMalformedHeader(t *testing.T) {
 	const response = "HTTP/1.1 403 Forbidden\r\nContent-Type: text/plain\r\nno colon here\r\n\r\n"
 	t.Run("native", func(t *testing.T) {
@@ -336,9 +337,10 @@ func TestDialRefusalWithMalformedHeader(t *testing.T) {
 	t.Run("http client", func(t *testing.T) {
 		srv := startRawServer(t, func([]byte) string { return response })
 		_, err := dialWithin(t, t.Context(), &gows.Dialer{HTTPClient: newHTTPClient(t)}, srv.url, 5*time.Second)
-		if err == nil || errors.Is(err, gows.ErrUnexpectedStatus) {
-			t.Fatalf("Dial err = %v, want the transport's malformed-response error", err)
+		if !errors.Is(err, gows.ErrHTTPRequestFailed) || errors.Is(err, gows.ErrUnexpectedStatus) {
+			t.Fatalf("Dial err = %v, want errors.Is ErrHTTPRequestFailed", err)
 		}
+		assertNoPeerText(t, err, "no colon here")
 		srv.awaitClosed(t)
 	})
 }

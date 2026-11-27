@@ -577,8 +577,13 @@ type Dialer struct {
 	//
 	// Limits on this path are the transport's: the response header size
 	// limit is its own (net/http's MaxResponseHeaderBytes, not this
-	// package's 8KB ceiling), a malformed response fails with its error,
-	// and a refusal body it received gzip-encoded is reported decompressed.
+	// package's 8KB ceiling), and a refusal body it received gzip-encoded
+	// is reported decompressed. When the client's Do fails, Dial keeps
+	// only errors whose text the peer cannot control: the context's error
+	// and cause, network and TLS handshake errors, an early end of the
+	// response, and an error the client's CheckRedirect returned. Every
+	// other failure, such as a malformed response or a proxy's refusal,
+	// is reported as [ErrHTTPRequestFailed] without net/http's error.
 	HTTPClient *http.Client
 }
 

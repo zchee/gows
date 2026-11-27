@@ -143,6 +143,19 @@ var (
 	// closes the response body and fails with this error, wrapped with
 	// which condition failed.
 	ErrUnsupportedHTTPTransport = errors.New("gows: HTTP client transport did not hand over the upgraded connection")
+	// ErrHTTPRequestFailed indicates that the handshake request sent
+	// through a [Dialer.HTTPClient] failed with an error [Dialer.Dial]
+	// does not pass on, because net/http's text for it can quote what the
+	// peer sent: a malformed response line or header, an unparseable
+	// Location value (userinfo included), a proxy's refusal reason. The
+	// original error is dropped, not wrapped. Dial passes on only what the
+	// native path also reports: the dial context's error and cause,
+	// network errors ([*net.OpError], [*net.DNSError]), the TLS handshake
+	// error, an early end of the response ([io.EOF],
+	// [io.ErrUnexpectedEOF]), and an error returned by the client's own
+	// CheckRedirect. Any other error, including one a RoundTripper or a
+	// dial function of the caller's returns, is reported as this one.
+	ErrHTTPRequestFailed = errors.New("gows: HTTP client request failed")
 	// ErrUnsupportedWindowBits reports that a negotiated (or offered)
 	// client_max_window_bits ceiling is smaller than anything the process's
 	// active permessage-deflate backend can actually compress within
