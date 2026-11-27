@@ -471,3 +471,77 @@ func TestWriteMessageContextWaitsForCallback(t *testing.T) {
 		wantClosed(t, "later WriteMessage", c.WriteMessage(OpcodeText, []byte("late")))
 	})
 }
+
+// lateEndingContext is a context that ends between a call's entry check and
+// the arming of its cancellation callback, as a deadline can: Err reports no
+// error once, and Done is closed from the start.
+type lateEndingContext struct {
+	context.Context
+	checked atomic.Bool
+	done    chan struct{}
+}
+
+func newLateEndingContext(parent context.Context) *lateEndingContext {
+	c := &lateEndingContext{Context: parent, done: make(chan struct{})}
+	close(c.done)
+	return c
+}
+
+func (c *lateEndingContext) Done() <-chan struct{} { return c.done }
+
+func (c *lateEndingContext) Err() error {
+	if c.checked.CompareAndSwap(false, true) {
+		return nil
+	}
+	return context.Canceled
+}
+
+// TestReadMessageContextKeepsEarlierReadError checks that a read side which
+// had already ended keeps the error its callers have seen: a context ending
+// during a later ReadMessageContext interrupts no read and must not replace
+// that error.
+func TestReadMessageContextKeepsEarlierReadError(t *testing.T) {
+	tests := map[string]struct {
+		// end ends the read side and returns the error later reads return.
+		end func(t *testing.T, c *Conn) error
+	}{
+		"error: an earlier read failure": {
+			end: func(t *testing.T, c *Conn) error {
+				_, _, err := c.ReadMessage()
+				if err == nil {
+					t.Fatal("ReadMessage on an empty transport succeeded")
+				}
+				return err
+			},
+		},
+		"error: a connection closed without a read error": {
+			end: func(t *testing.T, c *Conn) error {
+				ended, cancel := context.WithCancel(t.Context())
+				cancel()
+				if err := c.CloseContext(ended, CloseNormalClosure, ""); !errors.Is(err, context.Canceled) {
+					t.Fatalf("CloseContext = %v, want an error matching context.Canceled", err)
+				}
+				_, _, err := c.ReadMessage()
+				if !errors.Is(err, net.ErrClosed) {
+					t.Fatalf("ReadMessage after CloseContext = %v, want an error matching net.ErrClosed", err)
+				}
+				return err
+			},
+		},
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			c := NewServerConn(&scriptConn{})
+			want := tt.end(t, c)
+			if _, _, err := c.ReadMessageContext(newLateEndingContext(t.Context())); err != want {
+				t.Fatalf("ReadMessageContext = %v, want the earlier error %v", err, want)
+			}
+			if _, _, err := c.ReadMessage(); err != want {
+				t.Fatalf("later ReadMessage = %v, want the earlier error %v", err, want)
+			}
+			if _, _, err := c.ReadMessageContext(t.Context()); err != want {
+				t.Fatalf("later ReadMessageContext = %v, want the earlier error %v", err, want)
+			}
+		})
+	}
+}

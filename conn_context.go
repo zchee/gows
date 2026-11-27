@@ -17,6 +17,7 @@ package gows
 import (
 	"context"
 	"fmt"
+	"net"
 )
 
 // ReadMessageContext is [Conn.ReadMessage] governed by ctx. It returns the
@@ -34,6 +35,8 @@ import (
 //
 // A ctx that has already ended fails the call with the context error without
 // any I/O, without closing the connection, and without recording the error.
+// On a Conn whose read side has already ended, the call returns that sticky
+// error as ReadMessage does, whatever the state of ctx.
 // The cancellation callback is stopped, and waited for if it has started,
 // before ReadMessageContext returns, so a ctx that ends after a successful
 // return never closes the connection.
@@ -58,6 +61,15 @@ func (c *Conn) ReadMessageContext(ctx context.Context) (Opcode, []byte, error) {
 func (c *Conn) readMessageContext(ctx context.Context) (Opcode, []byte, error) {
 	if err := c.selectMode(connModeMessage); err != nil {
 		return 0, nil, err
+	}
+	// A read side that has already ended keeps the error its callers have
+	// seen. Returning it here, before the callback is armed, keeps a ctx that
+	// ends during this call from replacing it: no read is interrupted.
+	if c.readErr != nil {
+		return 0, nil, c.readErr
+	}
+	if c.tornDown.Load() {
+		return 0, nil, net.ErrClosed
 	}
 	if ctx.Err() != nil {
 		return 0, nil, fmt.Errorf("gows: read: %w", contextError(ctx))
