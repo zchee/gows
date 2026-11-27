@@ -73,17 +73,22 @@ func (d *Dialer) dialHTTP(ctx context.Context, u *url.URL, hdr http.Header) (net
 		return nil, Handshake{}, fmt.Errorf("gows: dial URL: %w", net.InvalidAddrError("malformed URL"))
 	}
 	maps.Copy(req.Header, hdr)
+	// The handshake fields are assigned by key rather than with Set, which
+	// would canonicalize Sec-WebSocket-* to Sec-Websocket-*: net/http writes
+	// keys as stored, so this sends the RFC 6455 spelling the native path
+	// sends, for servers that match header names byte for byte. The snapshot
+	// was validated to hold none of these names in any spelling.
 	wsKey := httpx.AppendKey(nil)
-	req.Header.Set(`Upgrade`, `websocket`)
-	req.Header.Set(`Connection`, `Upgrade`)
-	req.Header.Set(`Sec-WebSocket-Key`, string(wsKey))
-	req.Header.Set(`Sec-WebSocket-Version`, `13`)
+	req.Header[`Upgrade`] = []string{`websocket`}
+	req.Header[`Connection`] = []string{`Upgrade`}
+	req.Header[`Sec-WebSocket-Key`] = []string{string(wsKey)}
+	req.Header[`Sec-WebSocket-Version`] = []string{`13`}
 	if len(d.Subprotocols) > 0 {
-		req.Header.Set(`Sec-WebSocket-Protocol`, strings.Join(d.Subprotocols, ", "))
+		req.Header[`Sec-WebSocket-Protocol`] = []string{strings.Join(d.Subprotocols, ", ")}
 	}
 	offerHeader := d.deflateOffer()
 	if d.EnableCompression {
-		req.Header.Set(`Sec-WebSocket-Extensions`, offerHeader)
+		req.Header[`Sec-WebSocket-Extensions`] = []string{offerHeader}
 	}
 
 	resp, err := hc.Do(req)

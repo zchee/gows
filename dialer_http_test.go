@@ -778,3 +778,39 @@ func TestDialErrorsOmitURLSecrets(t *testing.T) {
 		})
 	}
 }
+
+// TestDialRequestHeaderSpelling records the raw handshake request on every
+// path. Header names are case-insensitive in HTTP, but servers that match
+// them byte for byte exist, so both paths must spell the WebSocket fields
+// as RFC 6455 does.
+func TestDialRequestHeaderSpelling(t *testing.T) {
+	for pathName, setPath := range dialPaths {
+		t.Run(pathName, func(t *testing.T) {
+			reqs := make(chan []byte, 1)
+			srv := startRawServer(t, func(req []byte) string {
+				reqs <- req
+				return upgradeResponse(t, req)
+			})
+			d := &gows.Dialer{Subprotocols: []string{"a", "b"}, EnableCompression: true}
+			setPath(t, d)
+			conn, err := dialWithin(t, t.Context(), d, srv.url, 5*time.Second)
+			if err != nil {
+				t.Fatalf("Dial: %v", err)
+			}
+			defer conn.Close()
+			req := <-reqs
+			for _, want := range []string{
+				"\r\nUpgrade: websocket\r\n",
+				"\r\nConnection: Upgrade\r\n",
+				"\r\nSec-WebSocket-Key: ",
+				"\r\nSec-WebSocket-Version: 13\r\n",
+				"\r\nSec-WebSocket-Protocol: a, b\r\n",
+				"\r\nSec-WebSocket-Extensions: permessage-deflate; server_no_context_takeover; client_no_context_takeover\r\n",
+			} {
+				if !strings.Contains(string(req), want) {
+					t.Errorf("request lacks %q:\n%s", want, req)
+				}
+			}
+		})
+	}
+}
