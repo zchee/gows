@@ -206,8 +206,7 @@ func TestDialTransportErrorsMatchOnBothPaths(t *testing.T) {
 				return "ws://" + addr + "/"
 			},
 			check: func(t *testing.T, err error) {
-				var opErr *net.OpError
-				if !errors.As(err, &opErr) || !errors.Is(err, syscall.ECONNREFUSED) {
+				if _, ok := errors.AsType[*net.OpError](err); !ok || !errors.Is(err, syscall.ECONNREFUSED) {
 					t.Fatalf("Dial err = %v, want a *net.OpError matching syscall.ECONNREFUSED", err)
 				}
 			},
@@ -219,8 +218,7 @@ func TestDialTransportErrorsMatchOnBothPaths(t *testing.T) {
 				return wsURL(srv, "/")
 			},
 			check: func(t *testing.T, err error) {
-				var certErr *tls.CertificateVerificationError
-				if !errors.As(err, &certErr) {
+				if _, ok := errors.AsType[*tls.CertificateVerificationError](err); !ok {
 					t.Fatalf("Dial err = %v, want a *tls.CertificateVerificationError", err)
 				}
 			},
