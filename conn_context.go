@@ -27,14 +27,18 @@ import (
 // abruptly as by [Conn.CloseNow] -- a WebSocket read cannot be abandoned
 // halfway through a message and resumed -- and the returned error wraps
 // ctx.Err and any distinct cancellation cause, so errors.Is matches both. The
-// read side's buffers are released before the call returns, and unless the
-// read had already failed with an error of its own, the context error becomes
-// sticky: a later ReadMessage returns it too. A ctx that has already ended
-// fails the call with the context error without any I/O, without closing the
-// connection, and without recording the error. The cancellation callback is
-// stopped, and waited for if it has started, before ReadMessageContext
-// returns, so a ctx that ends after a successful return never closes the
-// connection.
+// read side's buffers are released before the call returns, and the read
+// error a later ReadMessage returns depends on where the read was. When the
+// closed transport failed the read -- the usual case -- that failure is
+// recorded, and later reads return an error matching errors.Is(err,
+// [net.ErrClosed]). When the read had already completed, nothing failed it,
+// so the context error is recorded instead and later reads return it.
+//
+// A ctx that has already ended fails the call with the context error without
+// any I/O, without closing the connection, and without recording the error.
+// The cancellation callback is stopped, and waited for if it has started,
+// before ReadMessageContext returns, so a ctx that ends after a successful
+// return never closes the connection.
 //
 // When ctx ends exactly as the read completes, the connection is closed all
 // the same, and the call drops the message it read and returns the context
