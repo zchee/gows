@@ -49,8 +49,9 @@ func (c *deadlineCountConn) SetWriteDeadline(t time.Time) error {
 }
 
 // endedContexts are the two ways a context ends. Each returns the context,
-// a function that ends it (a no-op when its deadline ends it), and the cause
-// the call's error must also match, when there is a distinct one.
+// a function that ends it, and the cause the call's error must also match,
+// when there is a distinct one. The test ends each context itself, so no
+// timer decides whether the call blocked first.
 var endedContexts = map[string]func(testing.TB) (ctx context.Context, end func(), cause error){
 	"canceled with cause": func(tb testing.TB) (context.Context, func(), error) {
 		cause := errors.New("caller gave up")
@@ -58,11 +59,52 @@ var endedContexts = map[string]func(testing.TB) (ctx context.Context, end func()
 		return ctx, func() { cancel(cause) }, cause
 	},
 	"deadline exceeded": func(tb testing.TB) (context.Context, func(), error) {
-		// Long enough for the call to block first; the deadline ends it.
-		ctx, cancel := context.WithTimeout(tb.Context(), time.Second)
-		tb.Cleanup(cancel)
-		return ctx, func() {}, nil
+		ctx := newDeadlineContext(tb.Context())
+		return ctx, ctx.end, nil
 	},
+}
+
+// deadlineContext is a context whose deadline passes when the test calls end:
+// Done closes and Err reports [context.DeadlineExceeded], as for a context
+// whose timer fired. Values come from the parent.
+type deadlineContext struct {
+	context.Context
+	done chan struct{}
+	once sync.Once
+}
+
+func newDeadlineContext(parent context.Context) *deadlineContext {
+	return &deadlineContext{Context: parent, done: make(chan struct{})}
+}
+
+func (c *deadlineContext) Done() <-chan struct{} { return c.done }
+
+func (c *deadlineContext) Err() error {
+	select {
+	case <-c.done:
+		return context.DeadlineExceeded
+	default:
+		return nil
+	}
+}
+
+func (c *deadlineContext) end() { c.once.Do(func() { close(c.done) }) }
+
+// awaitEntered waits until a call has reached the transport. The call must
+// not return before its context ends; when it has returned anyway, entered
+// is checked again so the failure says whether it reached the transport.
+func awaitEntered(t *testing.T, what string, entered <-chan struct{}, result <-chan error) {
+	t.Helper()
+	select {
+	case <-entered:
+	case err := <-result:
+		select {
+		case <-entered:
+			t.Fatalf("%s reached the transport but returned %v before its context ended", what, err)
+		default:
+			t.Fatalf("%s returned %v before reaching the transport", what, err)
+		}
+	}
 }
 
 // wantContextError fails the test unless err matches ctx.Err and, when
@@ -163,11 +205,7 @@ func TestReadMessageContextEndsWhileBlocked(t *testing.T) {
 				_, _, err := c.ReadMessageContext(ctx)
 				readErr <- err
 			}()
-			select {
-			case <-cc.readEntered:
-			case err := <-readErr:
-				t.Fatalf("ReadMessageContext returned %v before blocking", err)
-			}
+			awaitEntered(t, "ReadMessageContext", cc.readEntered, readErr)
 			end()
 			wantContextError(t, "ReadMessageContext", awaitResult(t, "ReadMessageContext", readErr), ctx, cause)
 
@@ -201,11 +239,7 @@ func TestWriteMessageContextEndsWhileBlocked(t *testing.T) {
 			// The peer never reads, so the pipe blocks the write.
 			writeErr := make(chan error, 1)
 			go func() { writeErr <- c.WriteMessageContext(ctx, OpcodeBinary, []byte("stuck")) }()
-			select {
-			case <-cc.writeEntered:
-			case err := <-writeErr:
-				t.Fatalf("WriteMessageContext returned %v before blocking", err)
-			}
+			awaitEntered(t, "WriteMessageContext", cc.writeEntered, writeErr)
 			end()
 			wantContextError(t, "WriteMessageContext", awaitResult(t, "WriteMessageContext", writeErr), ctx, cause)
 
