@@ -23,6 +23,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+	"testing/synctest"
 	"time"
 )
 
@@ -364,4 +365,58 @@ func TestReadMessageContextEndsAsReadSucceeds(t *testing.T) {
 	if _, _, again := c.ReadMessage(); again != err {
 		t.Fatalf("later ReadMessage = %v, want the same error %v", again, err)
 	}
+}
+
+// gatedCloseConn ends the call's context from inside Write and lets the write
+// succeed once the context's callback is inside Close, where the callback
+// then stays until the test opens gate.
+type gatedCloseConn struct {
+	*scriptConn
+	cancel       func()
+	closeEntered chan struct{}
+	gate         chan struct{}
+}
+
+func (c *gatedCloseConn) Write(p []byte) (int, error) {
+	c.cancel()
+	<-c.closeEntered
+	return len(p), nil
+}
+
+func (c *gatedCloseConn) Close() error {
+	close(c.closeEntered)
+	<-c.gate
+	return nil
+}
+
+// TestWriteMessageContextWaitsForCallback pins that a context call does not
+// return while the callback its context started is still closing the
+// connection, so nothing that callback does can follow the return. The
+// synctest bubble makes "the call is still waiting" observable without a
+// timer: once every goroutine is blocked, the call must not have returned.
+func TestWriteMessageContextWaitsForCallback(t *testing.T) {
+	t.Parallel()
+	synctest.Test(t, func(t *testing.T) {
+		ctx, cancel := context.WithCancel(t.Context())
+		tc := &gatedCloseConn{
+			scriptConn:   &scriptConn{},
+			cancel:       cancel,
+			closeEntered: make(chan struct{}),
+			gate:         make(chan struct{}),
+		}
+		c := NewServerConn(tc)
+
+		result := make(chan error, 1)
+		go func() { result <- c.WriteMessageContext(ctx, OpcodeText, []byte("written")) }()
+		synctest.Wait()
+		select {
+		case err := <-result:
+			close(tc.gate) // let the callback finish so the bubble can exit
+			t.Fatalf("WriteMessageContext returned %v while its context's callback was still closing the connection", err)
+		default:
+		}
+		close(tc.gate)
+		wantContextError(t, "WriteMessageContext", <-result, ctx, nil)
+		wantClosed(t, "later WriteMessage", c.WriteMessage(OpcodeText, []byte("late")))
+	})
 }
