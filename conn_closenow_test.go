@@ -154,11 +154,57 @@ func TestCloseNowReleasesServe(t *testing.T) {
 			if err := c.CloseNow(); err != nil {
 				t.Fatalf("CloseNow = %v, want nil", err)
 			}
-			wantClosed(t, "Serve", awaitResult(t, "Serve", serveErr))
+			err := awaitResult(t, "Serve", serveErr)
+			wantClosed(t, "Serve", err)
+			wantServeEnded(t, c, err)
 			if n := cc.closes.Load(); n != 1 {
 				t.Fatalf("transport closed %d times, want 1", n)
 			}
 		})
+	}
+}
+
+// TestCloseNowWithBufferedRepliesEndsServe covers CloseNow running while a
+// Serve handler's replies are still buffered: Serve's own Flush then fails
+// instead of its read, and Serve must end the read side all the same.
+func TestCloseNowWithBufferedRepliesEndsServe(t *testing.T) {
+	t.Parallel()
+	for name, pair := range transportPairs {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			raw, peer := pair(t)
+			defer peer.Close()
+			cc := newCloseCountConn(raw)
+			c := NewServerConn(cc)
+
+			go func() { _, _ = peer.Write(clientFrame(true, OpcodeText, []byte("hi"))) }()
+			err := c.Serve(func(op Opcode, p []byte) error {
+				if err := c.WriteMessageBuffered(op, p); err != nil {
+					return err
+				}
+				return c.CloseNow()
+			})
+			wantClosed(t, "Serve", err)
+			wantServeEnded(t, c, err)
+			if n := cc.closes.Load(); n != 1 {
+				t.Fatalf("transport closed %d times, want 1", n)
+			}
+		})
+	}
+}
+
+// wantServeEnded fails the test unless the Serve that returned err released
+// the Conn's buffers and recorded err as the sticky read error.
+func wantServeEnded(t *testing.T, c *Conn, err error) {
+	t.Helper()
+	if c.rbuf != nil || c.wbatch != nil || !c.tornDown.Load() {
+		t.Fatalf("after Serve returned: rbuf=%v wbatch=%v tornDown=%v, want both released and torn down", c.rbuf != nil, c.wbatch != nil, c.tornDown.Load())
+	}
+	if _, _, again := c.ReadMessage(); again != err {
+		t.Fatalf("later ReadMessage = %v, want Serve's error %v", again, err)
+	}
+	if again := c.Serve(func(Opcode, []byte) error { return nil }); again != err {
+		t.Fatalf("later Serve = %v, want Serve's error %v", again, err)
 	}
 }
 

@@ -255,6 +255,40 @@ func TestServeHandlerError(t *testing.T) {
 	}
 }
 
+// TestServeHandlerErrorLeavesConnUsable pins what a handler error does to the
+// Conn: nothing. The error is not recorded and the read side stays open, so
+// the caller can keep reading -- here the message after the failed one, which
+// is already in the read buffer -- or end the connection with a Close of its
+// choosing.
+func TestServeHandlerErrorLeavesConnUsable(t *testing.T) {
+	t.Parallel()
+
+	wantErr := errors.New("handler stop")
+	in := append(clientFrame(true, OpcodeText, []byte("first")), clientFrame(true, OpcodeText, []byte("second"))...)
+	sc := &scriptConn{in: in}
+	c := NewServerConn(sc)
+
+	if err := c.Serve(func(Opcode, []byte) error { return wantErr }); !errors.Is(err, wantErr) {
+		t.Fatalf("Serve returned %v, want %v", err, wantErr)
+	}
+	if c.readErr != nil || c.tornDown.Load() {
+		t.Fatalf("after a handler error: readErr=%v tornDown=%v, want neither", c.readErr, c.tornDown.Load())
+	}
+	if _, p, err := c.ReadMessage(); err != nil || string(p) != "second" {
+		t.Fatalf("ReadMessage after the handler error = (%q, %v), want (\"second\", nil)", p, err)
+	}
+	if err := c.Close(ClosePolicyViolation, "refused"); err != nil {
+		t.Fatalf("Close after the handler error = %v, want nil", err)
+	}
+	frames := parseFrames(t, sc.out.Bytes())
+	if len(frames) != 1 || frames[0].h.Opcode != OpcodeClose {
+		t.Fatalf("wire frames = %+v, want exactly one Close frame", frames)
+	}
+	if code, reason, perr := validateCloseBody(frames[0].payload, true); perr != nil || code != ClosePolicyViolation || string(reason) != "refused" {
+		t.Fatalf("Close body = (%v, %q, %v), want (%v, \"refused\", nil)", code, reason, perr, ClosePolicyViolation)
+	}
+}
+
 // TestServeFlushBeforeBlockingRead pins Serve's guarantee that pending
 // buffered replies are flushed before every blocking read: a drain round whose
 // resident bytes end in a control frame that writes no reply (a Pong) must not
