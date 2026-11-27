@@ -140,6 +140,12 @@ func (d *Dialer) dialHTTP(ctx context.Context, u *url.URL, hdr http.Header) (net
 	if err := conn.SetDeadline(time.Time{}); err != nil {
 		return fail(fmt.Errorf("gows: clear handshake deadline: %w", err))
 	}
+	// The dial context, which includes the client's Timeout, may have ended
+	// after the 101 arrived. The caller asked for cancellation regardless:
+	// fail the dial and close the connection, as the native path does.
+	if ctx.Err() != nil {
+		return fail(fmt.Errorf("gows: handshake: %w", contextError(ctx)))
+	}
 	return &httpConn{body: body, conn: conn}, hs, nil
 }
 

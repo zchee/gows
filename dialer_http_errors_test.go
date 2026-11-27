@@ -260,3 +260,68 @@ func TestDialTransportErrorsMatchOnBothPaths(t *testing.T) {
 		}
 	}
 }
+
+// waitAfterUpgradeRoundTripper returns the transport's response only after
+// the request context has ended, so the dial context is over by the time
+// Dial sees the 101.
+type waitAfterUpgradeRoundTripper struct{ next http.RoundTripper }
+
+func (w waitAfterUpgradeRoundTripper) RoundTrip(r *http.Request) (*http.Response, error) {
+	resp, err := w.next.RoundTrip(r)
+	if err != nil {
+		return nil, err
+	}
+	<-r.Context().Done()
+	return resp, nil
+}
+
+// TestDialHTTPClientContextEndsAfterUpgrade ends the dial context, through
+// the caller's cancellation or the client's Timeout, after the 101 arrived
+// but before Dial returns. Like the native path, Dial must fail with the
+// context's error and close the connection.
+func TestDialHTTPClientContextEndsAfterUpgrade(t *testing.T) {
+	tests := map[string]struct {
+		clientTimeout time.Duration
+		cancelAfter   time.Duration
+		wantErr       error
+	}{
+		"error: caller cancels the dial context": {
+			cancelAfter: 100 * time.Millisecond,
+			wantErr:     context.Canceled,
+		},
+		"error: client Timeout elapses": {
+			clientTimeout: 100 * time.Millisecond,
+			wantErr:       context.DeadlineExceeded,
+		},
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			peerGone := make(chan struct{})
+			srv := startHTTPUpgradeServer(t, false, &gows.Upgrader{}, func(conn net.Conn, _ gows.Handshake) {
+				_, _ = io.Copy(io.Discard, conn)
+				close(peerGone)
+			})
+			hc := newHTTPClient(t)
+			hc.Transport = waitAfterUpgradeRoundTripper{next: hc.Transport}
+			hc.Timeout = tt.clientTimeout
+			ctx, cancel := context.WithCancel(t.Context())
+			defer cancel()
+			if tt.cancelAfter > 0 {
+				time.AfterFunc(tt.cancelAfter, cancel)
+			}
+			conn, err := dialWithin(t, ctx, &gows.Dialer{HTTPClient: hc}, wsURL(srv.Server, "/"), 5*time.Second)
+			if conn != nil {
+				conn.Close()
+				t.Fatalf("Dial conn = %v, want nil once the dial context has ended", conn)
+			}
+			if !errors.Is(err, tt.wantErr) {
+				t.Fatalf("Dial err = %v, want errors.Is %v", err, tt.wantErr)
+			}
+			select {
+			case <-peerGone:
+			case <-time.After(5 * time.Second):
+				t.Fatal("peer did not observe the connection closing")
+			}
+		})
+	}
+}
