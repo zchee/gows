@@ -15,12 +15,14 @@
 package gows
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"crypto/tls"
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"net/url"
@@ -103,7 +105,9 @@ func Dial(ctx context.Context, rawURL string) (net.Conn, Handshake, error) {
 // Sec-WebSocket-Protocol not in [Dialer.Subprotocols], Dial fails with
 // [ErrUnrequestedSubprotocol]. A well-formed response status other than
 // 101 fails Dial with a [*UnexpectedStatusError] (matching
-// [ErrUnexpectedStatus]) carrying the numeric status.
+// [ErrUnexpectedStatus]) carrying the numeric status, the response
+// headers, and -- only when [Dialer.MaxErrorBodyBytes] is positive -- up to
+// that many bytes of the response body.
 //
 // ctx governs every phase of the exchange, not just the TCP dial: the
 // proxy CONNECT, the TLS handshake, the request write, the
@@ -654,7 +658,7 @@ func (d *Dialer) handshake(conn net.Conn, u *url.URL, hdr http.Header, absoluteF
 				return Handshake{}, loc, nil
 			}
 		}
-		return Handshake{}, "", &UnexpectedStatusError{StatusCode: code, Reason: string(status.Reason)}
+		return Handshake{}, "", d.refusedHandshake(&UnexpectedStatusError{StatusCode: code, Reason: string(status.Reason)}, data[:filled], idx+4, conn)
 	}
 
 	hf, err := scanWSHandshakeHeaders(headers)
@@ -669,6 +673,50 @@ func (d *Dialer) handshake(conn net.Conn, u *url.URL, hdr http.Header, absoluteF
 		h.Buffered = append([]byte(nil), data[idx+4:filled]...)
 	}
 	return h, "", nil
+}
+
+// refusedHandshake fills e's Header, and its Body when
+// [Dialer.MaxErrorBodyBytes] is positive, from a non-101 opening-handshake
+// response. data holds everything read so far, of which the first
+// headerEnd bytes are the status line and header block. net/http parses
+// the response, so Header and the body framing (Content-Length, chunked,
+// read-until-close) match what a [Dialer.HTTPClient] reports. With a zero
+// limit only the bytes already read are parsed and conn is never touched.
+// A body read is bounded by the dial hop's guard, which owns conn's
+// deadline and closes it when the dial context ends.
+func (d *Dialer) refusedHandshake(e *UnexpectedStatusError, data []byte, headerEnd int, conn net.Conn) error {
+	var src io.Reader = bytes.NewReader(data[:headerEnd])
+	if d.MaxErrorBodyBytes > 0 {
+		src = io.MultiReader(bytes.NewReader(data), conn)
+	}
+	resp, err := http.ReadResponse(bufio.NewReader(src), nil)
+	if err != nil {
+		// The status line already parsed; only the header block failed
+		// net/http's rules. Report the status without headers or body.
+		e.Header = make(http.Header)
+		return e
+	}
+	e.Header = resp.Header
+	return readErrorBody(e, resp.Body, d.MaxErrorBodyBytes)
+}
+
+// readErrorBody reads at most limit bytes of body into e.Body and returns
+// e. When the read fails, it keeps the bytes read before the failure and
+// returns an error wrapping both e and the read error, so errors.As still
+// finds e and the read error (e.g. a context or deadline error) stays in
+// the chain. A non-positive limit leaves body unread.
+func readErrorBody(e *UnexpectedStatusError, body io.Reader, limit int) error {
+	if limit <= 0 {
+		return e
+	}
+	b, err := io.ReadAll(io.LimitReader(body, int64(limit)))
+	if len(b) > 0 {
+		e.Body = b
+	}
+	if err != nil {
+		return fmt.Errorf("%w: read response body: %w", e, err)
+	}
+	return e
 }
 
 // checkUpgradeResponse validates the header fields of a 101 opening-handshake

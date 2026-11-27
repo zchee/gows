@@ -530,6 +530,19 @@ type Dialer struct {
 	// The zero value adds no server_max_window_bits restriction to the
 	// offer, matching this package's original behavior exactly.
 	ServerWindowBits int
+
+	// MaxErrorBodyBytes, if positive, makes [Dialer.Dial] read up to that
+	// many bytes of the body of an opening-handshake response whose status
+	// is not 101 into [UnexpectedStatusError.Body] -- e.g. the JSON error
+	// document a server sends with a 401. The read is bounded by this
+	// limit and by Dial's context only: a server that stalls mid-body
+	// holds Dial until the context ends, so give the context a deadline
+	// when setting this field.
+	//
+	// The zero value (or a negative value) preserves this package's
+	// original behavior exactly: the body is never read.
+	// [UnexpectedStatusError.Header] is reported either way.
+	MaxErrorBodyBytes int
 }
 
 // Handshake describes a completed WebSocket opening handshake, returned

@@ -17,6 +17,7 @@ package gows
 import (
 	"context"
 	"errors"
+	"net/http"
 	"strconv"
 )
 
@@ -229,6 +230,23 @@ type UnexpectedStatusError struct {
 	// echo credentials or other request material) never reaches logs
 	// through the error chain.
 	Reason string
+	// Header holds the header fields of an opening-handshake response, as
+	// net/http parses them (canonical keys; e.g. Header.Get("Content-Type")).
+	// [Dialer.Dial] sets it for every opening-handshake response that is not
+	// 101, on both dial paths; it is an empty map when the header block does
+	// not parse as net/http requires. It is nil for a proxy CONNECT refusal
+	// (see [ErrProxyConnectFailed]). Like Reason, it is peer-controlled and
+	// never part of Error's text.
+	Header http.Header
+	// Body holds up to [Dialer.MaxErrorBodyBytes] bytes of an
+	// opening-handshake response's body, e.g. the JSON document of a 401.
+	// It is read only when that limit is positive; otherwise, and for a
+	// proxy CONNECT refusal, it is nil. When the read stops early (the
+	// dial context ended, the peer closed mid-body), Body keeps the bytes
+	// received until then, and the error [Dialer.Dial] returns also wraps
+	// the read error. Like Reason, it is peer-controlled and never part of
+	// Error's text.
+	Body []byte
 }
 
 // Error implements the error interface. The text carries only the
