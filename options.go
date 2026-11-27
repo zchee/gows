@@ -407,6 +407,13 @@ type Dialer struct {
 	// port) differs from the previous hop's, and stay dropped even if a
 	// later hop returns to the original origin. A nil map adds no
 	// headers and no cost.
+	//
+	// With [Dialer.HTTPClient] set, a cookie jar on that client adds its
+	// cookies through [net/http.Request.AddCookie]: they are appended to
+	// the first value of a Cookie entry given here under the canonical key
+	// "Cookie", whose other values are then dropped, and an entry under
+	// any other spelling of the name stays beside a second Cookie line
+	// holding the jar's cookies.
 	HTTPHeader http.Header
 
 	// Proxy, if non-nil, selects the HTTP proxy for the handshake

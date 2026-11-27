@@ -267,7 +267,10 @@ type UnexpectedStatusError struct {
 	// 101, on both dial paths; it is an empty map when the header block does
 	// not parse as net/http requires. It is nil for a proxy CONNECT refusal
 	// (see [ErrProxyConnectFailed]). Like Reason, it is peer-controlled and
-	// never part of Error's text.
+	// never part of Error's text. For a "ws" dial through a proxy, which
+	// sends the handshake to the proxy as an absolute-form request, the
+	// response may be the proxy's own, so Header and Body can carry
+	// proxy-controlled content.
 	Header http.Header
 	// Body holds up to [Dialer.MaxErrorBodyBytes] bytes of an
 	// opening-handshake response's body, e.g. the JSON document of a 401.

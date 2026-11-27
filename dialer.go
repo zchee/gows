@@ -136,9 +136,12 @@ func Dial(ctx context.Context, rawURL string) (net.Conn, Handshake, error) {
 // documentation for the responses whose outcome differs by path and for
 // the returned connection.
 //
-// On any failure after a connection was established, Dial closes it and
-// returns a non-nil error alongside a nil net.Conn; a canceled or
-// failed connection is never reused. On success, the caller owns the
+// On any failure after a connection was established, Dial returns a
+// non-nil error alongside a nil net.Conn. On the native path Dial closes
+// that connection, so a canceled or failed connection is never reused. On
+// the [Dialer.HTTPClient] path the client's transport owns it instead: a
+// refused handshake whose response body was read to its end leaves the
+// connection in the client's idle pool for reuse. On success, the caller owns the
 // returned net.Conn (e.g. to build a Conn on top of it) and any bytes
 // the server had already sent past the handshake response (e.g. a
 // pipelined first WebSocket frame) are returned as Handshake.Buffered;
