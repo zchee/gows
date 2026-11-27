@@ -30,8 +30,9 @@ import (
 )
 
 // dialPaths lists every way a Dialer can carry the opening handshake. Each
-// entry adjusts a Dialer for its path; the tests that range over it expect
-// the same result from every path.
+// entry adjusts a Dialer for its path. A test that ranges over it expects
+// the same result from every path unless it states a per-path expectation,
+// as the tests of responses net/http parses differently do.
 var dialPaths = map[string]func(t *testing.T, d *gows.Dialer){
 	"native":      func(*testing.T, *gows.Dialer) {},
 	"http client": func(t *testing.T, d *gows.Dialer) { d.HTTPClient = newHTTPClient(t) },
