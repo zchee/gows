@@ -746,8 +746,9 @@ func TestDialHTTPClientHandshakeBoundsEndAtReturn(t *testing.T) {
 
 // TestDialHTTPClientConnDeadlines checks that deadlines set on the returned
 // connection reach the transport's connection: a close against a silent
-// peer ends at the close timeout, and a past read deadline unblocks a
-// blocked ReadMessage.
+// peer ends at the close timeout, a past read deadline or a past deadline
+// unblocks a blocked read, and a past write deadline or a past deadline
+// fails a write.
 func TestDialHTTPClientConnDeadlines(t *testing.T) {
 	silent := func(peerGone chan<- struct{}) func(net.Conn, gows.Handshake) {
 		return func(conn net.Conn, _ gows.Handshake) {
@@ -764,10 +765,22 @@ func TestDialHTTPClientConnDeadlines(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Dial: %v", err)
 		}
+		// Should the deadline not reach the connection, Close would block
+		// for good; closing the connection at the end unblocks it.
+		t.Cleanup(func() { conn.Close() })
 		const closeTimeout = 200 * time.Millisecond
 		c := gows.NewClientConn(conn, gows.WithCloseTimeout(closeTimeout))
 		start := time.Now()
-		_ = c.Close(gows.CloseNormalClosure, "")
+		closed := make(chan struct{})
+		go func() {
+			_ = c.Close(gows.CloseNormalClosure, "")
+			close(closed)
+		}()
+		select {
+		case <-closed:
+		case <-time.After(5 * time.Second):
+			t.Fatalf("Close did not return within 5s; want about the %v close timeout", closeTimeout)
+		}
 		if elapsed := time.Since(start); elapsed < closeTimeout || elapsed > 3*time.Second {
 			t.Errorf("Close returned after %v, want about the %v close timeout", elapsed, closeTimeout)
 		}
@@ -809,6 +822,58 @@ func TestDialHTTPClientConnDeadlines(t *testing.T) {
 			t.Fatal("a past read deadline did not unblock ReadMessage")
 		}
 	})
+
+	t.Run("success: past deadline unblocks a read", func(t *testing.T) {
+		peerGone := make(chan struct{})
+		srv := startHTTPUpgradeServer(t, false, &gows.Upgrader{}, silent(peerGone))
+		conn, _, err := (&gows.Dialer{HTTPClient: newHTTPClient(t)}).Dial(t.Context(), wsURL(srv.Server, "/"))
+		if err != nil {
+			t.Fatalf("Dial: %v", err)
+		}
+		defer conn.Close()
+		readErr := make(chan error, 1)
+		go func() {
+			_, err := conn.Read(make([]byte, 1))
+			readErr <- err
+		}()
+		select {
+		case err := <-readErr:
+			t.Fatalf("Read returned %v before any deadline was set", err)
+		case <-time.After(100 * time.Millisecond):
+		}
+		if err := conn.SetDeadline(time.Now().Add(-time.Second)); err != nil {
+			t.Fatalf("SetDeadline: %v", err)
+		}
+		select {
+		case err := <-readErr:
+			if !errors.Is(err, os.ErrDeadlineExceeded) {
+				t.Fatalf("Read err = %v, want errors.Is os.ErrDeadlineExceeded", err)
+			}
+		case <-time.After(5 * time.Second):
+			t.Fatal("a past deadline did not unblock Read")
+		}
+	})
+
+	for name, set := range map[string]func(net.Conn, time.Time) error{
+		"success: past write deadline fails a write": net.Conn.SetWriteDeadline,
+		"success: past deadline fails a write":       net.Conn.SetDeadline,
+	} {
+		t.Run(name, func(t *testing.T) {
+			peerGone := make(chan struct{})
+			srv := startHTTPUpgradeServer(t, false, &gows.Upgrader{}, silent(peerGone))
+			conn, _, err := (&gows.Dialer{HTTPClient: newHTTPClient(t)}).Dial(t.Context(), wsURL(srv.Server, "/"))
+			if err != nil {
+				t.Fatalf("Dial: %v", err)
+			}
+			defer conn.Close()
+			if err := set(conn, time.Now().Add(-time.Second)); err != nil {
+				t.Fatalf("set deadline: %v", err)
+			}
+			if _, err := conn.Write([]byte{0x88, 0x80, 0, 0, 0, 0}); !errors.Is(err, os.ErrDeadlineExceeded) {
+				t.Fatalf("Write err = %v, want errors.Is os.ErrDeadlineExceeded", err)
+			}
+		})
+	}
 }
 
 // contextDroppingRoundTripper sends every request with a fresh context,
