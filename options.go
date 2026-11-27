@@ -551,8 +551,10 @@ type Dialer struct {
 	// The ws and wss schemes are requested as http and https, and URL
 	// userinfo is dropped, as on the native path. The request carries the
 	// same handshake headers the native path sends, including the
-	// [Dialer.HTTPHeader] snapshot, and the response goes through the same
-	// checks, so the same response is accepted or rejected on both paths.
+	// [Dialer.HTTPHeader] snapshot. net/http parses the response first;
+	// the handshake fields of the 101 it returns then go through the same
+	// checks as on the native path. The few responses whose outcome
+	// differs because of that parsing are listed below.
 	//
 	// The client owns dialing, TLS, proxying, and redirects: setting
 	// NetDial, TLSConfig, Proxy, or CheckRedirect as well fails Dial with
@@ -575,10 +577,17 @@ type Dialer struct {
 	// A transport that reports no connection, or whose 101 body is not
 	// writable, fails Dial with [ErrUnsupportedHTTPTransport].
 	//
-	// Limits on this path are the transport's: the response header size
-	// limit is its own (net/http's MaxResponseHeaderBytes, not this
-	// package's 8KB ceiling), and a refusal body it received gzip-encoded
-	// is reported decompressed. When the client's Do fails, Dial keeps
+	// Limits and parsing on this path are the transport's: the response
+	// header size limit is its own (net/http's MaxResponseHeaderBytes, not
+	// this package's 8KB ceiling), and a refusal body it received
+	// gzip-encoded is reported decompressed. Three responses also have a
+	// different outcome: informational (1xx) responses before the 101 are
+	// skipped, where the native path fails with [ErrUnexpectedStatus]; a
+	// header continuation line (obs-fold) is joined to the line before
+	// it, where the native path rejects the response; and a 101 whose
+	// Connection header also carries "close" fails with
+	// [ErrNotConnectionUpgrade], because net/http removes that header,
+	// where the native path accepts it. When the client's Do fails, Dial keeps
 	// only errors whose text the peer cannot control: the context's error
 	// and cause, network and TLS handshake errors, an early end of the
 	// response, and an error the client's CheckRedirect returned. Every

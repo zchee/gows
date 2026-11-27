@@ -31,6 +31,7 @@ import (
 	"time"
 
 	"github.com/zchee/gows"
+	"github.com/zchee/gows/internal/httpx"
 )
 
 // newHTTPClient returns a client with its own transport, so connection
@@ -376,6 +377,78 @@ func TestDialHandshakeResponseRejections(t *testing.T) {
 				}
 				if !errors.Is(err, tt.wantErr) {
 					t.Fatalf("Dial err = %v, want errors.Is %v", err, tt.wantErr)
+				}
+				srv.awaitClosed(t)
+			})
+		}
+	}
+}
+
+// TestDialResponsesThatDifferByPath pins the responses whose outcome
+// depends on the dial path, because net/http parses the response before the
+// shared checks see its 101 fields. Each row states what each path does.
+func TestDialResponsesThatDifferByPath(t *testing.T) {
+	tests := map[string]struct {
+		respond func(t *testing.T, req []byte) string
+		// want maps a dial path to the error Dial must match; nil means
+		// the dial succeeds.
+		want map[string]error
+	}{
+		"103 Early Hints before the 101": {
+			respond: func(t *testing.T, req []byte) string {
+				return "HTTP/1.1 103 Early Hints\r\nLink: </style.css>\r\n\r\n" + upgradeResponse(t, req)
+			},
+			// The transport skips 1xx responses; the native path reads the
+			// first response only.
+			want: map[string]error{"native": gows.ErrUnexpectedStatus, "http client": nil},
+		},
+		"Connection token on an obs-fold continuation line": {
+			respond: func(t *testing.T, req []byte) string {
+				return "HTTP/1.1 101 Switching Protocols\r\n" +
+					"Upgrade: websocket\r\n" +
+					"Connection: keep-alive,\r\n Upgrade\r\n" +
+					"Sec-WebSocket-Accept: " + mustAcceptFromRequest(t, req) + "\r\n\r\n"
+			},
+			// net/http joins the folded line; the native parser rejects it.
+			want: map[string]error{"native": httpx.ErrObsoleteLineFolding, "http client": nil},
+		},
+		"Connection: Upgrade, close": {
+			respond: func(t *testing.T, req []byte) string {
+				return "HTTP/1.1 101 Switching Protocols\r\n" +
+					"Upgrade: websocket\r\n" +
+					"Connection: Upgrade, close\r\n" +
+					"Sec-WebSocket-Accept: " + mustAcceptFromRequest(t, req) + "\r\n\r\n"
+			},
+			// net/http deletes a Connection header that carries close, so
+			// the shared check no longer sees the Upgrade token.
+			want: map[string]error{"native": nil, "http client": gows.ErrNotConnectionUpgrade},
+		},
+	}
+	for pathName, setPath := range dialPaths {
+		for name, tt := range tests {
+			t.Run(pathName+"/"+name, func(t *testing.T) {
+				wantErr, ok := tt.want[pathName]
+				if !ok {
+					t.Fatalf("no expectation for dial path %q", pathName)
+				}
+				srv := startRawServer(t, func(req []byte) string { return tt.respond(t, req) })
+				d := &gows.Dialer{}
+				setPath(t, d)
+				conn, err := dialWithin(t, t.Context(), d, srv.url, 5*time.Second)
+				if wantErr == nil {
+					if err != nil {
+						t.Fatalf("Dial: %v", err)
+					}
+					conn.Close()
+					srv.awaitClosed(t)
+					return
+				}
+				if conn != nil {
+					conn.Close()
+					t.Fatalf("Dial conn = %v, want nil", conn)
+				}
+				if !errors.Is(err, wantErr) {
+					t.Fatalf("Dial err = %v, want errors.Is %v", err, wantErr)
 				}
 				srv.awaitClosed(t)
 			})

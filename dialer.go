@@ -130,9 +130,11 @@ func Dial(ctx context.Context, rawURL string) (net.Conn, Handshake, error) {
 //
 // With [Dialer.HTTPClient] set, Dial sends the handshake request through
 // that client instead of connecting itself: dialing, TLS, proxying, and
-// redirects are the client's, ctx and the client's Timeout bound the
-// handshake only, and the response is validated exactly as above. See the
-// field's documentation for the returned connection.
+// redirects are the client's, and ctx and the client's Timeout bound the
+// handshake only. net/http parses the response, and the handshake fields
+// of its 101 go through the same checks as above. See the field's
+// documentation for the responses whose outcome differs by path and for
+// the returned connection.
 //
 // On any failure after a connection was established, Dial closes it and
 // returns a non-nil error alongside a nil net.Conn; a canceled or
