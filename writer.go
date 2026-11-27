@@ -558,8 +558,16 @@ func (w *messageWriter) flushLocked(fin bool) error {
 // a compressor, feed the buffered plaintext, and emit any full compressed
 // fragments. On ceiling violation it leaves compressed false so the caller
 // can fall through to the uncompressed path. The caller must not hold wmu.
+//
+// Choosing the compressor reads the Conn's deflate state, which a teardown on
+// the reading goroutine clears under wmu, so the choice is made under wmu.
+// Only the compression itself runs unlocked: the stream owns the leased
+// compressor, and every other data write is refused while it is open.
 func (w *messageWriter) engageCompression() error {
-	lease, reset, ok := w.c.acquireCompressor()
+	c := w.c
+	c.wmu.Lock()
+	lease, reset, ok := c.acquireCompressor()
+	c.wmu.Unlock()
 	if !ok {
 		return nil
 	}
@@ -571,40 +579,46 @@ func (w *messageWriter) engageCompression() error {
 	w.compressed = true
 
 	if len(w.buf) > 0 {
-		if _, err := w.lease.w.Write(w.buf); err != nil {
-			w.fedToCompressor = true
+		_, err := w.lease.w.Write(w.buf)
+		w.fedToCompressor = true
+		if err != nil {
+			c.wmu.Lock()
 			w.disableTakeoverIfFed()
+			c.wmu.Unlock()
 			return fmt.Errorf("gows: compress message: %w", err)
 		}
-		w.fedToCompressor = true
 		w.buf = w.buf[:0]
 	}
-	w.c.wmu.Lock()
+	c.wmu.Lock()
 	err := w.drainCompressedFragmentsLocked()
-	w.c.wmu.Unlock()
 	if err != nil {
 		w.disableTakeoverIfFed()
-		return err
 	}
-	return nil
+	c.wmu.Unlock()
+	return err
 }
 
 // writeCompressed feeds p through the active compressor and emits any full
 // fixed-size compressed fragments. The caller must already be in compressed
-// mode.
+// mode and must not hold wmu.
 func (w *messageWriter) writeCompressed(p []byte) (int, error) {
-	if _, err := w.lease.w.Write(p); err != nil {
-		w.fedToCompressor = true
+	c := w.c
+	_, err := w.lease.w.Write(p)
+	w.fedToCompressor = true
+	if err != nil {
+		c.wmu.Lock()
 		w.disableTakeoverIfFed()
+		c.wmu.Unlock()
 		w.err = fmt.Errorf("gows: compress message: %w", err)
 		return 0, w.err
 	}
-	w.fedToCompressor = true
-	w.c.wmu.Lock()
-	err := w.drainCompressedFragmentsLocked()
-	w.c.wmu.Unlock()
+	c.wmu.Lock()
+	err = w.drainCompressedFragmentsLocked()
 	if err != nil {
 		w.disableTakeoverIfFed()
+	}
+	c.wmu.Unlock()
+	if err != nil {
 		w.err = err
 		return 0, err
 	}
@@ -707,6 +721,8 @@ func (w *messageWriter) releaseCompressor() {
 // disableTakeoverIfFed marks outgoing compression disabled when a
 // context-takeover compressor has already consumed plaintext for this
 // incomplete message, so later messages cannot desync the peer's window.
+// The caller must hold wmu: the deflate state it reads and writes is shared
+// with every other writer and with teardown.
 func (w *messageWriter) disableTakeoverIfFed() {
 	if !w.fedToCompressor {
 		return
