@@ -71,7 +71,7 @@ const (
 // its output promptly.
 //
 // An error from h is the application's, not the connection's: Serve does not
-// record it and leaves the Conn as it was, so the caller may read on with
+// record it and leaves the Conn usable, so the caller may read on with
 // Serve or ReadMessage (messages already buffered are delivered next) or end
 // the connection with [Conn.Close] and a close code of its choosing. Every
 // other error Serve returns is sticky, exactly as for ReadMessage: the read
