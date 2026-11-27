@@ -74,15 +74,15 @@ func wantClosed(t *testing.T, what string, err error) {
 	}
 }
 
-// awaitResult waits for one result from ch, failing the test if a blocked
-// call was not released.
+// awaitResult waits for one result from ch, failing the test if the blocked
+// call that sends it was not released.
 func awaitResult[T any](t *testing.T, what string, ch <-chan T) T {
 	t.Helper()
 	select {
 	case v := <-ch:
 		return v
 	case <-time.After(10 * time.Second):
-		t.Fatalf("%s did not return after CloseNow", what)
+		t.Fatalf("%s was still blocked 10s after it should have been released", what)
 		panic("unreachable")
 	}
 }
