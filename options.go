@@ -606,11 +606,14 @@ type Dialer struct {
 	// plain HTTP answer to a wss dial, where the native path reports the
 	// TLS record error), an early end of the response, a transport timeout
 	// (as [os.ErrDeadlineExceeded]), and an error the client's
-	// CheckRedirect returned. As on the native path, a TLS or network
+	// CheckRedirect returned. A client without a CheckRedirect follows
+	// redirects up to net/http's default limit and then fails with
+	// [ErrTooManyRedirects]. As on the native path, a TLS or network
 	// error can name a host or certificate name the peer chose, such as a
 	// redirect target's host. Every other failure, such as a malformed
-	// response or a proxy's refusal, is reported as [ErrHTTPRequestFailed]
-	// without net/http's error.
+	// response, a proxy's refusal, or an error of the caller's own
+	// RoundTripper, is reported as [ErrHTTPRequestFailed] without
+	// net/http's error.
 	HTTPClient *http.Client
 }
 

@@ -25,6 +25,7 @@ import (
 	"net/url"
 	"os"
 	"strings"
+	"sync/atomic"
 	"syscall"
 	"testing"
 	"time"
@@ -168,6 +169,26 @@ func TestDialHTTPClientKeepsCallerRedirectError(t *testing.T) {
 		t.Errorf("Dial err = %v, want the CheckRedirect error, not ErrHTTPRequestFailed", err)
 	}
 	assertNoPeerText(t, err, peerSecret)
+}
+
+// TestDialHTTPClientRedirectLoop checks that a client without a redirect
+// policy reports a redirect loop as the native path does, with
+// ErrTooManyRedirects, after the same number of requests net/http's default
+// policy allows.
+func TestDialHTTPClientRedirectLoop(t *testing.T) {
+	var requests atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests.Add(1)
+		http.Redirect(w, r, "/again", http.StatusFound)
+	}))
+	t.Cleanup(srv.Close)
+	_, err := dialWithin(t, t.Context(), &gows.Dialer{HTTPClient: newHTTPClient(t)}, wsURL(srv, "/"), 5*time.Second)
+	if !errors.Is(err, gows.ErrTooManyRedirects) {
+		t.Fatalf("Dial err = %v, want errors.Is ErrTooManyRedirects", err)
+	}
+	if got := requests.Load(); got != 10 {
+		t.Errorf("server saw %d requests, want 10 as under net/http's default policy", got)
+	}
 }
 
 // TestDialTransportErrorsMatchOnBothPaths checks that what callers test

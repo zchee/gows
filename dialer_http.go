@@ -52,18 +52,26 @@ func (d *Dialer) dialHTTP(ctx context.Context, u *url.URL, hdr http.Header) (net
 		defer cancel()
 		hc.Timeout = 0
 	}
-	// Record what the caller's redirect policy returns: that error is the
-	// caller's own text, so it is the one Do error kept apart from the
-	// transport's. A nil policy stays nil, keeping net/http's default.
+	// Record what the redirect policy returns: that error is the caller's
+	// own text, so it is the one Do error kept apart from the transport's.
+	// A client without a policy gets net/http's default limit, reported as
+	// [ErrTooManyRedirects] like the native path's redirect loop.
 	var policyErr error
-	if policy := hc.CheckRedirect; policy != nil {
-		hc.CheckRedirect = func(req *http.Request, via []*http.Request) error {
-			err := policy(req, via)
-			if err != nil && err != http.ErrUseLastResponse {
-				policyErr = err
+	policy := hc.CheckRedirect
+	if policy == nil {
+		policy = func(_ *http.Request, via []*http.Request) error {
+			if len(via) >= maxRedirects {
+				return ErrTooManyRedirects
 			}
-			return err
+			return nil
 		}
+	}
+	hc.CheckRedirect = func(req *http.Request, via []*http.Request) error {
+		err := policy(req, via)
+		if err != nil && err != http.ErrUseLastResponse {
+			policyErr = err
+		}
+		return err
 	}
 
 	target := *u
