@@ -1498,23 +1498,21 @@ func (c *closeRecorderConn) Close() error {
 	return c.Conn.Close()
 }
 
-// dialWithRawResponse runs one Dial whose fake server answers with the
-// given raw response bytes, returning Dial's error.
+// dialWithRawResponse runs one Dial whose loopback server answers with the
+// given raw response bytes. It fails the test unless Dial fails and closes
+// the connection, and returns Dial's error.
 func dialWithRawResponse(t *testing.T, d *gows.Dialer, response string) error {
 	t.Helper()
-	serverConn, clientConn := net.Pipe()
-	defer serverConn.Close()
-	go func() {
-		readRawHeaderBlock(t, serverConn)
-		serverConn.Write([]byte(response))
-	}()
-	d.NetDial = func(ctx context.Context, network, addr string) (net.Conn, error) {
-		return clientConn, nil
+	srv := startRawServer(t, func([]byte) string { return response })
+	conn, err := dialWithin(t, t.Context(), d, srv.url, 5*time.Second)
+	if conn != nil {
+		conn.Close()
+		t.Fatalf("Dial conn = %v, want nil", conn)
 	}
-	_, _, err := d.Dial(t.Context(), "ws://example.invalid/")
 	if err == nil {
 		t.Fatal("Dial = nil error, want failure")
 	}
+	srv.awaitClosed(t)
 	return err
 }
 
@@ -1523,6 +1521,10 @@ func TestDialUnexpectedStatus(t *testing.T) {
 		response   string
 		wantStatus int
 		wantReason string
+		// stopRedirects makes the HTTP client return a redirect response
+		// instead of following it, the counterpart of a Dialer with no
+		// CheckRedirect on the native path.
+		stopRedirects bool
 	}{
 		"error: 403 with reason": {
 			response:   "HTTP/1.1 403 Forbidden\r\n\r\n",
@@ -1535,77 +1537,100 @@ func TestDialUnexpectedStatus(t *testing.T) {
 			wantReason: "",
 		},
 		"error: redirect status without opt-in stays a status error": {
-			response:   "HTTP/1.1 302 Found\r\nLocation: ws://elsewhere.invalid/\r\n\r\n",
-			wantStatus: 302,
-			wantReason: "Found",
+			response:      "HTTP/1.1 302 Found\r\nLocation: ws://elsewhere.invalid/\r\n\r\n",
+			wantStatus:    302,
+			wantReason:    "Found",
+			stopRedirects: true,
 		},
 	}
 
-	for name, tt := range tests {
-		t.Run(name, func(t *testing.T) {
-			err := dialWithRawResponse(t, &gows.Dialer{}, tt.response)
-			if !errors.Is(err, gows.ErrUnexpectedStatus) {
-				t.Fatalf("Dial = %v, want errors.Is ErrUnexpectedStatus", err)
-			}
-			var use *gows.UnexpectedStatusError
-			if !errors.As(err, &use) {
-				t.Fatalf("Dial = %v, want a *UnexpectedStatusError in the chain", err)
-			}
-			if use.StatusCode != tt.wantStatus || use.Reason != tt.wantReason {
-				t.Fatalf("UnexpectedStatusError = (%d, %q), want (%d, %q)", use.StatusCode, use.Reason, tt.wantStatus, tt.wantReason)
-			}
-		})
+	for pathName, setPath := range dialPaths {
+		for name, tt := range tests {
+			t.Run(pathName+"/"+name, func(t *testing.T) {
+				d := &gows.Dialer{}
+				setPath(t, d)
+				if d.HTTPClient != nil && tt.stopRedirects {
+					d.HTTPClient.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
+				}
+				err := dialWithRawResponse(t, d, tt.response)
+				if !errors.Is(err, gows.ErrUnexpectedStatus) {
+					t.Fatalf("Dial = %v, want errors.Is ErrUnexpectedStatus", err)
+				}
+				var use *gows.UnexpectedStatusError
+				if !errors.As(err, &use) {
+					t.Fatalf("Dial = %v, want a *UnexpectedStatusError in the chain", err)
+				}
+				if use.StatusCode != tt.wantStatus || use.Reason != tt.wantReason {
+					t.Fatalf("UnexpectedStatusError = (%d, %q), want (%d, %q)", use.StatusCode, use.Reason, tt.wantStatus, tt.wantReason)
+				}
+			})
+		}
 	}
 }
 
 // TestDialMalformedStatus pins that a status-code field that is not
 // exactly three ASCII digits is a malformed status line, never a typed
-// unexpected-status result.
+// unexpected-status result. The native path reports it as
+// httpx.ErrMalformedStatusLine. On the HTTP client path net/http rejects
+// the response with an error that quotes the code, so Dial reports
+// ErrHTTPRequestFailed and none of that text.
 func TestDialMalformedStatus(t *testing.T) {
-	for name, response := range map[string]string{
-		"error: alphabetic code": "HTTP/1.1 ABC Nope\r\n\r\n",
-		"error: four-digit code": "HTTP/1.1 4033 Nope\r\n\r\n",
-		"error: two-digit code":  "HTTP/1.1 42 Nope\r\n\r\n",
-	} {
-		t.Run(name, func(t *testing.T) {
-			err := dialWithRawResponse(t, &gows.Dialer{}, response)
-			if errors.Is(err, gows.ErrUnexpectedStatus) {
-				t.Fatalf("Dial = %v, want a malformed-status error, not ErrUnexpectedStatus", err)
-			}
-			if !errors.Is(err, httpx.ErrMalformedStatusLine) {
-				t.Fatalf("Dial = %v, want errors.Is httpx.ErrMalformedStatusLine", err)
-			}
-		})
+	codes := map[string]string{
+		"error: alphabetic code": "ABC",
+		"error: four-digit code": "4033",
+		"error: two-digit code":  "42",
+	}
+	wantErr := map[string]error{
+		"native":      httpx.ErrMalformedStatusLine,
+		"http client": gows.ErrHTTPRequestFailed,
+	}
+	for pathName, setPath := range dialPaths {
+		for name, code := range codes {
+			t.Run(pathName+"/"+name, func(t *testing.T) {
+				d := &gows.Dialer{}
+				setPath(t, d)
+				err := dialWithRawResponse(t, d, "HTTP/1.1 "+code+" Nope\r\n\r\n")
+				if errors.Is(err, gows.ErrUnexpectedStatus) {
+					t.Fatalf("Dial = %v, want a malformed-status error, not ErrUnexpectedStatus", err)
+				}
+				if !errors.Is(err, wantErr[pathName]) {
+					t.Fatalf("Dial = %v, want errors.Is %v", err, wantErr[pathName])
+				}
+				assertNoPeerText(t, err, strconv.Quote(code))
+				assertNoPeerText(t, err, "Nope")
+			})
+		}
 	}
 }
 
 // TestDialStatusReasonRedaction reflects a recognizable bearer secret
-// back in the peer's reason phrase and asserts it never surfaces in
-// Error() output anywhere in the chain -- only in the explicitly
-// documented Reason field.
+// back in the peer's reason phrase and asserts, on every dial path, it
+// never surfaces in Error() output anywhere in the error tree -- only in
+// the explicitly documented Reason field.
 func TestDialStatusReasonRedaction(t *testing.T) {
 	const secret = "SECRET-BEARER-TOKEN-XYZ"
-	d := &gows.Dialer{HTTPHeader: http.Header{"Authorization": {"Bearer " + secret}}}
-	err := dialWithRawResponse(t, d, "HTTP/1.1 401 denied "+secret+"\r\n\r\n")
+	for pathName, setPath := range dialPaths {
+		t.Run(pathName, func(t *testing.T) {
+			d := &gows.Dialer{HTTPHeader: http.Header{"Authorization": {"Bearer " + secret}}}
+			setPath(t, d)
+			err := dialWithRawResponse(t, d, "HTTP/1.1 401 denied "+secret+"\r\n\r\n")
 
-	if !errors.Is(err, gows.ErrUnexpectedStatus) {
-		t.Fatalf("Dial = %v, want errors.Is ErrUnexpectedStatus", err)
-	}
-	for e := err; e != nil; e = errors.Unwrap(e) {
-		if strings.Contains(e.Error(), secret) {
-			t.Fatalf("error chain leaks the reflected secret: %q", e)
-		}
-	}
-	var use *gows.UnexpectedStatusError
-	if !errors.As(err, &use) {
-		t.Fatalf("Dial = %v, want a *UnexpectedStatusError", err)
-	}
-	if use.StatusCode != 401 {
-		t.Errorf("StatusCode = %d, want 401", use.StatusCode)
-	}
-	// The field carries the verbatim reason for callers that opt in to
-	// inspecting it; only Error() text must stay clean.
-	if !strings.Contains(use.Reason, secret) {
-		t.Errorf("Reason field = %q, want the verbatim peer reason", use.Reason)
+			if !errors.Is(err, gows.ErrUnexpectedStatus) {
+				t.Fatalf("Dial = %v, want errors.Is ErrUnexpectedStatus", err)
+			}
+			assertNoPeerText(t, err, secret)
+			var use *gows.UnexpectedStatusError
+			if !errors.As(err, &use) {
+				t.Fatalf("Dial = %v, want a *UnexpectedStatusError", err)
+			}
+			if use.StatusCode != 401 {
+				t.Errorf("StatusCode = %d, want 401", use.StatusCode)
+			}
+			// The field carries the verbatim reason for callers that opt in
+			// to inspecting it; only Error() text must stay clean.
+			if !strings.Contains(use.Reason, secret) {
+				t.Errorf("Reason field = %q, want the verbatim peer reason", use.Reason)
+			}
+		})
 	}
 }

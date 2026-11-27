@@ -384,6 +384,69 @@ func TestDialHandshakeResponseRejections(t *testing.T) {
 	}
 }
 
+// TestDialCompressionAcceptedOnBothPaths runs the successful
+// permessage-deflate negotiations on every dial path: a server that
+// declines, one that accepts the default offer, and one that answers a
+// server_max_window_bits=10 offer with 9.
+func TestDialCompressionAcceptedOnBothPaths(t *testing.T) {
+	const noTakeover = "permessage-deflate; server_no_context_takeover; client_no_context_takeover"
+	tests := map[string]struct {
+		dialer         gows.Dialer
+		responseExt    string // "" omits Sec-WebSocket-Extensions
+		wantOffer      string
+		wantCompressed bool
+		wantServerBits int
+	}{
+		"success: server declines by omitting extensions": {
+			dialer:    gows.Dialer{EnableCompression: true},
+			wantOffer: noTakeover,
+		},
+		"success: server accepts": {
+			dialer:         gows.Dialer{EnableCompression: true},
+			responseExt:    noTakeover,
+			wantOffer:      noTakeover,
+			wantCompressed: true,
+		},
+		"success: server answers server_max_window_bits=10 with 9": {
+			dialer:         gows.Dialer{EnableCompression: true, ServerWindowBits: 10},
+			responseExt:    noTakeover + "; server_max_window_bits=9",
+			wantOffer:      noTakeover + "; server_max_window_bits=10",
+			wantCompressed: true,
+			wantServerBits: 9,
+		},
+	}
+	for pathName, setPath := range dialPaths {
+		for name, tt := range tests {
+			t.Run(pathName+"/"+name, func(t *testing.T) {
+				reqs := make(chan []byte, 1)
+				srv := startRawServer(t, func(req []byte) string {
+					reqs <- req
+					if tt.responseExt == "" {
+						return upgradeResponse(t, req)
+					}
+					return upgradeResponseWith(t, req, "Sec-WebSocket-Extensions: "+tt.responseExt+"\r\n")
+				})
+				d := tt.dialer
+				setPath(t, &d)
+				conn, hs, err := dialHandshakeWithin(t, t.Context(), &d, srv.url, 5*time.Second)
+				if err != nil {
+					t.Fatalf("Dial: %v", err)
+				}
+				conn.Close()
+				if req := <-reqs; !strings.Contains(string(req), "\r\nSec-WebSocket-Extensions: "+tt.wantOffer+"\r\n") {
+					t.Errorf("request lacks the offer %q:\n%s", tt.wantOffer, req)
+				}
+				if hs.Compressed != tt.wantCompressed {
+					t.Errorf("Compressed = %v, want %v", hs.Compressed, tt.wantCompressed)
+				}
+				if hs.CompressionParams.ServerMaxWindowBits != tt.wantServerBits {
+					t.Errorf("ServerMaxWindowBits = %d, want %d", hs.CompressionParams.ServerMaxWindowBits, tt.wantServerBits)
+				}
+			})
+		}
+	}
+}
+
 // TestDialDuplicatedResponseFields sends 101 responses that repeat a
 // handshake field. Both paths take the last value of Sec-WebSocket-Accept,
 // Sec-WebSocket-Protocol, and Sec-WebSocket-Extensions, so the same
