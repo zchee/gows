@@ -720,9 +720,10 @@ func (d *Dialer) refusedHandshake(e *UnexpectedStatusError, data []byte, headerE
 
 // refusalError reads at most limit bytes of body into e.Body and returns
 // e. When the read fails, it keeps the bytes read before the failure and
-// returns an error wrapping both e and the read error, so errors.As still
-// finds e and the read error (e.g. a context or deadline error) stays in
-// the chain. A non-positive limit leaves body unread.
+// returns an error wrapping both e and the read error as [bodyReadError]
+// reduces it, so errors.As still finds e and a context, network, or
+// deadline error stays in the chain. A non-positive limit leaves body
+// unread.
 func refusalError(e *UnexpectedStatusError, body io.Reader, limit int) error {
 	if limit <= 0 {
 		return e
@@ -732,9 +733,30 @@ func refusalError(e *UnexpectedStatusError, body io.Reader, limit int) error {
 		e.Body = b
 	}
 	if err != nil {
-		return fmt.Errorf("%w: read response body: %w", e, err)
+		return fmt.Errorf("%w: read response body: %w", e, bodyReadError(err))
 	}
 	return e
+}
+
+// bodyReadError reduces an error from reading a refused handshake's body
+// to one whose text the peer cannot control. net/http's body errors can
+// quote the peer's bytes (a malformed chunked trailer line), so the
+// original error is never returned or wrapped. Kept are the network-level
+// errors [transportError] vets, the context errors, and a deadline expiry,
+// which the dial paths test for: the native path waits for the context
+// when the read ran into its deadline, and both paths add the context's
+// error and cause when the context ended. Anything else becomes
+// [ErrRefusalBodyRead].
+func bodyReadError(err error) error {
+	if te := transportError(err); te != nil {
+		return te
+	}
+	for _, kept := range []error{context.Canceled, context.DeadlineExceeded, os.ErrDeadlineExceeded} {
+		if errors.Is(err, kept) {
+			return kept
+		}
+	}
+	return ErrRefusalBodyRead
 }
 
 // checkUpgradeResponse validates the header fields of a 101 opening-handshake

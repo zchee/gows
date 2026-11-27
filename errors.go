@@ -157,6 +157,17 @@ var (
 	// CheckRedirect. Any other error, including one a RoundTripper or a
 	// dial function of the caller's returns, is reported as this one.
 	ErrHTTPRequestFailed = errors.New("gows: HTTP client request failed")
+	// ErrRefusalBodyRead indicates that reading the body of a refused
+	// opening handshake into [UnexpectedStatusError.Body] (with
+	// [Dialer.MaxErrorBodyBytes] positive) failed with an error
+	// [Dialer.Dial] does not pass on, because its text can quote what the
+	// peer sent, such as a malformed chunked trailer line. The original
+	// error is dropped, not wrapped. Dial passes on only a read error that
+	// cannot carry peer text: the dial context's error, a network error, an
+	// early end of the body ([io.EOF], [io.ErrUnexpectedEOF]), and a
+	// deadline expiry ([os.ErrDeadlineExceeded]). The [*UnexpectedStatusError]
+	// stays in the chain either way, its Body holding the bytes received.
+	ErrRefusalBodyRead = errors.New("gows: reading the refused handshake's response body failed")
 	// ErrUnsupportedWindowBits reports that a negotiated (or offered)
 	// client_max_window_bits ceiling is smaller than anything the process's
 	// active permessage-deflate backend can actually compress within
@@ -279,8 +290,10 @@ type UnexpectedStatusError struct {
 	// proxy CONNECT refusal, it is nil. When the read stops early (the
 	// dial context ended, the peer closed mid-body), Body keeps the bytes
 	// received until then, and the error [Dialer.Dial] returns also wraps
-	// the read error. Like Reason, it is peer-controlled and never part of
-	// Error's text.
+	// the read error when it cannot carry peer text (a context, network, or
+	// deadline error, or an early end of the body) and
+	// [ErrRefusalBodyRead] in its place otherwise. Like Reason, it is
+	// peer-controlled and never part of Error's text.
 	Body []byte
 }
 

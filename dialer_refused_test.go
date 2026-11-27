@@ -283,6 +283,64 @@ func TestDialRefusedBodyBoundedByContext(t *testing.T) {
 	}
 }
 
+// TestDialRefusedBodyReadErrorCarriesNoPeerText refuses the handshake with
+// a chunked body whose trailer line is malformed. net/http's error for it
+// quotes the line, so on every dial path Dial must report the refusal with
+// ErrRefusalBodyRead, the bytes received in Body, and none of the line's
+// text anywhere in the error tree.
+func TestDialRefusedBodyReadErrorCarriesNoPeerText(t *testing.T) {
+	const response = "HTTP/1.1 401 Unauthorized\r\nTransfer-Encoding: chunked\r\n\r\n" +
+		"5\r\nhello\r\n0\r\n" + peerSecret + " no colon\r\n\r\n"
+	for pathName, setPath := range dialPaths {
+		t.Run(pathName, func(t *testing.T) {
+			srv := startRawServer(t, func([]byte) string { return response })
+			d := &gows.Dialer{MaxErrorBodyBytes: 4096}
+			setPath(t, d)
+			_, err := dialWithin(t, t.Context(), d, srv.url, 5*time.Second)
+			if !errors.Is(err, gows.ErrRefusalBodyRead) {
+				t.Fatalf("Dial err = %v, want errors.Is ErrRefusalBodyRead", err)
+			}
+			assertNoPeerText(t, err, peerSecret)
+			use := asUnexpectedStatus(t, err, "")
+			if use.StatusCode != http.StatusUnauthorized {
+				t.Errorf("StatusCode = %d, want 401", use.StatusCode)
+			}
+			if string(use.Body) != "hello" {
+				t.Errorf("Body = %q, want the bytes received before the bad trailer", use.Body)
+			}
+			srv.awaitClosed(t)
+		})
+	}
+}
+
+// TestDialRefusedBodyCutShortByPeer refuses the handshake with a body the
+// server cuts short by closing the connection. On every dial path the read
+// error must stay matchable as io.ErrUnexpectedEOF, beside the refusal and
+// the bytes that did arrive.
+func TestDialRefusedBodyCutShortByPeer(t *testing.T) {
+	for pathName, setPath := range dialPaths {
+		t.Run(pathName, func(t *testing.T) {
+			target := serveEachConn(t, func(conn net.Conn) {
+				readRawHeaderBlock(t, conn)
+				_, _ = io.WriteString(conn, stalledRefusal)
+			})
+			d := &gows.Dialer{MaxErrorBodyBytes: 4096}
+			setPath(t, d)
+			_, err := dialWithin(t, t.Context(), d, target, 5*time.Second)
+			if !errors.Is(err, io.ErrUnexpectedEOF) {
+				t.Fatalf("Dial err = %v, want errors.Is io.ErrUnexpectedEOF", err)
+			}
+			if errors.Is(err, gows.ErrRefusalBodyRead) {
+				t.Errorf("Dial err = %v, want the early end kept, not ErrRefusalBodyRead", err)
+			}
+			use := asUnexpectedStatus(t, err, "")
+			if string(use.Body) != `{"partial` {
+				t.Errorf("Body = %q, want the bytes received before the close", use.Body)
+			}
+		})
+	}
+}
+
 // TestDialProxyConnectRefusalCarriesNoDetails pins that a refused proxy
 // CONNECT reports only its numeric status: the proxy's headers and body
 // stay out of the error even with a body limit set, because they come from
