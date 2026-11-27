@@ -599,8 +599,13 @@ func (c *Conn) closeTransport() {
 // other goroutines are blocked in [Conn.ReadMessage], [Conn.Serve], a
 // [Conn.NextReader] stream's Read, or any write: it closes the transport
 // before taking the write lock, so a writer blocked on a peer that stopped
-// reading is released too. Afterwards a blocked or later read, and a blocked
-// or later write, returns an error matching errors.Is(err, [net.ErrClosed]).
+// reading is released too. Afterwards a blocked or later write, and a read
+// that is blocked on the transport or needs more bytes from it, returns an
+// error matching errors.Is(err, [net.ErrClosed]). Complete messages already
+// in the read buffer are still delivered first: the read path checks no
+// flag, so that the common read costs nothing for CloseNow's sake.
+// [Conn.WriteClose] and a [Conn.Flush] with nothing buffered write nothing
+// and return nil.
 // The transport is closed exactly once, however CloseNow, [Conn.Close],
 // [Conn.CloseContext], and the read side's own failure handling overlap.
 //

@@ -16,7 +16,6 @@ package gows
 
 import (
 	"bytes"
-	"context"
 	"errors"
 	"io"
 	"net"
@@ -274,7 +273,7 @@ func TestCloseNowWithoutReader(t *testing.T) {
 	followUps := map[string]func(*Conn) error{
 		"Close": func(c *Conn) error { return c.Close(CloseNormalClosure, "bye") },
 		"CloseContext": func(c *Conn) error {
-			return c.CloseContext(context.Background(), CloseNormalClosure, "bye")
+			return c.CloseContext(t.Context(), CloseNormalClosure, "bye")
 		},
 		"CloseNow": func(c *Conn) error { return c.CloseNow() },
 	}
@@ -366,4 +365,29 @@ func TestCloseNowModeExclusion(t *testing.T) {
 			t.Fatalf("Abort on a message-mode Conn = %v, want ErrConnMode", err)
 		}
 	})
+}
+
+// TestCloseNowDeliversBufferedMessages pins what a read after CloseNow
+// returns when complete messages are already in the read buffer: the read
+// path checks no flag, so it delivers them, and only the read that needs
+// more bytes from the closed transport fails with a closed-connection error.
+func TestCloseNowDeliversBufferedMessages(t *testing.T) {
+	t.Parallel()
+	in := append(clientFrame(true, OpcodeText, []byte("one")), clientFrame(true, OpcodeText, []byte("two"))...)
+	c := NewServerConn(&scriptConn{in: in})
+
+	if _, p, err := c.ReadMessage(); err != nil || string(p) != "one" {
+		t.Fatalf("first ReadMessage = (%q, %v), want (\"one\", nil)", p, err)
+	}
+	if err := c.CloseNow(); err != nil {
+		t.Fatalf("CloseNow = %v, want nil", err)
+	}
+	if _, p, err := c.ReadMessage(); err != nil || string(p) != "two" {
+		t.Fatalf("ReadMessage of the buffered message = (%q, %v), want (\"two\", nil)", p, err)
+	}
+	_, _, err := c.ReadMessage()
+	wantClosed(t, "ReadMessage past the buffered messages", err)
+	if c.rbuf != nil {
+		t.Fatal("the read side kept its buffers after the closed transport failed it")
+	}
 }
