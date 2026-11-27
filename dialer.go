@@ -661,12 +661,29 @@ func (d *Dialer) handshake(conn net.Conn, u *url.URL, hdr http.Header, absoluteF
 	if err != nil {
 		return Handshake{}, "", fmt.Errorf("gows: scan handshake response headers: %w", err)
 	}
+	h, err := d.checkUpgradeResponse(hf, wsKey, offerHeader)
+	if err != nil {
+		return Handshake{}, "", err
+	}
+	if idx+4 < filled {
+		h.Buffered = append([]byte(nil), data[idx+4:filled]...)
+	}
+	return h, "", nil
+}
 
+// checkUpgradeResponse validates the header fields of a 101 opening-handshake
+// response against the request this Dialer sent (RFC 6455 §4.1, RFC 7692
+// §7): the Upgrade and Connection tokens, the Sec-WebSocket-Accept value
+// derived from wsKey, the selected subprotocol, and the permessage-deflate
+// response to offerHeader, including the window-bits ceilings. It works on
+// the extracted header fields rather than the raw header block, so any
+// transport that carries the handshake can share this one validator.
+func (d *Dialer) checkUpgradeResponse(hf wsHandshakeHeaders, wsKey []byte, offerHeader string) (Handshake, error) {
 	if !hf.upgradeOK {
-		return Handshake{}, "", ErrNotUpgrade
+		return Handshake{}, ErrNotUpgrade
 	}
 	if !hf.connectionOK {
-		return Handshake{}, "", ErrNotConnectionUpgrade
+		return Handshake{}, ErrNotConnectionUpgrade
 	}
 	// The Sec-WebSocket-Accept comparison need not run in constant time:
 	// it is a proof that the peer echoed a value derived from a nonce we
@@ -674,7 +691,7 @@ func (d *Dialer) handshake(conn net.Conn, u *url.URL, hdr http.Header, absoluteF
 	// anything an attacker doesn't already know.
 	wantAccept := httpx.AppendAccept(nil, wsKey)
 	if !bytes.Equal(hf.accept, wantAccept) {
-		return Handshake{}, "", ErrAcceptMismatch
+		return Handshake{}, ErrAcceptMismatch
 	}
 
 	selected := ""
@@ -686,7 +703,7 @@ func (d *Dialer) handshake(conn net.Conn, u *url.URL, hdr http.Header, absoluteF
 			}
 		}
 		if selected == "" {
-			return Handshake{}, "", ErrUnrequestedSubprotocol
+			return Handshake{}, ErrUnrequestedSubprotocol
 		}
 	}
 
@@ -696,7 +713,7 @@ func (d *Dialer) handshake(conn net.Conn, u *url.URL, hdr http.Header, absoluteF
 	}
 	cp, compressed, err := ParseCompression(offer, []string{string(hf.extensions)})
 	if err != nil {
-		return Handshake{}, "", err
+		return Handshake{}, err
 	}
 
 	h := Handshake{Subprotocol: selected, Compressed: compressed}
@@ -713,12 +730,9 @@ func (d *Dialer) handshake(conn net.Conn, u *url.URL, hdr http.Header, absoluteF
 		// A response may tighten the ceiling below what the offer-time check
 		// already accepted (e.g. we offered 10, server replied 8).
 		if err := checkWindowBitsSupported(cp.ClientMaxWindowBits); err != nil {
-			return Handshake{}, "", err
+			return Handshake{}, err
 		}
 		h.CompressionParams = cp
 	}
-	if idx+4 < filled {
-		h.Buffered = append([]byte(nil), data[idx+4:filled]...)
-	}
-	return h, "", nil
+	return h, nil
 }
