@@ -85,6 +85,23 @@ WebSocket library for Go, engineered for performance and conformance.
   takeover. The root module defaults to stdlib `compress/flate`; the optional
   klauspost backend lives in the separate zero-impact `flatekp/` module (see
   [`options.go`](options.go)'s "permessage-deflate backend seam" comment).
+- **Client handshake through your own `*http.Client`.** Set
+  `Dialer.HTTPClient` and the opening handshake goes out as one HTTP/1.1
+  request through that client: its transport, wrapping `RoundTripper`s,
+  redirect policy and cookie jar apply, and the response passes the same
+  validation as the built-in dial path. The dial context and the client's
+  `Timeout` bound the handshake only, never the established connection.
+  A refused handshake fails with `*UnexpectedStatusError`, which carries
+  the response `Header` and, when `Dialer.MaxErrorBodyBytes` is positive,
+  up to that many bytes of the `Body` (a 401's JSON error document, for
+  example); its `Error()` text never includes peer content.
+- **Writes from any number of goroutines, abrupt close, context-bound
+  I/O.** Every frame is written whole under one lock, so several
+  goroutines may send beside the single reader. `Conn.CloseNow` closes a
+  connection from any goroutine, also while another one is blocked
+  reading or writing. `Conn.ReadMessageContext` and
+  `Conn.WriteMessageContext` close it the same way when their context
+  ends, without touching the connection's deadlines.
 - **Autobahn|Testsuite conformance**: the full 517-case matrix passes in
   both directions ("All cases passed"), most recently on 2026-10-13 on
   GitHub-hosted linux/amd64 and on darwin/arm64. See
@@ -458,6 +475,54 @@ may differ from what was requested) into `WithBuffered`/`WithCompression`
 handshake's own answer risks disagreeing with what the peer actually
 agreed to. All four examples above are verified to compile against this
 module (`go build`/`go vet`, clean) as part of writing this document.
+
+### Client through an `*http.Client`
+
+```go
+package main
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"net/http"
+
+	"github.com/zchee/gows"
+)
+
+// open dials through hc, so its transport, redirect policy and cookie jar
+// apply, and returns a refused handshake's status as an error.
+func open(ctx context.Context, hc *http.Client, url string) (*gows.Conn, error) {
+	dialer := gows.Dialer{HTTPClient: hc, MaxErrorBodyBytes: 4096}
+	conn, hs, err := dialer.Dial(ctx, url)
+	if refused, ok := errors.AsType[*gows.UnexpectedStatusError](err); ok {
+		// refused.Header and refused.Body hold the server's response.
+		return nil, fmt.Errorf("handshake refused with status %d", refused.StatusCode)
+	}
+	if err != nil {
+		return nil, err
+	}
+	return gows.NewClientConn(conn,
+		gows.WithBuffered(hs.Buffered),
+		gows.WithCompression(hs.Compressed),
+	), nil
+}
+
+func main() {
+	c, err := open(context.Background(), http.DefaultClient, "ws://127.0.0.1:9001/ws")
+	if err != nil {
+		panic(err)
+	}
+	defer c.CloseNow()
+}
+```
+
+`NetDial`, `TLSConfig`, `Proxy` and `CheckRedirect` cannot be combined with
+`HTTPClient` (`ErrConflictingHTTPClient`): the client owns those concerns.
+A transport that does not report its connection through
+`net/http/httptrace`, or whose 101 response body is not writable, is refused
+with `ErrUnsupportedHTTPTransport`, because the connection's deadlines could
+not be honoured. This example is verified to compile like the ones above.
 
 ## Conformance
 
