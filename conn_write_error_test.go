@@ -362,6 +362,22 @@ func TestRetainedErrorEndsReader(t *testing.T) {
 }
 
 func TestBufferedPingAfterClose(t *testing.T) {
+	t.Run("CloseNow", func(t *testing.T) {
+		wire := append(clientFrame(true, OpcodePing, nil), clientFrame(true, OpcodeText, []byte("buffered"))...)
+		a, b := net.Pipe()
+		defer a.Close()
+		defer b.Close()
+		c := NewServerConn(a, WithBuffered(wire))
+		if err := c.CloseNow(); err != nil {
+			t.Fatal(err)
+		}
+		if op, p, err := c.ReadMessage(); err != nil || op != OpcodeText || string(p) != "buffered" {
+			t.Fatalf("after Ping = %v %q %v", op, p, err)
+		}
+		if _, _, err := c.ReadMessage(); !errors.Is(err, net.ErrClosed) {
+			t.Fatalf("transport read = %v", err)
+		}
+	})
 	t.Run("retained write failure", func(t *testing.T) {
 		wire := append(clientFrame(true, OpcodePing, nil), clientFrame(true, OpcodeText, []byte("buffered"))...)
 		a, b := net.Pipe()
@@ -431,7 +447,13 @@ func TestFlushEmptyAfterRetainedError(t *testing.T) {
 }
 
 func TestLocalCloseDuringBlockedWriteNotRetained(t *testing.T) {
-	tests := map[string]struct{ context bool }{"CloseNow during blocked write": {}, "context ended during blocked write": {true}}
+	tests := map[string]struct {
+		context bool
+		later   error
+	}{
+		"CloseNow during blocked write":      {later: errClosedNow},
+		"context ended during blocked write": {context: true, later: errWriteClosed},
+	}
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
 			for _, closing := range []string{"Close", "CloseContext"} {
@@ -460,8 +482,8 @@ func TestLocalCloseDuringBlockedWriteNotRetained(t *testing.T) {
 					if _, ok := errors.AsType[*writeError](got); ok || (tt.context && (!errors.Is(got, context.Canceled) || !errors.Is(got, cause))) || (!tt.context && !errors.Is(got, net.ErrClosed)) {
 						t.Fatalf("interrupted write = %T %v", got, got)
 					}
-					if err := c.WriteMessage(OpcodeText, nil); err != errWriteClosed {
-						t.Fatalf("later write = %v, want errWriteClosed", err)
+					if err := c.WriteMessage(OpcodeText, nil); err != tt.later {
+						t.Fatalf("later write = %v, want %v", err, tt.later)
 					}
 					if c.rbuf == nil {
 						t.Fatal("writer released read buffer")

@@ -345,8 +345,8 @@ func TestCloseNowWithoutReader(t *testing.T) {
 				t.Fatalf("peer Read = (%d, %v), want (0, io.EOF)", n, err)
 			}
 			wantClosed(t, "WriteMessage", c.WriteMessage(OpcodeText, []byte("late")))
-			if err := c.WriteClose(CloseNormalClosure, ""); err != nil {
-				t.Fatalf("WriteClose after CloseNow = %v, want nil", err)
+			if err := c.WriteClose(CloseNormalClosure, ""); err != errClosedNow {
+				t.Fatalf("WriteClose after CloseNow = %v, want %v", err, errClosedNow)
 			}
 
 			if err := followUp(c); err != nil {

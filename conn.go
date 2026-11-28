@@ -612,10 +612,11 @@ func (c *Conn) closeTransport() {
 // error matching errors.Is(err, [net.ErrClosed]). Complete messages already
 // in the read buffer are still delivered first: the read path checks no
 // flag, so that the common read costs nothing for CloseNow's sake.
-// [Conn.WriteClose] and a [Conn.Flush] with nothing buffered write nothing
-// and return nil. A Write to an open [Conn.NextWriter] stream that only fills
-// the stream's buffer still succeeds; the error appears at the stream's next
-// flush or at its Close.
+// Later data writes and a valid [Conn.WriteClose] return the same abrupt-close
+// error, or the original write failure if one was retained before CloseNow.
+// An empty [Conn.Flush] returns nil. A Write to an open [Conn.NextWriter]
+// stream that only fills its buffer still succeeds; the error appears at
+// the stream's next flush or at its Close.
 // The transport is closed exactly once, however CloseNow, [Conn.Close],
 // [Conn.CloseContext], and the read side's own failure handling overlap.
 //
@@ -638,6 +639,11 @@ func (c *Conn) CloseNow() error {
 		return err
 	}
 	c.closeNow()
+	c.wmu.Lock()
+	if c.werr == nil {
+		c.werr = errClosedNow
+	}
+	c.wmu.Unlock()
 	return nil
 }
 
@@ -677,7 +683,7 @@ var errClosedNow = fmt.Errorf("gows: connection closed abruptly: %w", net.ErrClo
 // Read: the frame write is serialized under the same writer lock as
 // every other frame, and the active reader keeps draining toward the
 // peer's Close reply, which it reports as the usual [*CloseError].
-// WriteClose does not wait for that reply and does not close the
+// A successful WriteClose does not wait for that reply or close the
 // underlying connection; completion is driven by the reader observing
 // the peer's Close, or by [Conn.Close]/[Conn.CloseContext] once the
 // read side is quiescent.
@@ -686,11 +692,14 @@ var errClosedNow = fmt.Errorf("gows: connection closed abruptly: %w", net.ErrClo
 // same helper: code must be sendable per [ValidCloseCode]
 // ([ErrInvalidCloseCode]), reason must be valid UTF-8
 // ([ErrInvalidCloseReason]) and fit a control frame's 125-byte payload
-// alongside the 2-byte code ([ErrCloseReasonTooLong]). On a validation
-// failure nothing is written. WriteClose is idempotent and safe for
-// concurrent use: once a Close frame has been sent (by any API) or the
-// connection is torn down, it returns nil without writing. A transport
-// failure while sending the frame is retained like a [Conn.WriteMessage] failure.
+// alongside the 2-byte code ([ErrCloseReasonTooLong]). Invalid arguments
+// return the validation error even after the connection has closed.
+// With valid arguments, WriteClose returns a retained write failure or the
+// abrupt-close error recorded by [Conn.CloseNow], without writing. Otherwise,
+// if a Close frame was sent or teardown has finished, WriteClose returns nil.
+// If teardown has closed the transport but has not yet finished, the write can
+// still fail. As with [Conn.WriteMessage], a transport failure not caused by a
+// local close is retained and matches [net.ErrClosed].
 //
 // Like every frame write, WriteClose blocks until the frame is written
 // or the connection's write deadline expires; bound it with
@@ -699,13 +708,21 @@ func (c *Conn) WriteClose(code CloseCode, reason string) error {
 	if err := c.selectMode(connModeMessage); err != nil {
 		return err
 	}
-	if c.tornDown.Load() {
-		return nil
-	}
 	if err := validateCloseArgs(code, reason); err != nil {
 		return err
 	}
-	return c.sendClose(code, []byte(reason))
+	c.wmu.Lock()
+	defer c.wmu.Unlock()
+	if c.werr != nil {
+		return c.werr
+	}
+	if c.closeSent || c.tornDown.Load() {
+		return nil
+	}
+	c.wclose = AppendCloseBody(c.wclose[:0], code, []byte(reason))
+	err := c.emitFrameLocked(OpcodeClose, true, 0, c.wclose)
+	c.closeSent = true
+	return err
 }
 
 // CloseContext performs the full WebSocket closing handshake
