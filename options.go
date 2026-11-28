@@ -660,9 +660,11 @@ type Handshake struct {
 	// past the end of the handshake request/response, i.e. data the
 	// peer pipelined immediately after the handshake bytes in the same
 	// write (most commonly, the first WebSocket frame). It is nil when
-	// there were no such bytes. On the [Dialer.HTTPClient] path it is always
-	// nil because the response body retains those bytes. Pass [WithHandshake]
-	// when constructing a Conn to consume Buffered before reading the transport.
+	// there were no such bytes. [Dial] and [Dialer.Dial] always return nil
+	// here: their Conn consumes these bytes. [Dialer.DialNetConn] also
+	// returns nil here on the [Dialer.HTTPClient] path, where the response
+	// body retains them. Pass [WithHandshake] when constructing a Conn
+	// from a raw transport to consume Buffered before reading the transport.
 	Buffered []byte
 	// Compressed reports whether permessage-deflate (RFC 7692) was
 	// negotiated for this connection. [WithHandshake] enables it only

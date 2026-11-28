@@ -286,6 +286,28 @@ func TestErrorsCarryNoPeerText(t *testing.T) {
 		})
 	}
 
+	highLevel := map[string]struct{ httpClient bool }{
+		"Dial native refused":     {},
+		"Dial HTTPClient refused": {httpClient: true},
+	}
+	for name, tt := range highLevel {
+		t.Run(name, func(t *testing.T) {
+			var d gows.Dialer
+			if tt.httpClient {
+				d.HTTPClient = newHTTPClient(t)
+			}
+			srv := startRawServer(t, func([]byte) string {
+				return "HTTP/1.1 403 Forbidden\r\nX-Detail: " + peerMark + "\r\nContent-Length: 0\r\n\r\n"
+			})
+			_, _, err := d.Dial(t.Context(), srv.url)
+			use := asUnexpectedStatus(t, err, peerMark)
+			if use.StatusCode != http.StatusForbidden || use.Header.Get("X-Detail") != peerMark {
+				t.Fatalf("refusal status = %d, X-Detail = %q", use.StatusCode, use.Header.Get("X-Detail"))
+			}
+			assertNoPeerText(t, err, peerMark)
+		})
+	}
+
 	serverGroups := map[string]struct {
 		run func(t *testing.T, u *gows.Upgrader, rawReq string) (gows.Handshake, error)
 	}{

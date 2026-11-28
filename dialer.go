@@ -83,18 +83,26 @@ func (d *Dialer) deflateOffer() string {
 	return b.String()
 }
 
-// Dial performs the client side of a WebSocket opening handshake to
-// rawURL using the zero-value [Dialer] (no subprotocols, default TLS
-// config, [net.Dialer]'s default dialing). It is a convenience
-// equivalent to (&Dialer{}).Dial(ctx, rawURL).
-func Dial(ctx context.Context, rawURL string) (net.Conn, Handshake, error) {
+// Dial opens a WebSocket connection to rawURL using a zero-value [Dialer].
+// It is equivalent to (&Dialer{}).Dial(ctx, rawURL, opts...).
+func Dial(ctx context.Context, rawURL string, opts ...ConnOption) (*Conn, Handshake, error) {
 	var d Dialer
-	return d.DialNetConn(ctx, rawURL)
+	return d.Dial(ctx, rawURL, opts...)
 }
 
-// Dial performs the same opening handshake as [Dialer.DialNetConn].
-func (d *Dialer) Dial(ctx context.Context, rawURL string) (net.Conn, Handshake, error) {
-	return d.DialNetConn(ctx, rawURL)
+// Dial opens a WebSocket connection to rawURL and returns the negotiated
+// handshake. The Conn reads any bytes buffered past the handshake before
+// reading the transport, so the returned [Handshake.Buffered] is nil.
+// Negotiated compression settings and buffered bytes take precedence over
+// opts. As with [Dialer.DialNetConn], ctx bounds only the opening handshake.
+func (d *Dialer) Dial(ctx context.Context, rawURL string, opts ...ConnOption) (*Conn, Handshake, error) {
+	nc, hs, err := d.DialNetConn(ctx, rawURL)
+	if err != nil {
+		return nil, hs, err
+	}
+	c := newConnFromHandshake(nc, true, &hs, opts)
+	hs.Buffered = nil
+	return c, hs, nil
 }
 
 // DialNetConn performs the client side of a WebSocket opening handshake
