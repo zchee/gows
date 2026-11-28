@@ -198,7 +198,7 @@ func (d *Dialer) Dial(ctx context.Context, rawURL string) (net.Conn, Handshake, 
 
 	var via []*http.Request
 	for {
-		conn, hs, location, err := d.dialHop(ctx, u, hdr)
+		conn, hs, location, err := d.dialHop(ctx, u, hdr, len(via) != 0)
 		if err != nil {
 			return nil, Handshake{}, err
 		}
@@ -239,7 +239,7 @@ func (d *Dialer) Dial(ctx context.Context, rawURL string) (net.Conn, Handshake, 
 // and the hop answered with a redirect carrying a Location -- the raw
 // Location value, with the hop's connection already closed. On error,
 // the hop's connection is closed before dialHop returns.
-func (d *Dialer) dialHop(ctx context.Context, u *url.URL, hdr http.Header) (net.Conn, Handshake, string, error) {
+func (d *Dialer) dialHop(ctx context.Context, u *url.URL, hdr http.Header, redirected bool) (net.Conn, Handshake, string, error) {
 	useTLS := u.Scheme == "wss"
 
 	var proxyURL *url.URL
@@ -271,10 +271,16 @@ func (d *Dialer) dialHop(ctx context.Context, u *url.URL, hdr http.Header) (net.
 		dialAddr = net.JoinHostPort(proxyURL.Hostname(), port)
 	}
 
+	// After a redirect, even the proxy address may derive from the peer's Location.
+	dialTarget := dialAddr
+	if redirected {
+		dialTarget = "redirect target"
+	}
+
 	// Fail before any network I/O on an already-ended context; a custom
 	// [Dialer.NetDial] is not obliged to check it.
 	if ctx.Err() != nil {
-		return nil, Handshake{}, "", fmt.Errorf("gows: dial %s: %w", dialAddr, contextError(ctx))
+		return nil, Handshake{}, "", fmt.Errorf("gows: dial %s: %w", dialTarget, contextError(ctx))
 	}
 
 	dial := d.NetDial
@@ -285,9 +291,9 @@ func (d *Dialer) dialHop(ctx context.Context, u *url.URL, hdr http.Header) (net.
 	conn, err := dial(ctx, "tcp", dialAddr)
 	if err != nil {
 		if ctx.Err() != nil && !errorContainsContext(err, ctx) {
-			return nil, Handshake{}, "", fmt.Errorf("gows: dial %s: %w: %w", dialAddr, contextError(ctx), err)
+			return nil, Handshake{}, "", fmt.Errorf("gows: dial %s: %w: %w", dialTarget, contextError(ctx), err)
 		}
-		return nil, Handshake{}, "", fmt.Errorf("gows: dial %s: %w", dialAddr, err)
+		return nil, Handshake{}, "", fmt.Errorf("gows: dial %s: %w", dialTarget, err)
 	}
 
 	// One guard owns the ctx-to-connection lifecycle for every phase of

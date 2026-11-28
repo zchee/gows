@@ -41,6 +41,15 @@ const peerMark = "PEERMARK-7f3a"
 // handshake carries the expected fields cleanly.
 func TestErrorsCarryNoPeerText(t *testing.T) {
 	const refusedBody = "denied: " + peerMark
+	const redirectHost = peerMark + ".invalid"
+	redirect := func(*testing.T, []byte) string { return redirectResponse("ws://" + redirectHost) }
+	dialFailure := errors.New("test dial failure")
+	fail := func(string) error { return dialFailure }
+	checkDialFailure := func(t *testing.T, err error) {
+		if !errors.Is(err, dialFailure) {
+			t.Fatalf("Dial err = %v, want the second hop's NetDial error", err)
+		}
+	}
 
 	dialTests := map[string]struct {
 		dialer   func(t *testing.T) *gows.Dialer
@@ -189,6 +198,20 @@ func TestErrorsCarryNoPeerText(t *testing.T) {
 					t.Fatalf("Dial err = %v, want a *net.OpError matching syscall.ECONNREFUSED", err)
 				}
 			},
+		},
+		"native dial redirect host": {
+			dialer: func(*testing.T) *gows.Dialer {
+				return &gows.Dialer{CheckRedirect: followAll, NetDial: failSecondDial(redirectHost+":80", fail)}
+			},
+			respond: redirect,
+			check:   checkDialFailure,
+		},
+		"native dial redirect derived proxy": {
+			dialer: func(*testing.T) *gows.Dialer {
+				return &gows.Dialer{CheckRedirect: followAll, Proxy: proxyFromHost, NetDial: failSecondDial(redirectHost+":8080", fail)}
+			},
+			respond: redirect,
+			check:   checkDialFailure,
 		},
 		"native dial proxy CONNECT reason": {
 			viaProxy: true,
