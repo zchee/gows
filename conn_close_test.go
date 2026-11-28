@@ -340,41 +340,65 @@ func TestCloseSuccess(t *testing.T) {
 }
 
 func TestClosePeerReply(t *testing.T) {
+	const peerMarker = "peer-reply-marker"
 	tests := map[string]struct {
 		body     []byte
-		wantCode CloseCode
+		want     *CloseError
+		wantText string
 	}{
-		"valid reply":          {body: AppendCloseBody(nil, CloseGoingAway, []byte("bye"))},
-		"one-byte body":        {body: []byte{'!'}, wantCode: CloseProtocolError},
-		"invalid close code":   {body: AppendCloseBody(nil, CloseNoStatusReceived, []byte("!")), wantCode: CloseProtocolError},
-		"invalid UTF-8 reason": {body: AppendCloseBody(nil, CloseNormalClosure, []byte("!\xff")), wantCode: CloseInvalidFramePayloadData},
+		"valid reply": {body: AppendCloseBody(nil, CloseGoingAway, []byte("bye"))},
+		"one-byte body": {
+			body:     []byte{'g'},
+			want:     &CloseError{Code: CloseProtocolError, Reason: "malformed close frame body", Sent: true},
+			wantText: "gows: connection closed (sent code 1002): malformed close frame body",
+		},
+		"invalid close code": {
+			body:     AppendCloseBody(nil, CloseNoStatusReceived, []byte(peerMarker)),
+			want:     &CloseError{Code: CloseProtocolError, Reason: "invalid close code", Sent: true},
+			wantText: "gows: connection closed (sent code 1002): invalid close code",
+		},
+		"invalid UTF-8 reason": {
+			body:     AppendCloseBody(nil, CloseNormalClosure, []byte(peerMarker+"\xff")),
+			want:     &CloseError{Code: CloseInvalidFramePayloadData, Reason: "invalid UTF-8 in close reason", Sent: true},
+			wantText: "gows: connection closed (sent code 1007): invalid UTF-8 in close reason",
+		},
+	}
+	closeWithReply := func(t *testing.T, body []byte) error {
+		t.Helper()
+		transport := &closeCountingScriptConn{scriptConn: scriptConn{in: clientFrame(true, OpcodeClose, body)}}
+		c := NewServerConn(transport)
+		err := c.Close(t.Context(), CloseNormalClosure, "")
+		if transport.closeCount != 1 {
+			t.Errorf("transport close count = %d, want 1", transport.closeCount)
+		}
+		if err := c.Close(t.Context(), CloseNormalClosure, ""); err != nil {
+			t.Errorf("second Close = %v, want nil", err)
+		}
+		return err
 	}
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
-			transport := &closeCountingScriptConn{scriptConn: scriptConn{in: clientFrame(true, OpcodeClose, tt.body)}}
-			c := NewServerConn(transport)
-			err := c.Close(t.Context(), CloseNormalClosure, "")
-			if tt.wantCode == 0 {
+			err := closeWithReply(t, tt.body)
+			if tt.want == nil {
 				if err != nil {
 					t.Errorf("Close = %v, want nil", err)
 				}
-			} else {
-				ce, ok := errors.AsType[*CloseError](err)
-				if !ok || !ce.Sent || ce.Code != tt.wantCode {
-					t.Fatalf("Close = %v, want sent *CloseError with code %d", err, tt.wantCode)
-				}
-				text := err.Error()
-				for _, b := range tt.body {
-					if strings.IndexByte(text, b) >= 0 {
-						t.Errorf("Close error %q includes peer byte %#x", text, b)
-					}
-				}
+				return
 			}
-			if transport.closeCount != 1 {
-				t.Errorf("transport close count = %d, want 1", transport.closeCount)
+			ce, ok := errors.AsType[*CloseError](err)
+			if !ok || *ce != *tt.want {
+				t.Fatalf("Close = %#v, want %#v", err, tt.want)
 			}
-			if err := c.Close(t.Context(), CloseNormalClosure, ""); err != nil {
-				t.Errorf("second Close = %v, want nil", err)
+			text := err.Error()
+			if text != tt.wantText {
+				t.Errorf("Close error = %q, want %q", text, tt.wantText)
+			}
+			if len(tt.body) == 1 {
+				if other := closeWithReply(t, []byte{'!'}); other == nil || other.Error() != text {
+					t.Errorf("Close error for '!' = %v, want same text as for 'g': %q", other, text)
+				}
+			} else if strings.Contains(text, peerMarker) {
+				t.Errorf("Close error %q includes peer marker %q", text, peerMarker)
 			}
 		})
 	}
