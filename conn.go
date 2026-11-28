@@ -599,45 +599,35 @@ func (c *Conn) closeTransport() {
 	c.transportOnce.Do(func() { _ = c.conn.Close() })
 }
 
-// CloseNow closes the connection abruptly, without the closing handshake: it
-// closes the underlying transport and returns, writing no Close frame and
-// waiting for no reply. It is the message-mode counterpart of [Conn.Abort].
+// CloseNow closes the underlying transport without sending a WebSocket Close
+// frame or waiting for a reply. It works in either mode and does not select a
+// mode on an unused Conn. It always returns nil, including on repeated calls;
+// the transport is closed exactly once.
 //
-// CloseNow is safe to call from any goroutine at any time, including while
-// other goroutines are blocked in [Conn.ReadMessage], [Conn.Serve], a
-// [Conn.NextReader] stream's Read, or any write: it closes the transport
-// before taking the write lock, so a writer blocked on a peer that stopped
-// reading is released too. Afterwards a blocked or later write, and a read
-// that is blocked on the transport or needs more bytes from it, returns an
-// error matching errors.Is(err, [net.ErrClosed]). Complete messages already
-// in the read buffer are still delivered first: the read path checks no
-// flag, so that the common read costs nothing for CloseNow's sake.
-// Later data writes and a valid [Conn.WriteClose] return the same abrupt-close
-// error, or the original write failure if one was retained before CloseNow.
-// An empty [Conn.Flush] returns nil. A Write to an open [Conn.NextWriter]
-// stream that only fills its buffer still succeeds; the error appears at
-// the stream's next flush or at its Close.
-// The transport is closed exactly once, however CloseNow, [Conn.Close],
-// [Conn.CloseContext], and the read side's own failure handling overlap.
+// Any goroutine may call CloseNow, even while another is reading or writing.
+// It closes the transport before taking the write lock, unblocking I/O in
+// either mode. An interrupted transport write returns an error matching
+// [net.ErrClosed]. Complete buffered messages or frames can still be read. When
+// a read needs more bytes, a message reader reports an error matching
+// [net.ErrClosed]; [Conn.ReadFrame] reports the transport's own error.
+// Later data writes in the selected mode and a valid message-mode
+// [Conn.WriteClose] return the same abrupt-close error, or the original write
+// failure if one was retained before CloseNow. An empty [Conn.Flush] returns
+// nil in message mode. A Write to an open [Conn.NextWriter] stream that only
+// fills its buffer still succeeds; the error appears at its next flush or Close.
 //
-// CloseNow does not release the Conn's buffers, because a reader may still be
-// using them. The read side releases them when it observes the closed
-// transport; when no goroutine is reading, [Conn.Close] or
-// [Conn.CloseContext] releases them and returns nil without writing. CloseNow
-// returns nil, also when called again or after the connection has closed.
-// Like the other message-mode methods, the first call selects message mode;
-// on a frame-mode Conn it returns [ErrConnMode] (use [Conn.Abort] there).
+// CloseNow does not release buffers or invalidate a [Conn.ReadFrame] payload.
+// The reader releases the buffers when it observes the closed transport. Once
+// the reader has stopped, [Conn.Close] or [Conn.CloseContext] can also release
+// them on a message-mode or unused Conn without writing. Otherwise, if no read
+// follows, the buffers and any frame compressor are left to the garbage collector.
 //
-// CloseNow returns once the transport's Close has. Over crypto/tls, that
-// Close first sends a close_notify alert under a five-second write deadline
-// when no write is in progress on the TLS connection, so CloseNow -- and a
-// [Conn.ReadMessageContext] or [Conn.WriteMessageContext] whose ctx ended,
-// which waits for the same close -- can block for up to five seconds when the
-// peer has stopped reading and the send buffer is full.
+// CloseNow waits for the transport's Close, as do [Conn.ReadMessageContext]
+// and [Conn.WriteMessageContext] when their context interrupts I/O. Over
+// crypto/tls, if no TLS write is in progress, Close first sends a close_notify
+// alert under a five-second write deadline. A caller-supplied transport's
+// Close may take longer.
 func (c *Conn) CloseNow() error {
-	if err := c.selectMode(connModeMessage); err != nil {
-		return err
-	}
 	c.closeNow()
 	c.wmu.Lock()
 	if c.werr == nil {
