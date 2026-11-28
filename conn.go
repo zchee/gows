@@ -63,10 +63,11 @@ const maxCoalescedWriteSize = 2 << 10
 // message sent by WriteMessage, WritePreparedMessage, or WriteMessageBuffered
 // is a single frame; one goroutine's messages keep that goroutine's order,
 // and messages from different goroutines go out in the order they take the
-// lock. While a NextWriter stream is open, WriteMessage,
-// WriteMessageBuffered, WritePreparedMessage, and a second NextWriter return
-// [ErrWriterBusy] without writing anything until the stream is closed;
-// control frames (the read side's replies, WriteClose) may still go out
+// lock. While a NextWriter stream is open and the Conn can still write data,
+// otherwise valid calls to WriteMessage, WriteMessageBuffered,
+// WritePreparedMessage, and a second NextWriter return [ErrWriterBusy] without
+// writing. A retained write error or a closed-connection error takes precedence.
+// Control frames (the read side's replies, WriteClose) may still go out
 // between the stream's fragments, as RFC 6455 §5.4 allows. The writer
 // NextWriter returns is itself for one goroutine. WriteMessageBuffered
 // appends to one batch shared by every goroutine: a Flush, a direct write, or

@@ -57,7 +57,8 @@ import (
 // frame write (including the automatic Pong and Close replies issued by the
 // read path), so concurrent messages never interleave on the wire; see
 // [Conn] for the full write-side contract. It returns [ErrWriterBusy] without
-// writing while a [Conn.NextWriter] stream is open.
+// writing while a [Conn.NextWriter] stream is open and the Conn can still write
+// data. A retained write error or a closed-connection error takes precedence.
 func (c *Conn) WriteMessage(op Opcode, p []byte) error {
 	if err := c.selectMode(connModeMessage); err != nil {
 		return err

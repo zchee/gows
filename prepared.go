@@ -104,9 +104,11 @@ func NewPreparedMessage(op Opcode, payload []byte) (*PreparedMessage, error) {
 // and none of the plain-frame fallbacks apply (outgoing context takeover,
 // outgoingDisabled, or prepWindowBits exceeding c's outgoing ceiling);
 // the uncompressed frame otherwise. Like [Conn.WriteMessage], it
-// serializes with every other frame write on c and refuses to run while a
-// [Conn.NextWriter] stream is open ([ErrWriterBusy]): interleaving a
-// complete data frame between fragments would violate RFC 6455 §5.4.
+// serializes with every other frame write on c. On a server Conn that can
+// still write data, it returns [ErrWriterBusy] while a [Conn.NextWriter]
+// stream is open: interleaving a complete data frame between fragments would
+// violate RFC 6455 §5.4. A retained write error or a closed-connection error
+// takes precedence.
 //
 // WritePreparedMessage only supports the server role: a PreparedMessage's
 // frames are precomputed unmasked, and RFC 6455 §5.1 requires a client to

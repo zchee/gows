@@ -199,7 +199,9 @@ func (c *Conn) bufferedMessageReady() bool {
 //
 // Like [Conn.WriteMessage] it serializes with every other frame write via the
 // connection's write lock, is safe to call from several goroutines at once,
-// and returns [ErrWriterBusy] while a [Conn.NextWriter] stream is open. It is
+// and returns [ErrWriterBusy] while a [Conn.NextWriter] stream is open and the
+// Conn can still write data. A retained write error or a closed-connection
+// error takes precedence. It is
 // designed for the single-goroutine [Conn.Serve] model: the batch is shared by
 // every goroutine, so a Flush, a direct write, or a Serve drain round from any
 // goroutine sends every goroutine's pending frames, and a Serve handler error
