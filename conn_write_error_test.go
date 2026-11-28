@@ -21,6 +21,7 @@ import (
 	"io"
 	"net"
 	"os"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
@@ -631,6 +632,72 @@ func TestCloseNowWaitsForTransportClose(t *testing.T) {
 			t.Fatalf("CloseNow after transport Close = %v, want nil", err)
 		}
 	})
+}
+
+// A stack sample can observe the join parked on sync.Once's mutex; testing/synctest cannot.
+func awaitTransportJoin(t *testing.T, method string, result <-chan error) {
+	t.Helper()
+	const pkg = "\ngithub.com/zchee/gows."
+	const connFrame = pkg + "(*Conn)."
+	caller := connFrame + method + "("
+	test, _, _ := strings.Cut(t.Name(), "/")
+	testFrame := pkg + test + "."
+	deadline := time.After(3 * time.Second)
+	buf := make([]byte, 16<<10)
+	for {
+		n := runtime.Stack(buf, true)
+		for stack := range strings.SplitSeq(string(buf[:n]), "\n\n") {
+			if strings.Contains(stack, "[sync.Mutex.Lock") && strings.Contains(stack, "\nsync.(*Once).doSlow(") &&
+				strings.Contains(stack, connFrame+"closeTransport(") && strings.Contains(stack, caller) && strings.Contains(stack, testFrame) {
+				return
+			}
+		}
+		if n == len(buf) {
+			buf = make([]byte, 2*len(buf))
+		}
+		runtime.Gosched()
+		select {
+		case err := <-result:
+			t.Fatalf("%s returned %v without joining the blocked transport Close", method, err)
+		case <-deadline:
+			t.Fatalf("%s did not block in the transport Close join", method)
+		case <-time.After(time.Millisecond):
+		}
+	}
+}
+
+func TestCloseJoinsTransportAfterWriteFailure(t *testing.T) {
+	tests := map[string]struct{ call func(*Conn) error }{
+		"CloseNow": {(*Conn).CloseNow},
+		"Close":    {func(c *Conn) error { return c.Close(t.Context(), CloseNormalClosure, "") }},
+	}
+	for method, tt := range tests {
+		t.Run(method, func(t *testing.T) {
+			entered, hold := make(chan struct{}), make(chan struct{})
+			signal := sync.OnceFunc(func() { close(entered) })
+			release := sync.OnceFunc(func() { close(hold) })
+			defer release()
+			transport := newCloseCountConn(&writeProbe{
+				Conn:  &scriptConn{},
+				write: func([]byte) (int, error) { return 0, io.ErrClosedPipe },
+				close: func() error { signal(); <-hold; return nil },
+			})
+			c := NewServerConn(transport)
+			failed := asyncResult(func() error { return c.WriteMessage(OpcodeText, nil) })
+			requireWriteFailure(t, within(t, "failed write", 3*time.Second, failed), io.ErrClosedPipe)
+			within(t, "transport Close entry", 3*time.Second, entered)
+
+			result := asyncResult(func() error { return tt.call(c) })
+			awaitTransportJoin(t, method, result)
+			release()
+			if err := within(t, method, 3*time.Second, result); err != nil {
+				t.Fatalf("%s after transport Close = %v, want nil", method, err)
+			}
+			if got := transport.closes.Load(); got != 1 {
+				t.Fatalf("transport Close calls = %d, want 1", got)
+			}
+		})
+	}
 }
 
 // advertisedDeadline lets the I/O deadline expire before cancellation is delivered.
