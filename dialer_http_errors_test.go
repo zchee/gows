@@ -91,12 +91,16 @@ func ownText(err error) string {
 	return s
 }
 
+func containsPeerText(text, secret string) bool {
+	return strings.Contains(strings.ToLower(text), strings.ToLower(secret))
+}
+
 // assertNoPeerText fails the test when secret appears in the text of err
 // or of any error in its tree.
 func assertNoPeerText(t *testing.T, err error, secret string) {
 	t.Helper()
 	for _, text := range errorTexts(err) {
-		if strings.Contains(text, secret) {
+		if containsPeerText(text, secret) {
 			t.Fatalf("error tree carries peer text %q: %q (top: %v)", secret, text, err)
 		}
 	}
@@ -111,7 +115,7 @@ func assertPeerTextOnlyInAllowedLinks(t *testing.T, err error, secret string) {
 	matched := 0
 	for _, link := range errorLinks(err) {
 		own := ownText(link)
-		if !strings.Contains(own, secret) {
+		if !containsPeerText(own, secret) {
 			continue
 		}
 		switch link.(type) {

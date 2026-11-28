@@ -35,6 +35,13 @@ import (
 // verify that gows never echoes peer bytes into error text.
 const peerMark = "PEERMARK-7f3a"
 
+func TestPeerTextInCanonicalHeaderName(t *testing.T) {
+	err := errors.New("unexpected header: X-Peermark-7f3a")
+	if !containsPeerText(err.Error(), peerMark) {
+		t.Fatalf("did not detect %q in %q", peerMark, err)
+	}
+}
+
 // TestErrorsCarryNoPeerText places peerMark in peer-controlled handshake and
 // frame inputs and verifies that every failing call reports the expected error
 // class with peerMark absent from the entire error tree, and every succeeding
@@ -433,7 +440,7 @@ func TestErrorsCarryNoPeerText(t *testing.T) {
 				if ce.Sent || ce.Code != gows.CloseNormalClosure || ce.Reason != peerMark {
 					t.Fatalf("ParseClose = %+v, want Sent=false Code=%d Reason=%q", ce, gows.CloseNormalClosure, peerMark)
 				}
-				if strings.Contains(ce.Error(), peerMark) {
+				if containsPeerText(ce.Error(), peerMark) {
 					t.Fatalf("CloseError.Error() = %q, must not contain %q", ce.Error(), peerMark)
 				}
 				assertNoPeerText(t, &ce, peerMark)
