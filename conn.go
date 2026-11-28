@@ -678,11 +678,17 @@ func (c *Conn) WriteClose(code CloseCode, reason string) error {
 // an error matching [ErrCloseTimeout]. If ctx ends the handshake, Close
 // closes the transport and returns an error matching ctx.Err() and any
 // distinct cancellation cause. No cancellation callback runs after Close
-// returns. Unless ctx ends the handshake, Close returns read failures unchanged
-// with one exception: a read error matching [os.ErrDeadlineExceeded] counts as
-// expiry of the handshake deadline if the deadline has passed when Close observes
-// the error, even if it passed while closing the transport. If the peer's Close
-// reply fails validation, Close returns a [*CloseError] with Sent set to true.
+// returns.
+//
+// Unless ctx ends the handshake, a send or read error matching
+// [os.ErrDeadlineExceeded] counts as deadline expiry if the deadline has passed
+// when Close observes the error. On reads this includes time spent closing the
+// transport. If Close finds the connection marked for abrupt closure with nothing
+// left to send at or after the deadline, it reports expiry instead of the read
+// error unless it receives the peer's Close. This can happen when the shared
+// deadline interrupts a writer holding the write lock. Close returns other send
+// and read failures unchanged. If the peer's Close reply fails validation, Close
+// returns a [*CloseError] with Sent set to true.
 //
 // If ctx has already ended or setting the deadline fails, Close abandons the
 // handshake before writing. A concurrent writer interrupted by that close
