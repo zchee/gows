@@ -679,7 +679,8 @@ func (c *Conn) WriteClose(code CloseCode, reason string) error {
 // distinct cancellation cause. No cancellation callback runs after Close
 // returns. Other handshake failures are returned as they occur: a read
 // failure before the deadline remains a read failure even if closing the
-// transport takes it past the deadline.
+// transport takes it past the deadline. If the peer's Close reply fails
+// validation, Close returns a [*CloseError] with Sent set to true.
 //
 // If ctx has already ended or setting the deadline fails, Close abandons the
 // handshake before writing. A concurrent writer interrupted by that close
@@ -780,6 +781,9 @@ func (c *Conn) Close(ctx context.Context, code CloseCode, reason string) error {
 			return budgetExpired(nil)
 		}
 		return drainErr
+	}
+	if ce, ok := drainErr.(*CloseError); ok && ce.Sent {
+		return ce
 	}
 	return nil
 }

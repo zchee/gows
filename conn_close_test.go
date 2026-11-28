@@ -339,6 +339,47 @@ func TestCloseSuccess(t *testing.T) {
 	}
 }
 
+func TestClosePeerReply(t *testing.T) {
+	tests := map[string]struct {
+		body     []byte
+		wantCode CloseCode
+	}{
+		"valid reply":          {body: AppendCloseBody(nil, CloseGoingAway, []byte("bye"))},
+		"one-byte body":        {body: []byte{'!'}, wantCode: CloseProtocolError},
+		"invalid close code":   {body: AppendCloseBody(nil, CloseNoStatusReceived, []byte("!")), wantCode: CloseProtocolError},
+		"invalid UTF-8 reason": {body: AppendCloseBody(nil, CloseNormalClosure, []byte("!\xff")), wantCode: CloseInvalidFramePayloadData},
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			transport := &closeCountingScriptConn{scriptConn: scriptConn{in: clientFrame(true, OpcodeClose, tt.body)}}
+			c := NewServerConn(transport)
+			err := c.Close(t.Context(), CloseNormalClosure, "")
+			if tt.wantCode == 0 {
+				if err != nil {
+					t.Errorf("Close = %v, want nil", err)
+				}
+			} else {
+				ce, ok := errors.AsType[*CloseError](err)
+				if !ok || !ce.Sent || ce.Code != tt.wantCode {
+					t.Fatalf("Close = %v, want sent *CloseError with code %d", err, tt.wantCode)
+				}
+				text := err.Error()
+				for _, b := range tt.body {
+					if strings.IndexByte(text, b) >= 0 {
+						t.Errorf("Close error %q includes peer byte %#x", text, b)
+					}
+				}
+			}
+			if transport.closeCount != 1 {
+				t.Errorf("transport close count = %d, want 1", transport.closeCount)
+			}
+			if err := c.Close(t.Context(), CloseNormalClosure, ""); err != nil {
+				t.Errorf("second Close = %v, want nil", err)
+			}
+		})
+	}
+}
+
 func TestCloseValidationLeavesConnUsable(t *testing.T) {
 	a, b := net.Pipe()
 	defer a.Close()
