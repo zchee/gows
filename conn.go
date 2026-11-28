@@ -705,10 +705,9 @@ func (c *Conn) Close(ctx context.Context, code CloseCode, reason string) error {
 	if err := c.selectMode(connModeMessage); err != nil {
 		return err
 	}
-	if c.tornDown.Load() {
-		return nil
-	}
-	if c.closedNow.Load() {
+	if c.tornDown.Load() || c.closedNow.Load() {
+		// Close owns the read side, so it can supersede the reader before releasing its buffers.
+		c.msgReader = nil
 		c.teardown()
 		return nil
 	}
@@ -718,6 +717,7 @@ func (c *Conn) Close(ctx context.Context, code CloseCode, reason string) error {
 	if ctx.Err() != nil {
 		// Mark the local close before the transport wakes a blocked writer.
 		c.closedNow.Store(true)
+		c.msgReader = nil
 		c.teardown()
 		return fmt.Errorf("gows: close: %w", contextError(ctx))
 	}
@@ -734,6 +734,7 @@ func (c *Conn) Close(ctx context.Context, code CloseCode, reason string) error {
 	g, err := guardConnClosing(ctx, c.conn, deadline, c.closeTransport)
 	if err != nil {
 		c.closedNow.Store(true)
+		c.msgReader = nil
 		c.teardown()
 		return fmt.Errorf("gows: set close deadline: %w", err)
 	}
@@ -756,6 +757,7 @@ func (c *Conn) Close(ctx context.Context, code CloseCode, reason string) error {
 	drainExpired := errors.Is(drainErr, os.ErrDeadlineExceeded) && !time.Now().Before(deadline)
 	clean := g.release()
 	closeRcvd := c.closeRcvd.Load()
+	c.msgReader = nil
 	c.teardown()
 
 	// budgetExpired maps a shared-deadline expiry to its owner. When the
