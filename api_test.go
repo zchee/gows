@@ -16,8 +16,13 @@ package gows_test
 
 import (
 	"context"
+	"net"
 
 	"github.com/zchee/gows"
 )
 
-var _ func(*gows.Conn, context.Context, gows.CloseCode, string) error = (*gows.Conn).Close
+var (
+	_ func(*gows.Conn, context.Context, gows.CloseCode, string) error               = (*gows.Conn).Close
+	_ func(*gows.Dialer, context.Context, string) (net.Conn, gows.Handshake, error) = (*gows.Dialer).DialNetConn
+	_ func(gows.Handshake) gows.ConnOption                                          = gows.WithHandshake
+)

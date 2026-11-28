@@ -371,6 +371,13 @@ type Dialer struct {
 	// resolver or transport. It receives "tcp" as the network argument
 	// and "host:port" as addr. When [Dialer.Proxy] selects a proxy,
 	// NetDial receives the proxy's address rather than the origin's.
+	//
+	// NetDial may return a connection the caller already holds. Use a "ws"
+	// URL if it is already secured with TLS; a "wss" URL runs TLS over it.
+	// Once NetDial returns it successfully, a failed handshake closes it.
+	// Failures before NetDial is called leave the caller's connection alone.
+	// Each redirected hop calls NetDial again, so a one-shot dialer must
+	// return an error rather than supply the same connection twice.
 	NetDial func(ctx context.Context, network, addr string) (net.Conn, error)
 
 	// HTTPHeader optionally supplies extra HTTP headers for the opening
@@ -623,7 +630,7 @@ type Dialer struct {
 }
 
 // Handshake describes a completed WebSocket opening handshake, returned
-// by [Upgrader.Upgrade], [Upgrader.UpgradeHTTP], and [Dialer.Dial].
+// by [Upgrader.Upgrade], [Upgrader.UpgradeHTTP], [Dialer.Dial], and [Dialer.DialNetConn].
 //
 // Path access has two mutually exclusive modes:
 //   - Default: [Handshake.Path] / [Handshake.Query] are owned strings;
@@ -653,31 +660,18 @@ type Handshake struct {
 	// past the end of the handshake request/response, i.e. data the
 	// peer pipelined immediately after the handshake bytes in the same
 	// write (most commonly, the first WebSocket frame). It is nil when
-	// there was none. A caller building a Conn on top of the returned
-	// net.Conn must treat Buffered as already-read data logically
-	// preceding anything subsequently read from the connection itself,
-	// or those bytes are lost.
+	// there were no such bytes. On the [Dialer.HTTPClient] path it is always
+	// nil because the response body retains those bytes. Pass [WithHandshake]
+	// when constructing a Conn to consume Buffered before reading the transport.
 	Buffered []byte
 	// Compressed reports whether permessage-deflate (RFC 7692) was
-	// negotiated for this connection, via [Upgrader.EnableCompression] or
-	// [Dialer.EnableCompression]. Prefer
-	// [WithCompressionParams](hs.CompressionParams) when constructing the
-	// [Conn]; [WithCompression](hs.Compressed) is only equivalent when
-	// context-takeover policy does not matter (see [WithCompression]).
-	// Passing a hardcoded value instead of this field risks a Conn that
-	// disagrees with what the peer actually agreed to.
+	// negotiated for this connection. [WithHandshake] enables it only
+	// when this field is true.
 	Compressed bool
 
-	// CompressionParams reports the negotiated context-takeover
-	// configuration when Compressed is true (the zero value -- both
-	// directions no-context-takeover -- when Compressed is false, or
-	// when true but neither [Upgrader.AllowContextTakeover] nor
-	// [Dialer.AllowContextTakeover] was set). Pass it to
-	// [WithCompressionParams] instead of [WithCompression] when
-	// constructing a [Conn] that should honor context takeover;
-	// constructing with only WithCompression(hs.Compressed) always
-	// selects no-context-takeover for both directions regardless of what
-	// this field reports.
+	// CompressionParams holds the negotiated context-takeover settings and
+	// window limits. It is zero when Compressed is false. [WithHandshake]
+	// applies these parameters when constructing a Conn.
 	CompressionParams CompressionParams
 
 	// buf, if non-nil, is the pooled read buffer backing rawPath and
@@ -686,6 +680,21 @@ type Handshake struct {
 	// the caller is done with those slices; see [Handshake.Release].
 	buf               []byte
 	rawPath, rawQuery []byte
+}
+
+// WithHandshake configures a [Conn] from a completed handshake. The Conn
+// reads hs.Buffered before reading the transport. It uses hs.CompressionParams
+// if hs.Compressed is true and disables compression otherwise.
+func WithHandshake(hs Handshake) ConnOption {
+	buffered, compressed, params := hs.Buffered, hs.Compressed, hs.CompressionParams
+	if !compressed {
+		params = CompressionParams{}
+	}
+	return func(c *connConfig) {
+		c.buffered = buffered
+		c.compression = compressed
+		c.compressionParams = params
+	}
 }
 
 // RawPath returns the handshake request-target's path component as a

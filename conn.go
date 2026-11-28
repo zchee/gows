@@ -239,6 +239,7 @@ func WithReadLimit(n int64) ConnOption {
 // first frame, pipelined into the handshake write. The Conn consumes these
 // bytes before reading from the underlying net.Conn, so none are lost. The
 // slice is copied into the read buffer; the caller may reuse it afterwards.
+// For a gows handshake, use [WithHandshake] instead.
 func WithBuffered(b []byte) ConnOption {
 	return func(c *connConfig) {
 		c.buffered = b
@@ -272,35 +273,17 @@ func WithCloseTimeout(d time.Duration) ConnOption {
 // outbound data message at or above the compression threshold is
 // compressed and sent with RSV1 set.
 //
-// Prefer [WithCompressionParams](hs.CompressionParams) whenever
-// [Handshake.Compressed] is true: WithCompression alone always forces
-// no-context-takeover for both directions (this package's original
-// behavior), even when the handshake negotiated context takeover.
-// Passing a hardcoded bool instead of hs.Compressed risks a Conn that
-// disagrees with what the peer actually agreed to.
-//
-// When Compressed is false, omit both options (or pass false here).
-// When Compressed is true and context-takeover policy does not matter,
-// WithCompression(true) is equivalent to WithCompressionParams with a
-// zero [CompressionParams].
+// For a gows handshake, use [WithHandshake] instead: it applies the peer's
+// negotiated compression settings, including context takeover.
 func WithCompression(enabled bool) ConnOption {
 	return func(c *connConfig) {
 		c.compression = enabled
 	}
 }
 
-// WithCompressionParams always enables permessage-deflate -- unlike
-// [WithCompression], there is no bool to pass false for; call this only
-// when [Handshake.Compressed] is true, never unconditionally. It
-// otherwise behaves exactly like [WithCompression](true), but
-// additionally configures context takeover (RFC 7692 §7.1.1) per params
-// for whichever direction(s) it reports -- pass [Handshake.CompressionParams],
-// not a hardcoded value, for the same reason [WithCompression] warns
-// against a hardcoded bool: a Conn that disagrees with what the peer
-// actually agreed to produces frames (or expects decompression behavior)
-// the peer will reject or fail to decode. The zero [CompressionParams]
-// value (both fields false) is identical to calling only
-// WithCompression(true).
+// WithCompressionParams enables permessage-deflate with the context takeover
+// and window limits in params. For a gows handshake, use [WithHandshake]
+// instead: it also handles the case where compression was not negotiated.
 //
 // # Memory cost
 //
@@ -353,6 +336,10 @@ func WithCompressionParams(params CompressionParams) ConnOption {
 }
 
 func newConn(nc net.Conn, client bool, opts []ConnOption) *Conn {
+	return newConnFromHandshake(nc, client, nil, opts)
+}
+
+func newConnFromHandshake(nc net.Conn, client bool, hs *Handshake, opts []ConnOption) *Conn {
 	cfg := connConfig{
 		readBufSize:  defaultReadBufferSize,
 		readLimit:    defaultReadLimit,
@@ -360,6 +347,10 @@ func newConn(nc net.Conn, client bool, opts []ConnOption) *Conn {
 	}
 	for _, opt := range opts {
 		opt(&cfg)
+	}
+	if hs != nil {
+		// Caller options cannot override facts negotiated on the wire.
+		WithHandshake(*hs)(&cfg)
 	}
 
 	size := max(cfg.readBufSize, len(cfg.buffered))
