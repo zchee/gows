@@ -51,7 +51,8 @@ func errorContainsContext(err error, ctx context.Context) bool {
 }
 
 // Sentinel errors returned by [Upgrader.Upgrade], [Upgrader.UpgradeHTTP],
-// [Dialer.Dial], [Conn.Close], [Conn.WriteMessage], and [Conn.NextWriter].
+// [Dialer.Dial], [Conn.Close], [Conn.CloseContext], [Conn.WriteMessage], and
+// [Conn.NextWriter].
 // Each is comparable with [errors.Is].
 // Errors originating from a malformed HTTP request/status line or header
 // block (as opposed to a WebSocket-specific handshake requirement) are
@@ -229,14 +230,12 @@ var (
 	// returns it for a malformed pending response header, before
 	// hijacking and after writing a 500 response.
 	ErrMalformedHeader = errors.New("gows: extra handshake header is malformed")
-	// ErrCloseTimeout indicates a [Conn.CloseContext] closing handshake
-	// did not complete within the Conn's own close-timeout budget
-	// ([WithCloseTimeout]): the Close-frame write or the wait for the
-	// peer's Close frame ran out of it. When the context's deadline is
-	// the binding bound instead, CloseContext reports the context's
-	// cause (matching ctx.Err()), not this sentinel. The connection is
-	// closed either way; the error only means the closing handshake did
-	// not complete cleanly.
+	// ErrCloseTimeout indicates that [Conn.Close] or [Conn.CloseContext] ran
+	// out of the [WithCloseTimeout] budget while writing the Close frame or
+	// waiting for the peer's reply. If the Close-frame write timed out, the
+	// returned error also wraps the retained write error. When the context's
+	// deadline expires instead, CloseContext returns the context error and
+	// cause, not this sentinel. In either case the connection is closed.
 	ErrCloseTimeout = errors.New("gows: closing handshake timed out")
 	// ErrProxyUnsupportedScheme indicates [Dialer.Proxy] returned a
 	// proxy URL whose scheme is not "http". [Dialer.Dial] returns it

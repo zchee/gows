@@ -689,8 +689,8 @@ func TestCloseTimeoutDrain(t *testing.T) {
 
 	srv := NewServerConn(a, WithCloseTimeout(50*time.Millisecond))
 	start := time.Now()
-	if err := srv.Close(CloseNormalClosure, ""); err != nil {
-		t.Fatalf("Close: %v", err)
+	if err := srv.Close(CloseNormalClosure, ""); !errors.Is(err, ErrCloseTimeout) {
+		t.Fatalf("Close = %v, want ErrCloseTimeout", err)
 	}
 	if el := time.Since(start); el > 2*time.Second {
 		t.Errorf("Close drain took %v; close timeout not honored", el)
@@ -839,17 +839,13 @@ func TestTornDownNoPanicRealConn(t *testing.T) {
 			server, client := newTransport(t)
 			defer client.Close()
 
-			// net.Pipe's Write blocks until read; drain (and discard) the
-			// client side in the background so the server's outgoing Close
-			// frame can actually be delivered instead of blocking Close()
-			// forever. The client never replies, so the drain's read
-			// deadline fires, ending the close handshake via a real timeout
-			// error.
+			// Drain the outgoing Close so it is the wait for the peer's reply,
+			// not the write on net.Pipe, that times out.
 			go io.Copy(io.Discard, client)
 
 			c := NewServerConn(server, WithCloseTimeout(100*time.Millisecond))
-			if err := c.Close(CloseNormalClosure, ""); err != nil {
-				t.Fatalf("initial Close: %v", err)
+			if err := c.Close(CloseNormalClosure, ""); !errors.Is(err, ErrCloseTimeout) {
+				t.Fatalf("initial Close = %v, want ErrCloseTimeout", err)
 			}
 			assertTornDownNoPanic(t, c)
 		})

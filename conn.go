@@ -255,9 +255,10 @@ func WithSkipUTF8Validation(skip bool) ConnOption {
 	}
 }
 
-// WithCloseTimeout sets how long [Conn.Close] waits for the peer's Close frame
-// while draining the connection during the closing handshake. A non-positive
-// value selects the default (5 seconds).
+// WithCloseTimeout sets one timeout for sending the Close frame and waiting for
+// the peer's Close frame. It applies to [Conn.Close] and to [Conn.CloseContext]
+// when its context has no deadline. A non-positive value selects the default
+// (5 seconds).
 func WithCloseTimeout(d time.Duration) ConnOption {
 	return func(c *connConfig) {
 		if d > 0 {
@@ -478,57 +479,30 @@ func (c *Conn) SetWriteDeadline(t time.Time) error {
 
 // Close performs the WebSocket closing handshake (RFC 6455 §7): it sends a
 // Close frame with the given code and reason (unless one was already sent),
-// then, if the peer's Close frame has not yet been observed, drains inbound
-// frames until the peer closes or the close timeout elapses, and finally
-// closes the underlying connection.
+// waits for the peer's Close frame, and closes the transport. The write and
+// wait share one deadline set by [WithCloseTimeout]. If either times out,
+// Close returns an error matching [ErrCloseTimeout]. If the handshake fails
+// for another reason, Close returns that error.
+//
+// The handshake overwrites both transport deadlines. No goroutine may change
+// either deadline during the handshake. The timeout bounds transport I/O,
+// not a caller-supplied [DeflateBackend] holding the write lock or the
+// transport's own Close. TLS can spend up to five additional seconds sending
+// close_notify.
 //
 // code must be a valid sendable close code ([ValidCloseCode];
 // [ErrInvalidCloseCode] if not); reason must be valid UTF-8
 // ([ErrInvalidCloseReason] if not) and, with the 2-byte code, at most
-// 125 bytes ([ErrCloseReasonTooLong] if not; RFC 6455 §5.5). Close is
-// idempotent: after the first call the underlying connection is closed
-// once and subsequent calls return nil.
+// 125 bytes ([ErrCloseReasonTooLong] if not; RFC 6455 §5.5). Invalid arguments
+// leave an open connection usable. Close is idempotent: on an already closed
+// connection, it writes nothing, releases the buffers, and returns nil.
 //
-// Close reads from the connection and therefore must not be called
-// concurrently with [Conn.ReadMessage]; it takes over the read side.
-// For the same handshake bounded by a context and one absolute
-// deadline, use [Conn.CloseContext]; to send the Close frame from
-// another goroutine while a reader is active, use [Conn.WriteClose]; to
-// close abruptly from any goroutine, use [Conn.CloseNow]. After CloseNow,
-// Close writes nothing, releases the buffers, and returns nil.
+// Call Close on the reading goroutine or after it has returned. Use
+// [Conn.CloseContext] to supply a context, [Conn.WriteClose] to send the
+// Close frame while a reader is active, or [Conn.CloseNow] to close abruptly
+// from any goroutine. Close returns [ErrConnMode] on a frame-mode connection.
 func (c *Conn) Close(code CloseCode, reason string) error {
-	if err := c.selectMode(connModeMessage); err != nil {
-		return err
-	}
-	// Idempotent: once the connection is torn down (by a peer Close, a
-	// protocol/IO failure on the read path, or a prior Close), there is nothing
-	// left to do and, critically, nothing left to read — re-entering the read
-	// path here would index a freed buffer. Return nil per the doc contract.
-	if c.tornDown.Load() {
-		return nil
-	}
-	if c.closedNow.Load() {
-		// CloseNow already closed the transport: there is no handshake left
-		// to perform, only the buffers to release.
-		c.teardown()
-		return nil
-	}
-	if err := validateCloseArgs(code, reason); err != nil {
-		return err
-	}
-
-	sendErr := c.sendClose(code, []byte(reason))
-
-	if !c.closeRcvd.Load() {
-		_ = c.conn.SetReadDeadline(time.Now().Add(c.closeTimeout))
-		for {
-			if err := c.readMessage(); err != nil {
-				break
-			}
-		}
-	}
-	c.teardown()
-	return sendErr
+	return c.CloseContext(context.Background(), code, reason)
 }
 
 // teardown closes the underlying connection and releases pooled buffers,
