@@ -499,8 +499,7 @@ func (w *messageWriter) Write(p []byte) (int, error) {
 // Close flushes the message's final Fin fragment, releases the fragment
 // buffer and any borrowed compressor, and clears the writer from the Conn so
 // a later WriteMessage or NextWriter can proceed. It implements [io.Closer]
-// and is idempotent. Close is mandatory: until it runs the Conn refuses other
-// data writes with [ErrWriterBusy].
+// and is idempotent. The caller must call Close even if a write fails.
 func (w *messageWriter) Close() error {
 	if w.closed {
 		return w.err // idempotent: nil after a clean close, else the sticky error
