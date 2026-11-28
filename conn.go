@@ -418,6 +418,16 @@ func NewClientConn(c net.Conn, opts ...ConnOption) *Conn {
 	return newConn(c, true, opts)
 }
 
+// NetConn returns the transport underlying c for inspecting addresses, setting
+// deadlines, or making type assertions. A native ws dial returns the dialed
+// connection; a native wss dial returns the [crypto/tls.Conn] over it. With
+// [Dialer.HTTPClient], the transport wraps the HTTP upgrade response body.
+// Do not read from, write to, or close the transport directly: doing so bypasses
+// WebSocket framing and the Conn's bookkeeping and can corrupt the stream.
+func (c *Conn) NetConn() net.Conn {
+	return c.conn
+}
+
 // CloseError is the error [Conn.ReadMessage] returns once the connection has
 // closed, whether because the peer sent a Close frame or because the Conn
 // failed the connection for a protocol violation. It carries the close code

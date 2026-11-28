@@ -25,6 +25,7 @@ var (
 	_ func(*gows.Conn, context.Context, gows.CloseCode, string) error               = (*gows.Conn).Close
 	_ func(*gows.Dialer, context.Context, string) (net.Conn, gows.Handshake, error) = (*gows.Dialer).DialNetConn
 	_ func(gows.Handshake) gows.ConnOption                                          = gows.WithHandshake
+	_ func(*gows.Conn) net.Conn                                                     = (*gows.Conn).NetConn
 
 	_ func(context.Context, string, ...gows.ConnOption) (*gows.Conn, gows.Handshake, error)               = gows.Dial
 	_ func(*gows.Dialer, context.Context, string, ...gows.ConnOption) (*gows.Conn, gows.Handshake, error) = (*gows.Dialer).Dial
