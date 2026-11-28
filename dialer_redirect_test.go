@@ -259,7 +259,7 @@ func TestDialRedirectRelative(t *testing.T) {
 			return nil
 		},
 	}
-	conn, _, err := d.Dial(t.Context(), "ws://"+addr+"/start?q=1")
+	conn, _, err := d.DialNetConn(t.Context(), "ws://"+addr+"/start?q=1")
 	if err != nil {
 		t.Fatalf("Dial with relative redirect: %v", err)
 	}
@@ -306,7 +306,7 @@ func TestDialRedirectSameOriginKeepsCredentials(t *testing.T) {
 		},
 		CheckRedirect: followAll,
 	}
-	conn, _, err := d.Dial(t.Context(), "ws://"+addr2+"/start")
+	conn, _, err := d.DialNetConn(t.Context(), "ws://"+addr2+"/start")
 	if err != nil {
 		t.Fatalf("Dial with same-origin redirect: %v", err)
 	}
@@ -337,7 +337,7 @@ func TestDialRedirectCanonicalSameOriginKeepsCredentials(t *testing.T) {
 		NetDial:       redirectPipeDial(t, first, final),
 	}
 
-	conn, _, err := d.Dial(t.Context(), "ws://EXAMPLE.TEST/start")
+	conn, _, err := d.DialNetConn(t.Context(), "ws://EXAMPLE.TEST/start")
 	if err != nil {
 		t.Fatalf("Dial with canonical same-origin redirect: %v", err)
 	}
@@ -377,7 +377,7 @@ func TestDialRedirectCrossOriginStripsCredentials(t *testing.T) {
 		},
 		CheckRedirect: followAll,
 	}
-	conn, _, err := d.Dial(t.Context(), "ws://"+srcAddr+"/start")
+	conn, _, err := d.DialNetConn(t.Context(), "ws://"+srcAddr+"/start")
 	if err != nil {
 		t.Fatalf("Dial with cross-origin redirect: %v", err)
 	}
@@ -419,7 +419,7 @@ func TestDialRedirectCrossOriginCredentialsStayStrippedOnReturn(t *testing.T) {
 		NetDial:       redirectPipeDial(t, firstA, hopB, returnA),
 	}
 
-	conn, _, err := d.Dial(t.Context(), "ws://a.test/start")
+	conn, _, err := d.DialNetConn(t.Context(), "ws://a.test/start")
 	if err != nil {
 		t.Fatalf("Dial with cross-origin return redirect: %v", err)
 	}
@@ -475,7 +475,7 @@ func TestDialRedirectDowngradeStripsCredentials(t *testing.T) {
 		TLSConfig:     &tls.Config{RootCAs: pool},
 		CheckRedirect: followAll,
 	}
-	conn, _, err := d.Dial(t.Context(), "wss://"+tlsAddr+"/secure")
+	conn, _, err := d.DialNetConn(t.Context(), "wss://"+tlsAddr+"/secure")
 	if err != nil {
 		t.Fatalf("Dial with wss->ws downgrade redirect: %v", err)
 	}
@@ -501,7 +501,7 @@ func TestDialRedirectLoop(t *testing.T) {
 	loopTarget = "ws://" + addr + "/loop"
 
 	d := &gows.Dialer{CheckRedirect: followAll}
-	_, _, err := d.Dial(t.Context(), "ws://"+addr+"/loop")
+	_, _, err := d.DialNetConn(t.Context(), "ws://"+addr+"/loop")
 	if !errors.Is(err, gows.ErrTooManyRedirects) {
 		t.Fatalf("Dial = %v, want errors.Is ErrTooManyRedirects", err)
 	}
@@ -526,7 +526,7 @@ func TestDialRedirectCheckRedirectStops(t *testing.T) {
 	d := &gows.Dialer{
 		CheckRedirect: func(req *http.Request, via []*http.Request) error { return stop },
 	}
-	_, _, err := d.Dial(t.Context(), "ws://"+addr+"/start")
+	_, _, err := d.DialNetConn(t.Context(), "ws://"+addr+"/start")
 	if !errors.Is(err, stop) {
 		t.Fatalf("Dial = %v, want the CheckRedirect error", err)
 	}
@@ -552,7 +552,7 @@ func TestDialRedirectRejectsMalformedHeaderAfterLocation(t *testing.T) {
 			return clientConn, nil
 		},
 	}
-	_, _, err := d.Dial(t.Context(), "ws://example.invalid/start")
+	_, _, err := d.DialNetConn(t.Context(), "ws://example.invalid/start")
 	if !errors.Is(err, httpx.ErrMalformedHeader) {
 		t.Fatalf("Dial = %v, want errors.Is malformed response header", err)
 	}
@@ -582,7 +582,7 @@ func TestDialRedirectSanitizedFailures(t *testing.T) {
 				return redirectResponse(tt.location)
 			})
 			d := &gows.Dialer{CheckRedirect: followAll}
-			_, _, err := d.Dial(t.Context(), "ws://"+addr+"/start")
+			_, _, err := d.DialNetConn(t.Context(), "ws://"+addr+"/start")
 			if !errors.Is(err, tt.wantErr) {
 				t.Fatalf("Dial = %v, want errors.Is %v", err, tt.wantErr)
 			}
@@ -611,7 +611,7 @@ func TestDialRedirectDropsLocationUserinfo(t *testing.T) {
 			return nil
 		},
 	}
-	conn, _, err := d.Dial(t.Context(), "ws://"+srcAddr+"/start")
+	conn, _, err := d.DialNetConn(t.Context(), "ws://"+srcAddr+"/start")
 	if err != nil {
 		t.Fatalf("Dial with userinfo Location: %v", err)
 	}
@@ -644,7 +644,7 @@ func TestDialRedirectFinalHopBuffered(t *testing.T) {
 	close(addrSet)
 
 	d := &gows.Dialer{CheckRedirect: followAll}
-	conn, hs, err := d.Dial(t.Context(), "ws://"+addr+"/start")
+	conn, hs, err := d.DialNetConn(t.Context(), "ws://"+addr+"/start")
 	if err != nil {
 		t.Fatalf("Dial with pipelined final hop: %v", err)
 	}

@@ -228,7 +228,7 @@ func FuzzDialProtocolState(f *testing.F) {
 				return fake, nil
 			},
 		}
-		conn, hs, err := d.Dial(t.Context(), "ws://example.invalid/fuzz")
+		conn, hs, err := d.DialNetConn(t.Context(), "ws://example.invalid/fuzz")
 		if dialCalls != 1 {
 			t.Fatalf("NetDial calls = %d, want 1", dialCalls)
 		}
@@ -284,7 +284,7 @@ func FuzzDialProtocolState(f *testing.F) {
 				preNetworkCalls++
 				return nil, errors.New("unexpected network call")
 			},
-		}).Dial(t.Context(), "ws://example.invalid/")
+		}).DialNetConn(t.Context(), "ws://example.invalid/")
 		if !errors.Is(preErr, ErrInvalidWindowBits) || preNetworkCalls != 0 {
 			t.Fatalf("pre-network validation = err:%v calls:%d", preErr, preNetworkCalls)
 		}

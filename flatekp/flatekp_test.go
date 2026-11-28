@@ -370,7 +370,7 @@ func TestIntegrationEchoFlatekpBothEnds(t *testing.T) {
 			return cliConn, nil
 		},
 	}
-	conn, clientHS, err := d.Dial(t.Context(), "ws://example.invalid/")
+	conn, clientHS, err := d.DialNetConn(t.Context(), "ws://example.invalid/")
 	if err != nil {
 		t.Fatalf("Dial: %v", err)
 	}
@@ -417,7 +417,7 @@ func TestIntegrationBareClientMaxWindowBitsSub15(t *testing.T) {
 		EnableCompression: true, OfferClientMaxWindowBits: true, ServerWindowBits: 9, AllowContextTakeover: true,
 		NetDial: func(context.Context, string, string) (net.Conn, error) { return cliConn, nil },
 	}
-	conn, clientHS, err := d.Dial(t.Context(), "ws://example.invalid/")
+	conn, clientHS, err := d.DialNetConn(t.Context(), "ws://example.invalid/")
 	if err != nil {
 		t.Fatalf("Dial: %v", err)
 	}
@@ -463,7 +463,7 @@ func TestIntegrationEchoMixedNegotiation(t *testing.T) {
 			return cliConn, nil
 		},
 	}
-	conn, clientHS, err := d.Dial(t.Context(), "ws://example.invalid/")
+	conn, clientHS, err := d.DialNetConn(t.Context(), "ws://example.invalid/")
 	if err != nil {
 		t.Fatalf("Dial: %v", err)
 	}

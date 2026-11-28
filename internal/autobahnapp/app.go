@@ -222,7 +222,7 @@ func (a *application) afterClientCase(n, count int) {
 func (a *application) dialCase(url string) (*gows.Conn, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), caseTimeout)
 	defer cancel()
-	conn, hs, err := a.config.Dialer.Dial(ctx, url)
+	conn, hs, err := a.config.Dialer.DialNetConn(ctx, url)
 	if err != nil {
 		return nil, fmt.Errorf("dial %s: %w", url, err)
 	}

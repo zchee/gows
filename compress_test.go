@@ -443,7 +443,7 @@ func TestDialCompressionNegotiation(t *testing.T) {
 					return clientConn, nil
 				},
 			}
-			conn, hs, err := d.Dial(t.Context(), "ws://example.invalid/")
+			conn, hs, err := d.DialNetConn(t.Context(), "ws://example.invalid/")
 			if tt.wantErr != nil {
 				if conn != nil {
 					t.Fatalf("Dial conn = %v, want nil", conn)
@@ -527,7 +527,7 @@ func TestDialWindowBitsOffer(t *testing.T) {
 					return clientConn, nil
 				},
 			}
-			conn, _, err := d.Dial(t.Context(), "ws://example.invalid/")
+			conn, _, err := d.DialNetConn(t.Context(), "ws://example.invalid/")
 			if err != nil {
 				t.Fatalf("Dial: unexpected error %v", err)
 			}
@@ -560,7 +560,7 @@ func TestDialInvalidWindowBits(t *testing.T) {
 					return nil, nil
 				},
 			}
-			_, _, err := d.Dial(t.Context(), "ws://example.invalid/")
+			_, _, err := d.DialNetConn(t.Context(), "ws://example.invalid/")
 			if !errors.Is(err, ErrInvalidWindowBits) {
 				t.Fatalf("Dial err = %v, want %v", err, ErrInvalidWindowBits)
 			}
@@ -1286,7 +1286,7 @@ func TestDialClientMaxWindowBitsMinOfOfferAndResponse(t *testing.T) {
 			return clientConn, nil
 		},
 	}
-	conn, hs, err := d.Dial(t.Context(), "ws://example.invalid/")
+	conn, hs, err := d.DialNetConn(t.Context(), "ws://example.invalid/")
 	if err != nil {
 		t.Fatalf("Dial: %v", err)
 	}
@@ -1925,7 +1925,7 @@ func TestUpgraderDialerContextTakeoverIntegration(t *testing.T) {
 			return cliConn, nil
 		},
 	}
-	conn, clientHS, err := d.Dial(t.Context(), "ws://example.invalid/")
+	conn, clientHS, err := d.DialNetConn(t.Context(), "ws://example.invalid/")
 	if err != nil {
 		t.Fatalf("Dial: %v", err)
 	}

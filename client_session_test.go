@@ -110,7 +110,7 @@ func dialSession(t *testing.T, srv *httptest.Server, token string) (*gows.Conn, 
 	hc := *srv.Client()
 	hc.Transport = bearerTransport{next: hc.Transport, token: token}
 	d := gows.Dialer{HTTPClient: &hc, MaxErrorBodyBytes: 4096}
-	conn, hs, err := d.Dial(t.Context(), "ws"+strings.TrimPrefix(srv.URL, "http"))
+	conn, hs, err := d.DialNetConn(t.Context(), "ws"+strings.TrimPrefix(srv.URL, "http"))
 	if err != nil {
 		return nil, nil, err
 	}

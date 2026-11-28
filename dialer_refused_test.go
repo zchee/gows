@@ -110,7 +110,7 @@ func dialWithin(t *testing.T, ctx context.Context, d *gows.Dialer, rawURL string
 	}
 	done := make(chan result, 1)
 	go func() {
-		conn, _, err := d.Dial(ctx, rawURL)
+		conn, _, err := d.DialNetConn(ctx, rawURL)
 		done <- result{conn, err}
 	}()
 	select {

@@ -82,7 +82,7 @@ func TestDialWSViaProxyAbsoluteForm(t *testing.T) {
 		},
 		Proxy: proxyFor(t, "http://alice:proxy-pass@"+ln.Addr().String(), &sawReq),
 	}
-	conn, _, err := d.Dial(t.Context(), "ws://origin.example:8123/chat?x=1")
+	conn, _, err := d.DialNetConn(t.Context(), "ws://origin.example:8123/chat?x=1")
 	if err != nil {
 		t.Fatalf("Dial through proxy: %v", err)
 	}
@@ -185,7 +185,7 @@ func TestDialWSSViaProxyConnect(t *testing.T) {
 		TLSConfig:  &tls.Config{RootCAs: pool},
 		Proxy:      proxyFor(t, "http://alice:proxy-pass@"+proxyLn.Addr().String(), &sawReq),
 	}
-	conn, _, err := d.Dial(t.Context(), "wss://origin.test:"+originPort+"/chat")
+	conn, _, err := d.DialNetConn(t.Context(), "wss://origin.test:"+originPort+"/chat")
 	if err != nil {
 		t.Fatalf("Dial wss through CONNECT proxy: %v", err)
 	}
@@ -245,7 +245,7 @@ func TestDialWSSViaProxyConnectRefused(t *testing.T) {
 	d := &gows.Dialer{
 		Proxy: proxyFor(t, "http://alice:"+proxySecret+"@"+proxyLn.Addr().String(), nil),
 	}
-	_, _, err = d.Dial(t.Context(), "wss://origin.test:443/")
+	_, _, err = d.DialNetConn(t.Context(), "wss://origin.test:443/")
 	if !errors.Is(err, gows.ErrProxyConnectFailed) {
 		t.Fatalf("Dial = %v, want errors.Is ErrProxyConnectFailed", err)
 	}
@@ -309,7 +309,7 @@ func TestDialWSSViaProxyUntrustedOriginTLS(t *testing.T) {
 		TLSConfig: &tls.Config{RootCAs: x509.NewCertPool()},
 		Proxy:     proxyFor(t, "http://"+proxyLn.Addr().String(), nil),
 	}
-	_, _, err = d.Dial(t.Context(), "wss://origin.test:"+originPort+"/")
+	_, _, err = d.DialNetConn(t.Context(), "wss://origin.test:"+originPort+"/")
 	if err == nil {
 		t.Fatal("Dial = nil, want certificate verification failure inside the tunnel")
 	}
@@ -328,7 +328,7 @@ func TestDialProxyResolverError(t *testing.T) {
 			return nil, errors.New("must not be reached")
 		},
 	}
-	_, _, err := d.Dial(t.Context(), "ws://example.invalid/")
+	_, _, err := d.DialNetConn(t.Context(), "ws://example.invalid/")
 	if !errors.Is(err, boom) {
 		t.Fatalf("Dial = %v, want the resolver error", err)
 	}
@@ -346,7 +346,7 @@ func TestDialProxyUnsupportedScheme(t *testing.T) {
 			return nil, errors.New("must not be reached")
 		},
 	}
-	_, _, err := d.Dial(t.Context(), "ws://example.invalid/")
+	_, _, err := d.DialNetConn(t.Context(), "ws://example.invalid/")
 	if !errors.Is(err, gows.ErrProxyUnsupportedScheme) {
 		t.Fatalf("Dial = %v, want errors.Is ErrProxyUnsupportedScheme", err)
 	}
@@ -372,7 +372,7 @@ func TestDialRejectsHostlessProxyBeforeNetworkIO(t *testing.T) {
 					return nil, errors.New("must not be reached")
 				},
 			}
-			_, _, err := d.Dial(t.Context(), "ws://origin.example/socket")
+			_, _, err := d.DialNetConn(t.Context(), "ws://origin.example/socket")
 			if _, ok := errors.AsType[net.InvalidAddrError](err); !ok {
 				t.Fatalf("Dial = %v, want net.InvalidAddrError", err)
 			}
@@ -422,7 +422,7 @@ func TestDialRejectsMalformedProxyAuthorityBeforeNetworkIO(t *testing.T) {
 					return nil, errors.New("must not be reached")
 				},
 			}
-			_, _, err := d.Dial(t.Context(), "ws://origin.example/socket")
+			_, _, err := d.DialNetConn(t.Context(), "ws://origin.example/socket")
 			if _, ok := errors.AsType[net.InvalidAddrError](err); !ok {
 				t.Fatalf("Dial = %v, want net.InvalidAddrError", err)
 			}
@@ -459,7 +459,7 @@ func TestDialValidProxyAuthorityFormation(t *testing.T) {
 					return nil, boom
 				},
 			}
-			_, _, err := d.Dial(t.Context(), "ws://origin.example/socket")
+			_, _, err := d.DialNetConn(t.Context(), "ws://origin.example/socket")
 			if !errors.Is(err, boom) {
 				t.Fatalf("Dial = %v, want address-capture error", err)
 			}
@@ -501,7 +501,7 @@ func TestDialContextCanceledDuringProxyConnect(t *testing.T) {
 		Proxy: proxyFor(t, "http://"+proxyLn.Addr().String(), nil),
 	}
 	start := time.Now()
-	_, _, err = d.Dial(ctx, "wss://origin.test:443/")
+	_, _, err = d.DialNetConn(ctx, "wss://origin.test:443/")
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("Dial = %v, want errors.Is context.Canceled", err)
 	}

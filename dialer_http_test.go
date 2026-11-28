@@ -157,7 +157,7 @@ func TestDialHTTPClientEcho(t *testing.T) {
 				HTTPClient: hc,
 				HTTPHeader: http.Header{"X-Extra": {"extra-value"}},
 			}
-			conn, hs, err := d.Dial(t.Context(), wsURL(srv.Server, "/chat?room=1"))
+			conn, hs, err := d.DialNetConn(t.Context(), wsURL(srv.Server, "/chat?room=1"))
 			if err != nil {
 				t.Fatalf("Dial: %v", err)
 			}
@@ -210,7 +210,7 @@ func TestDialHTTPClientNegotiation(t *testing.T) {
 		Subprotocols:      []string{"v1", "v2"},
 		EnableCompression: true,
 	}
-	conn, hs, err := d.Dial(t.Context(), wsURL(srv.Server, "/"))
+	conn, hs, err := d.DialNetConn(t.Context(), wsURL(srv.Server, "/"))
 	if err != nil {
 		t.Fatalf("Dial: %v", err)
 	}
@@ -543,7 +543,7 @@ func dialHandshakeWithin(t *testing.T, ctx context.Context, d *gows.Dialer, rawU
 	}
 	done := make(chan result, 1)
 	go func() {
-		conn, hs, err := d.Dial(ctx, rawURL)
+		conn, hs, err := d.DialNetConn(ctx, rawURL)
 		done <- result{conn, hs, err}
 	}()
 	select {
@@ -654,7 +654,7 @@ func TestDialHTTPClientFrameWithResponse(t *testing.T) {
 	frame := []byte{0x81, 0x05, 'e', 'a', 'r', 'l', 'y'}
 	srv := startRawServer(t, func(req []byte) string { return upgradeResponse(t, req) + string(frame) })
 	d := &gows.Dialer{HTTPClient: newHTTPClient(t)}
-	conn, hs, err := d.Dial(t.Context(), srv.url)
+	conn, hs, err := d.DialNetConn(t.Context(), srv.url)
 	if err != nil {
 		t.Fatalf("Dial: %v", err)
 	}
@@ -733,7 +733,7 @@ func TestDialHTTPClientRejectedBeforeNetworkIO(t *testing.T) {
 			if tt.wantErr == gows.ErrNotWebSocketScheme {
 				rawURL = "http://example.invalid/"
 			}
-			conn, _, err := d.Dial(ctx, rawURL)
+			conn, _, err := d.DialNetConn(ctx, rawURL)
 			if conn != nil {
 				t.Fatalf("Dial conn = %v, want nil", conn)
 			}
@@ -787,7 +787,7 @@ func TestDialHTTPClientHandshakeBoundsEndAtReturn(t *testing.T) {
 			hc.Timeout = tt.clientTimeout
 			ctx, cancel := context.WithCancel(t.Context())
 			defer cancel()
-			conn, _, err := (&gows.Dialer{HTTPClient: hc}).Dial(ctx, wsURL(srv.Server, "/"))
+			conn, _, err := (&gows.Dialer{HTTPClient: hc}).DialNetConn(ctx, wsURL(srv.Server, "/"))
 			if err != nil {
 				t.Fatalf("Dial: %v", err)
 			}
@@ -824,7 +824,7 @@ func TestDialHTTPClientConnDeadlines(t *testing.T) {
 	t.Run("success: close timeout against a silent peer", func(t *testing.T) {
 		peerGone := make(chan struct{})
 		srv := startHTTPUpgradeServer(t, false, &gows.Upgrader{}, silent(peerGone))
-		conn, _, err := (&gows.Dialer{HTTPClient: newHTTPClient(t)}).Dial(t.Context(), wsURL(srv.Server, "/"))
+		conn, _, err := (&gows.Dialer{HTTPClient: newHTTPClient(t)}).DialNetConn(t.Context(), wsURL(srv.Server, "/"))
 		if err != nil {
 			t.Fatalf("Dial: %v", err)
 		}
@@ -857,7 +857,7 @@ func TestDialHTTPClientConnDeadlines(t *testing.T) {
 	t.Run("success: past read deadline unblocks ReadMessage", func(t *testing.T) {
 		peerGone := make(chan struct{})
 		srv := startHTTPUpgradeServer(t, false, &gows.Upgrader{}, silent(peerGone))
-		conn, _, err := (&gows.Dialer{HTTPClient: newHTTPClient(t)}).Dial(t.Context(), wsURL(srv.Server, "/"))
+		conn, _, err := (&gows.Dialer{HTTPClient: newHTTPClient(t)}).DialNetConn(t.Context(), wsURL(srv.Server, "/"))
 		if err != nil {
 			t.Fatalf("Dial: %v", err)
 		}
@@ -889,7 +889,7 @@ func TestDialHTTPClientConnDeadlines(t *testing.T) {
 	t.Run("success: past deadline unblocks a read", func(t *testing.T) {
 		peerGone := make(chan struct{})
 		srv := startHTTPUpgradeServer(t, false, &gows.Upgrader{}, silent(peerGone))
-		conn, _, err := (&gows.Dialer{HTTPClient: newHTTPClient(t)}).Dial(t.Context(), wsURL(srv.Server, "/"))
+		conn, _, err := (&gows.Dialer{HTTPClient: newHTTPClient(t)}).DialNetConn(t.Context(), wsURL(srv.Server, "/"))
 		if err != nil {
 			t.Fatalf("Dial: %v", err)
 		}
@@ -924,7 +924,7 @@ func TestDialHTTPClientConnDeadlines(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			peerGone := make(chan struct{})
 			srv := startHTTPUpgradeServer(t, false, &gows.Upgrader{}, silent(peerGone))
-			conn, _, err := (&gows.Dialer{HTTPClient: newHTTPClient(t)}).Dial(t.Context(), wsURL(srv.Server, "/"))
+			conn, _, err := (&gows.Dialer{HTTPClient: newHTTPClient(t)}).DialNetConn(t.Context(), wsURL(srv.Server, "/"))
 			if err != nil {
 				t.Fatalf("Dial: %v", err)
 			}
@@ -1008,7 +1008,7 @@ func TestDialHTTPClientComposesTrace(t *testing.T) {
 	ctx := httptrace.WithClientTrace(t.Context(), &httptrace.ClientTrace{
 		GotConn: func(httptrace.GotConnInfo) { gotConn.Add(1) },
 	})
-	conn, _, err := (&gows.Dialer{HTTPClient: newHTTPClient(t)}).Dial(ctx, wsURL(srv.Server, "/"))
+	conn, _, err := (&gows.Dialer{HTTPClient: newHTTPClient(t)}).DialNetConn(ctx, wsURL(srv.Server, "/"))
 	if err != nil {
 		t.Fatalf("Dial: %v", err)
 	}
@@ -1032,7 +1032,7 @@ func TestDialHTTPClientFollowsClientRedirect(t *testing.T) {
 		hops.Add(1)
 		return nil
 	}
-	conn, _, err := (&gows.Dialer{HTTPClient: hc}).Dial(t.Context(), wsURL(first, "/start"))
+	conn, _, err := (&gows.Dialer{HTTPClient: hc}).DialNetConn(t.Context(), wsURL(first, "/start"))
 	if err != nil {
 		t.Fatalf("Dial: %v", err)
 	}
