@@ -205,7 +205,6 @@ func TestFrameWriteErrorRetained(t *testing.T) {
 		closeEntered := make(chan struct{})
 		releaseClose := make(chan struct{})
 		release := sync.OnceFunc(func() { close(releaseClose) })
-		defer release()
 
 		var closeOnce sync.Once
 		probe := &writeProbe{
@@ -219,7 +218,10 @@ func TestFrameWriteErrorRetained(t *testing.T) {
 		}
 		spy := newCloseCountConn(probe)
 		c := NewServerConn(spy)
-		defer c.teardown()
+		defer func() {
+			release()
+			c.teardown()
+		}()
 
 		e := within(t, "failing WriteFrame", time.Second, asyncResult(func() error {
 			return c.WriteFrame(OpcodeText, true, []byte("x"), false)
