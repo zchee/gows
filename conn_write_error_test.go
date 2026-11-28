@@ -24,6 +24,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"testing/synctest"
 	"time"
 )
 
@@ -605,6 +606,31 @@ func TestRetainedWriteTLS(t *testing.T) {
 		t.Fatalf("reader = %v", err)
 	}
 	_ = within(t, "peer drain", bound, drain)
+}
+
+func TestCloseNowWaitsForTransportClose(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		entered := make(chan struct{})
+		release := make(chan struct{})
+		c := NewServerConn(&writeProbe{Conn: &scriptConn{}, close: func() error {
+			close(entered)
+			<-release
+			return nil
+		}})
+		closed := asyncResult(c.CloseNow)
+		<-entered
+		synctest.Wait()
+		select {
+		case err := <-closed:
+			close(release)
+			t.Fatalf("CloseNow returned %v while transport Close was blocked", err)
+		default:
+		}
+		close(release)
+		if err := <-closed; err != nil {
+			t.Fatalf("CloseNow after transport Close = %v, want nil", err)
+		}
+	})
 }
 
 // advertisedDeadline lets the I/O deadline expire before cancellation is delivered.
