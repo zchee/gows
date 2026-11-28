@@ -35,10 +35,9 @@
 // broadcast across many server-role connections via
 // [Conn.WritePreparedMessage] (client-role Conns are rejected: frames
 // are precomputed unmasked, which RFC 6455 §5.1 forbids reusing on the
-// client). The closing handshake is driven
-// with [Conn.Close] (or the context-bounded [Conn.CloseContext]) when
-// the calling goroutine owns the read side, or started with
-// [Conn.WriteClose] from any goroutine while a reader is active.
+// client). The goroutine that owns the read side can use [Conn.Close] to
+// perform the closing handshake. While a reader is active, any goroutine
+// can start the handshake with [Conn.WriteClose].
 // [Conn.CloseNow] closes a connection abruptly from any goroutine, also
 // while another one is blocked reading or writing, and
 // [Conn.ReadMessageContext] and [Conn.WriteMessageContext] close it the

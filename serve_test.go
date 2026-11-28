@@ -70,7 +70,7 @@ func TestServeEchoRoundTrip(t *testing.T) {
 		}
 	}
 
-	_ = cli.Close(CloseNormalClosure, "bye")
+	_ = cli.Close(t.Context(), CloseNormalClosure, "bye")
 	if err := <-done; !errors.As(err, new(*CloseError)) {
 		t.Fatalf("Serve returned %v, want *CloseError", err)
 	}
@@ -284,7 +284,7 @@ func TestServeHandlerErrorLeavesConnUsable(t *testing.T) {
 		t.Fatal(err)
 	}
 	closed := make(chan error, 1)
-	go func() { closed <- c.Close(ClosePolicyViolation, "refused") }()
+	go func() { closed <- c.Close(t.Context(), ClosePolicyViolation, "refused") }()
 	wire, err := io.ReadAll(peer)
 	if err != nil {
 		t.Fatalf("read outgoing Close: %v", err)
@@ -454,7 +454,7 @@ func TestServeConcurrentWriteAndControl(t *testing.T) {
 	<-serveDone
 	<-writerDone
 	<-peerDone
-	_ = srv.Close(CloseNormalClosure, "")
+	_ = srv.Close(t.Context(), CloseNormalClosure, "")
 }
 
 // --- buffered write semantics ----------------------------------------------

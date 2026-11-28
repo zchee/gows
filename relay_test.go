@@ -60,9 +60,8 @@ func TestConnModeExclusion(t *testing.T) {
 		"WritePreparedMessage": {func(c *Conn) error { return c.WritePreparedMessage(nil) }},
 		"Flush":                {func(c *Conn) error { return c.Flush() }},
 		"Serve":                {func(c *Conn) error { return c.Serve(nil) }},
-		"Close":                {func(c *Conn) error { return c.Close(CloseNormalClosure, "") }},
+		"Close":                {func(c *Conn) error { return c.Close(t.Context(), CloseNormalClosure, "") }},
 		"WriteClose":           {func(c *Conn) error { return c.WriteClose(CloseNormalClosure, "") }},
-		"CloseContext":         {func(c *Conn) error { return c.CloseContext(t.Context(), CloseNormalClosure, "") }},
 	}
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {

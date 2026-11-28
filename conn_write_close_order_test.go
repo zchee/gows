@@ -146,7 +146,7 @@ func TestCloseAfterCloseNowReleasesBuffers(t *testing.T) {
 	if err := c.CloseNow(); err != nil || c.rbuf == nil {
 		t.Fatalf("CloseNow = %v, buffer retained = %t", err, c.rbuf != nil)
 	}
-	if err := c.Close(CloseNormalClosure, "bye"); err != nil || c.rbuf != nil {
+	if err := c.Close(t.Context(), CloseNormalClosure, "bye"); err != nil || c.rbuf != nil {
 		t.Fatalf("Close = %v, buffer released = %t", err, c.rbuf == nil)
 	}
 	select {

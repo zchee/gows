@@ -393,7 +393,7 @@ func TestIntegrationEchoFlatekpBothEnds(t *testing.T) {
 			echoRoundTrip(t, cli, gows.OpcodeBinary, p)
 		})
 	}
-	_ = cli.Close(gows.CloseNormalClosure, "bye")
+	_ = cli.Close(t.Context(), gows.CloseNormalClosure, "bye")
 	<-done
 }
 
@@ -434,7 +434,7 @@ func TestIntegrationBareClientMaxWindowBitsSub15(t *testing.T) {
 	done := runServerEchoLoop(srv)
 	echoRoundTrip(t, cli, gows.OpcodeBinary, []byte(strings.Repeat("bare sub-15 takeover payload ", 80)))
 	echoRoundTrip(t, cli, gows.OpcodeBinary, []byte(strings.Repeat("bare sub-15 takeover payload ", 80)))
-	_ = cli.Close(gows.CloseNormalClosure, "")
+	_ = cli.Close(t.Context(), gows.CloseNormalClosure, "")
 	<-done
 }
 
@@ -480,7 +480,7 @@ func TestIntegrationEchoMixedNegotiation(t *testing.T) {
 	cli := gows.NewClientConn(conn, gows.WithCompression(true))
 	done := runServerEchoLoop(srv)
 	echoRoundTrip(t, cli, gows.OpcodeText, []byte(strings.Repeat("mixed negotiation echo payload ", 40)))
-	_ = cli.Close(gows.CloseNormalClosure, "")
+	_ = cli.Close(t.Context(), gows.CloseNormalClosure, "")
 	<-done
 }
 

@@ -197,7 +197,7 @@ func TestClientSession(t *testing.T) {
 		if !ok || closed.Code != gows.CloseNormalClosure {
 			t.Errorf("reader ended with %v, want a CloseError with code %d", r.err, gows.CloseNormalClosure)
 		}
-		if err := c.Close(gows.CloseNormalClosure, ""); err != nil {
+		if err := c.Close(t.Context(), gows.CloseNormalClosure, ""); err != nil {
 			t.Errorf("Close after the reader finished = %v, want nil", err)
 		}
 
@@ -241,7 +241,7 @@ func TestClientSession(t *testing.T) {
 		if err := c.WriteMessage(gows.OpcodeText, []byte("late")); !errors.Is(err, net.ErrClosed) {
 			t.Errorf("WriteMessage after CloseNow = %v, want an error matching net.ErrClosed", err)
 		}
-		if err := c.Close(gows.CloseNormalClosure, ""); err != nil {
+		if err := c.Close(t.Context(), gows.CloseNormalClosure, ""); err != nil {
 			t.Errorf("Close after CloseNow = %v, want nil", err)
 		}
 	})

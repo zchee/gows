@@ -182,7 +182,7 @@ func TestStreamCloseSentNotRetained(t *testing.T) {
 			}
 			closing := asyncResult(func() error {
 				if tt.handshake {
-					return c.CloseContext(t.Context(), CloseNormalClosure, "local")
+					return c.Close(t.Context(), CloseNormalClosure, "local")
 				}
 				if err := c.WriteClose(CloseNormalClosure, "local"); err != nil {
 					return err

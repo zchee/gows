@@ -397,7 +397,7 @@ func (c *Conn) handleControl(h Header) error {
 	switch h.Opcode {
 	case OpcodePing:
 		// Once this side's Close frame has been sent -- by a concurrent
-		// [Conn.WriteClose], or by Close/CloseContext before their drain
+		// [Conn.WriteClose], or by [Conn.Close] before its drain
 		// loop -- writeControl short-circuits with errWriteClosed before
 		// any I/O. Swallow exactly that sentinel: RFC 6455 §5.5.3 permits
 		// not answering a Ping after a Close has been sent, and the read

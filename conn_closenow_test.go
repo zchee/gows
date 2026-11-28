@@ -119,7 +119,7 @@ func TestCloseNowReleasesBlockedReader(t *testing.T) {
 			_, _, again := c.ReadMessage()
 			wantClosed(t, "later ReadMessage", again)
 			wantClosed(t, "later WriteMessage", c.WriteMessage(OpcodeText, []byte("late")))
-			if err := c.Close(CloseNormalClosure, ""); err != nil {
+			if err := c.Close(t.Context(), CloseNormalClosure, ""); err != nil {
 				t.Fatalf("Close after CloseNow = %v, want nil", err)
 			}
 			if n := cc.closes.Load(); n != 1 {
@@ -367,10 +367,7 @@ func TestCloseNowWithoutReader(t *testing.T) {
 	t.Parallel()
 
 	followUps := map[string]func(*Conn) error{
-		"Close": func(c *Conn) error { return c.Close(CloseNormalClosure, "bye") },
-		"CloseContext": func(c *Conn) error {
-			return c.CloseContext(t.Context(), CloseNormalClosure, "bye")
-		},
+		"Close":    func(c *Conn) error { return c.Close(t.Context(), CloseNormalClosure, "bye") },
 		"CloseNow": func(c *Conn) error { return c.CloseNow() },
 	}
 	for name, followUp := range followUps {
@@ -510,11 +507,11 @@ func TestCloseNowDeliversBufferedMessages(t *testing.T) {
 	}
 }
 
-// TestCloseContextEndedMidDrainClosesOnce pins the exactly-once transport
+// TestCloseEndedMidDrainClosesOnce pins the exactly-once transport
 // close when the context bounding a closing handshake ends while the drain
 // waits for the peer's Close: the force-close the context triggers and the
 // teardown that follows must share one close.
-func TestCloseContextEndedMidDrainClosesOnce(t *testing.T) {
+func TestCloseEndedMidDrainClosesOnce(t *testing.T) {
 	t.Parallel()
 	a, b := net.Pipe()
 	defer b.Close()
@@ -530,12 +527,12 @@ func TestCloseContextEndedMidDrainClosesOnce(t *testing.T) {
 		<-cc.readEntered
 		cancel(cause)
 	}()
-	err := c.CloseContext(ctx, CloseNormalClosure, "bye")
-	wantContextError(t, "CloseContext", err, ctx, cause)
+	err := c.Close(ctx, CloseNormalClosure, "bye")
+	wantContextError(t, "Close", err, ctx, cause)
 	if n := cc.closes.Load(); n != 1 {
 		t.Fatalf("transport closed %d times, want exactly 1", n)
 	}
 	if c.rbuf != nil || !c.tornDown.Load() {
-		t.Fatal("CloseContext returned without releasing the buffers")
+		t.Fatal("Close returned without releasing the buffers")
 	}
 }

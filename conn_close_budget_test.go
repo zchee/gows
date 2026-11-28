@@ -38,7 +38,7 @@ func TestCloseDefaultBudget(t *testing.T) {
 				t.Fatal(err)
 			}
 			closed := make(chan error, 1)
-			go func() { closed <- c.Close(CloseNormalClosure, "") }()
+			go func() { closed <- c.Close(t.Context(), CloseNormalClosure, "") }()
 			if tt.readClose {
 				// Unmasked Close frame carrying only status 1000.
 				var frame [4]byte
@@ -63,7 +63,7 @@ func TestCloseDefaultBudget(t *testing.T) {
 			case <-time.After(time.Until(watchdog)):
 				t.Fatal("Close did not return within 1.2s")
 			}
-			if err := c.Close(CloseNormalClosure, ""); err != nil {
+			if err := c.Close(t.Context(), CloseNormalClosure, ""); err != nil {
 				t.Fatalf("second Close = %v, want nil", err)
 			}
 		})

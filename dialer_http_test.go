@@ -193,7 +193,7 @@ func TestDialHTTPClientEcho(t *testing.T) {
 			c := gows.NewClientConn(conn)
 			roundTrip(t, c, "hello over the HTTP client")
 			roundTrip(t, c, strings.Repeat("x", 70000))
-			if err := c.Close(gows.CloseNormalClosure, ""); err != nil {
+			if err := c.Close(t.Context(), gows.CloseNormalClosure, ""); err != nil {
 				t.Errorf("Close: %v", err)
 			}
 		})
@@ -230,7 +230,7 @@ func TestDialHTTPClientNegotiation(t *testing.T) {
 	}
 	c := gows.NewClientConn(conn, compressionOptions(hs)...)
 	roundTrip(t, c, strings.Repeat("compressible ", 4096))
-	if err := c.Close(gows.CloseNormalClosure, ""); err != nil {
+	if err := c.Close(t.Context(), gows.CloseNormalClosure, ""); err != nil {
 		t.Errorf("Close: %v", err)
 	}
 }
@@ -800,7 +800,7 @@ func TestDialHTTPClientHandshakeBoundsEndAtReturn(t *testing.T) {
 			<-time.After(3 * timeout)
 			c := gows.NewClientConn(conn)
 			roundTrip(t, c, "still open")
-			if err := c.Close(gows.CloseNormalClosure, ""); err != nil {
+			if err := c.Close(t.Context(), gows.CloseNormalClosure, ""); err != nil {
 				t.Errorf("Close: %v", err)
 			}
 		})
@@ -836,7 +836,7 @@ func TestDialHTTPClientConnDeadlines(t *testing.T) {
 		start := time.Now()
 		closed := make(chan struct{})
 		go func() {
-			_ = c.Close(gows.CloseNormalClosure, "")
+			_ = c.Close(t.Context(), gows.CloseNormalClosure, "")
 			close(closed)
 		}()
 		select {

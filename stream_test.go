@@ -1197,7 +1197,7 @@ func TestNextWriterConcurrentControlReply(t *testing.T) {
 
 	close(stop) // writer done: let the peer close now
 	<-readerDone
-	_ = srv.Close(CloseNormalClosure, "")
+	_ = srv.Close(t.Context(), CloseNormalClosure, "")
 
 	select {
 	case got := <-recv:

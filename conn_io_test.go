@@ -301,7 +301,7 @@ func testEcho(t *testing.T, srvConn, cliConn net.Conn) {
 		}
 	}
 
-	_ = cli.Close(CloseNormalClosure, "bye")
+	_ = cli.Close(t.Context(), CloseNormalClosure, "bye")
 	<-done
 }
 
@@ -390,7 +390,7 @@ func TestConcurrentWriteAndAutoPong(t *testing.T) {
 
 	wg.Wait()
 	<-peerDone
-	_ = srv.Close(CloseNormalClosure, "")
+	_ = srv.Close(t.Context(), CloseNormalClosure, "")
 }
 
 // --- allocation acceptance --------------------------------------------------

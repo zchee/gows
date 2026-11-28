@@ -27,7 +27,7 @@ import (
 	"time"
 )
 
-// The hooks can hold a transport call while another goroutine enters CloseContext.
+// The hooks can hold a transport call while another goroutine enters Close.
 // closeCountConn observes the first read and write before passing them to the hooks.
 type writeProbe struct {
 	net.Conn
@@ -91,7 +91,7 @@ func TestWriteErrorRetained(t *testing.T) {
 		return func(c *Conn) error { return c.WriteMessage(OpcodeBinary, make([]byte, size)) }
 	}
 	closeFrame := func(c *Conn) error { return c.WriteClose(CloseNormalClosure, "bye") }
-	handshake := func(c *Conn) error { return c.CloseContext(t.Context(), CloseNormalClosure, "bye") }
+	handshake := func(c *Conn) error { return c.Close(t.Context(), CloseNormalClosure, "bye") }
 	first := map[string]struct {
 		call                        func(*Conn) error
 		client, compressed, pending bool
@@ -111,7 +111,7 @@ func TestWriteErrorRetained(t *testing.T) {
 		"flush before Close":   {call: closeFrame, pending: true},
 		"prepared":             {call: func(c *Conn) error { return c.WritePreparedMessage(pm) }},
 		"server WriteClose":    {call: closeFrame}, "client WriteClose": {call: closeFrame, client: true},
-		"server CloseContext": {call: handshake}, "client CloseContext": {call: handshake, client: true},
+		"server Close": {call: handshake}, "client Close": {call: handshake, client: true},
 	}
 	for name, tt := range first {
 		t.Run(name, func(t *testing.T) {
@@ -146,9 +146,9 @@ func TestWriteErrorRetained(t *testing.T) {
 					if got := c.WriteMessage(OpcodeText, nil); got != e {
 						t.Fatalf("follow-up = %v; want same error %v", got, e)
 					}
-					if strings.HasSuffix(name, "CloseContext") {
+					if name == "server Close" || name == "client Close" {
 						if got := handshake(c); got != nil {
-							t.Fatalf("second CloseContext = %v", got)
+							t.Fatalf("second Close = %v", got)
 						}
 					}
 					if err := c.CloseNow(); err != nil {
@@ -456,48 +456,38 @@ func TestLocalCloseDuringBlockedWriteNotRetained(t *testing.T) {
 	}
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
-			for _, closing := range []string{"Close", "CloseContext"} {
-				t.Run(closing, func(t *testing.T) {
-					a, b := net.Pipe()
-					defer a.Close()
-					defer b.Close()
-					spy := newCloseCountConn(a)
-					c := NewServerConn(spy)
-					ctx, cancel := context.WithCancelCause(t.Context())
-					defer cancel(nil)
-					cause := errors.New("caller stopped write")
-					ch := asyncResult(func() error {
-						if tt.context {
-							return c.WriteMessageContext(ctx, OpcodeText, nil)
-						}
-						return c.WriteMessage(OpcodeText, nil)
-					})
-					awaitEntered(t, "write", spy.writeEntered, ch)
-					if tt.context {
-						cancel(cause)
-					} else if err := c.CloseNow(); err != nil {
-						t.Fatal(err)
-					}
-					got := awaitResult(t, "interrupted write", ch)
-					if _, ok := errors.AsType[*writeError](got); ok || (tt.context && (!errors.Is(got, context.Canceled) || !errors.Is(got, cause))) || (!tt.context && !errors.Is(got, net.ErrClosed)) {
-						t.Fatalf("interrupted write = %T %v", got, got)
-					}
-					if err := c.WriteMessage(OpcodeText, nil); err != tt.later {
-						t.Fatalf("later write = %v, want %v", err, tt.later)
-					}
-					if c.rbuf == nil {
-						t.Fatal("writer released read buffer")
-					}
-					var err error
-					if closing == "Close" {
-						err = c.Close(CloseNormalClosure, "")
-					} else {
-						err = c.CloseContext(t.Context(), CloseNormalClosure, "")
-					}
-					if err != nil || c.rbuf != nil {
-						t.Fatalf("%s = %v, buffer released = %t", closing, err, c.rbuf == nil)
-					}
-				})
+			a, b := net.Pipe()
+			defer a.Close()
+			defer b.Close()
+			spy := newCloseCountConn(a)
+			c := NewServerConn(spy)
+			ctx, cancel := context.WithCancelCause(t.Context())
+			defer cancel(nil)
+			cause := errors.New("caller stopped write")
+			ch := asyncResult(func() error {
+				if tt.context {
+					return c.WriteMessageContext(ctx, OpcodeText, nil)
+				}
+				return c.WriteMessage(OpcodeText, nil)
+			})
+			awaitEntered(t, "write", spy.writeEntered, ch)
+			if tt.context {
+				cancel(cause)
+			} else if err := c.CloseNow(); err != nil {
+				t.Fatal(err)
+			}
+			got := awaitResult(t, "interrupted write", ch)
+			if _, ok := errors.AsType[*writeError](got); ok || (tt.context && (!errors.Is(got, context.Canceled) || !errors.Is(got, cause))) || (!tt.context && !errors.Is(got, net.ErrClosed)) {
+				t.Fatalf("interrupted write = %T %v", got, got)
+			}
+			if err := c.WriteMessage(OpcodeText, nil); err != tt.later {
+				t.Fatalf("later write = %v, want %v", err, tt.later)
+			}
+			if c.rbuf == nil {
+				t.Fatal("writer released read buffer")
+			}
+			if err := c.Close(t.Context(), CloseNormalClosure, ""); err != nil || c.rbuf != nil {
+				t.Fatalf("Close = %v, buffer released = %t", err, c.rbuf == nil)
 			}
 		})
 	}
@@ -625,7 +615,7 @@ type advertisedDeadline struct {
 
 func (c advertisedDeadline) Deadline() (time.Time, bool) { return c.at, true }
 
-func TestCloseContextConcurrentBlockedWrite(t *testing.T) {
+func TestCloseConcurrentBlockedWrite(t *testing.T) {
 	const bound = 1200 * time.Millisecond
 	newPipe := func(t *testing.T, timeout time.Duration) (*Conn, *writeProbe, *closeCountConn, net.Conn) {
 		t.Helper()
@@ -642,12 +632,12 @@ func TestCloseContextConcurrentBlockedWrite(t *testing.T) {
 		return ch
 	}
 	startClose := func(c *Conn, ctx context.Context, code CloseCode) <-chan error {
-		return asyncResult(func() error { return c.CloseContext(ctx, code, "ok") })
+		return asyncResult(func() error { return c.Close(ctx, code, "ok") })
 	}
 	final := func(t *testing.T, c *Conn, spy *closeCountConn) {
 		t.Helper()
-		if err := within(t, "second CloseContext", bound, startClose(c, t.Context(), CloseNormalClosure)); err != nil || spy.closes.Load() != 1 {
-			t.Fatalf("second CloseContext = %v; closes = %d", err, spy.closes.Load())
+		if err := within(t, "second Close", bound, startClose(c, t.Context(), CloseNormalClosure)); err != nil || spy.closes.Load() != 1 {
+			t.Fatalf("second Close = %v; closes = %d", err, spy.closes.Load())
 		}
 	}
 	later := func(t *testing.T, c *Conn, want error) {
@@ -690,20 +680,20 @@ func TestCloseContextConcurrentBlockedWrite(t *testing.T) {
 				within(t, "guard armed", bound, armed)
 				cancel(cause)
 			}
-			cerr := within(t, "CloseContext", bound, closing)
+			cerr := within(t, "Close", bound, closing)
 			werr := within(t, "interrupted writer", bound, w)
 			switch {
 			case tt.cancelBefore || tt.cancelDuring:
 				if !errors.Is(cerr, context.Canceled) || !errors.Is(cerr, cause) {
-					t.Fatalf("CloseContext = %v; want cancellation and cause", cerr)
+					t.Fatalf("Close = %v; want cancellation and cause", cerr)
 				}
 			case tt.failDeadline:
 				if !errors.Is(cerr, armErr) {
-					t.Fatalf("CloseContext = %v; want %v", cerr, armErr)
+					t.Fatalf("Close = %v; want %v", cerr, armErr)
 				}
 			default:
 				if _, ok := errors.AsType[*writeError](cerr); ok || !errors.Is(cerr, ErrCloseTimeout) {
-					t.Fatalf("CloseContext = %v; want timeout without writer's error", cerr)
+					t.Fatalf("Close = %v; want timeout without writer's error", cerr)
 				}
 			}
 			if tt.cancelBefore || tt.failDeadline {
@@ -726,7 +716,7 @@ func TestCloseContextConcurrentBlockedWrite(t *testing.T) {
 		c, _, spy, peer := newPipe(t, 5*time.Second)
 		w := write(t, c, spy)
 		ctx := t.Context()
-		if err := within(t, "invalid CloseContext", bound, startClose(c, ctx, 0)); !errors.Is(err, ErrInvalidCloseCode) || spy.closes.Load() != 0 {
+		if err := within(t, "invalid Close", bound, startClose(c, ctx, 0)); !errors.Is(err, ErrInvalidCloseCode) || spy.closes.Load() != 0 {
 			t.Fatalf("invalid Close = %v; closes = %d", err, spy.closes.Load())
 		}
 		select {
@@ -769,7 +759,7 @@ func TestCloseContextConcurrentBlockedWrite(t *testing.T) {
 					ctx, cancel = context.WithTimeout(ctx, 5*time.Second)
 					defer cancel()
 				}
-				cerr := within(t, "CloseContext", bound, startClose(c, ctx, CloseNormalClosure))
+				cerr := within(t, "Close", bound, startClose(c, ctx, CloseNormalClosure))
 				if !errors.Is(cerr, net.ErrClosed) || errors.Is(cerr, ErrCloseTimeout) || errors.Is(cerr, context.DeadlineExceeded) {
 					t.Fatalf("drain = %v; want closed transport without budget expiry", cerr)
 				}
@@ -795,10 +785,10 @@ func TestCloseContextConcurrentBlockedWrite(t *testing.T) {
 					}
 				}
 				if c.tornDown.Load() != tt.read || (c.rbuf == nil) != tt.read {
-					t.Fatalf("unexpected reader state before CloseContext")
+					t.Fatalf("unexpected reader state before Close")
 				}
 				if err := within(t, "close after failure", bound, startClose(c, t.Context(), CloseNormalClosure)); err != nil || c.rbuf != nil || !c.tornDown.Load() {
-					t.Fatalf("CloseContext = %v, buffer released = %t", err, c.rbuf == nil)
+					t.Fatalf("Close = %v, buffer released = %t", err, c.rbuf == nil)
 				}
 				later(t, c, e)
 				final(t, c, spy)
@@ -861,7 +851,7 @@ func TestCloseContextConcurrentBlockedWrite(t *testing.T) {
 		w := write(t, c, spy)
 		cerr := within(t, "failed deadline setup", bound, startClose(c, t.Context(), CloseNormalClosure))
 		if !errors.Is(cerr, io.ErrClosedPipe) || !strings.HasPrefix(cerr.Error(), "gows: set close deadline: ") || errors.Is(cerr, cause) || errors.Is(cerr, ErrCloseTimeout) {
-			t.Fatalf("CloseContext = %v; want SetDeadline error", cerr)
+			t.Fatalf("Close = %v; want SetDeadline error", cerr)
 		}
 		e := within(t, "writer", bound, w)
 		requireWriteFailure(t, e, cause)

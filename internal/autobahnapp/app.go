@@ -140,7 +140,7 @@ func (a *application) serveConn(conn net.Conn) {
 		return
 	}
 	c := gows.NewServerConn(conn, connOptions(hs)...)
-	defer c.Close(gows.CloseNormalClosure, "")
+	defer c.Close(context.Background(), gows.CloseNormalClosure, "")
 	a.echoLoop(c)
 }
 
@@ -243,7 +243,7 @@ func (a *application) getCaseCount(base string) (int, error) {
 	if err != nil {
 		return 0, err
 	}
-	defer c.Close(gows.CloseNormalClosure, "")
+	defer c.Close(context.Background(), gows.CloseNormalClosure, "")
 	op, payload, err := c.ReadMessage()
 	if err != nil {
 		return 0, fmt.Errorf("read case count: %w", err)
@@ -264,7 +264,7 @@ func (a *application) runCase(base string, n int) error {
 	if err != nil {
 		return err
 	}
-	defer c.Close(gows.CloseNormalClosure, "")
+	defer c.Close(context.Background(), gows.CloseNormalClosure, "")
 	a.echoLoop(c)
 	return nil
 }
@@ -275,7 +275,7 @@ func (a *application) updateReports(base string) error {
 	if err != nil {
 		return err
 	}
-	defer c.Close(gows.CloseNormalClosure, "")
+	defer c.Close(context.Background(), gows.CloseNormalClosure, "")
 	for {
 		if _, _, err := c.ReadMessage(); err != nil {
 			return nil

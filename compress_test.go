@@ -678,7 +678,7 @@ func TestCompressionEchoRoundTrip(t *testing.T) {
 				t.Fatalf("%s: echo mismatch: op=%v len(got)=%d len(want)=%d", name, op, len(got), len(tt.p))
 			}
 		}
-		_ = cli.Close(CloseNormalClosure, "bye")
+		_ = cli.Close(t.Context(), CloseNormalClosure, "bye")
 		<-done
 	}
 
@@ -919,7 +919,7 @@ func TestCompressionPooledReuseNoStateLeak(t *testing.T) {
 				break
 			}
 		}
-		_ = cli.Close(CloseNormalClosure, "")
+		_ = cli.Close(t.Context(), CloseNormalClosure, "")
 		<-done
 		return retErr
 	}
@@ -1487,7 +1487,7 @@ func TestContextTakeoverWindowContinuityBothDirections(t *testing.T) {
 			t.Fatalf("echo mismatch: got %d bytes, want %d", len(got), len(payload))
 		}
 	}
-	_ = cli.Close(CloseNormalClosure, "bye")
+	_ = cli.Close(t.Context(), CloseNormalClosure, "bye")
 	<-done
 
 	// Wire-level shrink check, both directions: compress the same payload
@@ -1619,7 +1619,7 @@ func TestContextTakeoverInteropWithNoContextPeer(t *testing.T) {
 			t.Fatalf("echo mismatch: got %d bytes, want %d", len(got), len(payload))
 		}
 	}
-	_ = cli.Close(CloseNormalClosure, "")
+	_ = cli.Close(t.Context(), CloseNormalClosure, "")
 	<-done
 }
 
@@ -1648,7 +1648,7 @@ func TestContextTakeoverTeardownReleasesState(t *testing.T) {
 		defer close(done)
 		cli.ReadMessage() // drains the server's Close frame so srv.Close doesn't block.
 	}()
-	if err := srv.Close(CloseNormalClosure, ""); err != nil {
+	if err := srv.Close(t.Context(), CloseNormalClosure, ""); err != nil {
 		t.Fatalf("srv.Close: %v", err)
 	}
 	<-done
@@ -1963,7 +1963,7 @@ func TestUpgraderDialerContextTakeoverIntegration(t *testing.T) {
 			t.Fatalf("echo mismatch: got %d bytes, want %d", len(got), len(payload))
 		}
 	}
-	_ = cli.Close(CloseNormalClosure, "")
+	_ = cli.Close(t.Context(), CloseNormalClosure, "")
 	<-done
 }
 

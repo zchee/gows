@@ -552,7 +552,7 @@ func TestCloseInitiatedHandshake(t *testing.T) {
 	sc := &scriptConn{in: closeFrame(CloseNormalClosure, "")}
 	c := NewServerConn(sc)
 
-	if err := c.Close(CloseNormalClosure, "done"); err != nil {
+	if err := c.Close(t.Context(), CloseNormalClosure, "done"); err != nil {
 		t.Fatalf("Close: %v", err)
 	}
 	// We sent a Close(1000, "done").
@@ -561,7 +561,7 @@ func TestCloseInitiatedHandshake(t *testing.T) {
 		t.Fatalf("sent close = %d %q ok=%v, want 1000 \"done\"", code, reason, ok)
 	}
 	// Idempotent.
-	if err := c.Close(CloseNormalClosure, ""); err != nil {
+	if err := c.Close(t.Context(), CloseNormalClosure, ""); err != nil {
 		t.Errorf("second Close: %v", err)
 	}
 }
@@ -571,7 +571,7 @@ func TestCloseInvalidCode(t *testing.T) {
 
 	sc := &scriptConn{}
 	c := NewServerConn(sc)
-	if err := c.Close(CloseCode(1005), ""); err == nil {
+	if err := c.Close(t.Context(), CloseCode(1005), ""); err == nil {
 		t.Fatal("Close with reserved code 1005 = nil, want error")
 	}
 }
@@ -610,7 +610,7 @@ func TestCloseReasonUTF8Validation(t *testing.T) {
 			sc := &scriptConn{in: closeFrame(CloseNormalClosure, "")}
 			c := NewServerConn(sc)
 
-			err := c.Close(CloseNormalClosure, tt.reason)
+			err := c.Close(t.Context(), CloseNormalClosure, tt.reason)
 			if tt.wantErr {
 				if !errors.Is(err, ErrInvalidCloseReason) {
 					t.Fatalf("Close(%q) = %v, want ErrInvalidCloseReason", tt.reason, err)
@@ -689,7 +689,7 @@ func TestCloseTimeoutDrain(t *testing.T) {
 
 	srv := NewServerConn(a, WithCloseTimeout(50*time.Millisecond))
 	start := time.Now()
-	if err := srv.Close(CloseNormalClosure, ""); !errors.Is(err, ErrCloseTimeout) {
+	if err := srv.Close(t.Context(), CloseNormalClosure, ""); !errors.Is(err, ErrCloseTimeout) {
 		t.Fatalf("Close = %v, want ErrCloseTimeout", err)
 	}
 	if el := time.Since(start); el > 2*time.Second {
@@ -751,7 +751,7 @@ func TestTornDownNoPanic(t *testing.T) {
 
 			// Terminate the connection via the path under test.
 			if tt.selfClose {
-				if err := c.Close(CloseNormalClosure, ""); err != nil {
+				if err := c.Close(t.Context(), CloseNormalClosure, ""); err != nil {
 					t.Fatalf("initial Close: %v", err)
 				}
 			} else {
@@ -768,15 +768,15 @@ func TestTornDownNoPanic(t *testing.T) {
 			}
 
 			// Every public method on a torn-down Conn must not panic.
-			mustNotPanic(t, "Close", func() error { return c.Close(CloseNormalClosure, "x") })
-			mustNotPanic(t, "Close#2", func() error { return c.Close(CloseNormalClosure, "x") })
+			mustNotPanic(t, "Close", func() error { return c.Close(t.Context(), CloseNormalClosure, "x") })
+			mustNotPanic(t, "Close#2", func() error { return c.Close(t.Context(), CloseNormalClosure, "x") })
 			mustNotPanic(t, "ReadMessage", func() error { _, _, e := c.ReadMessage(); return e })
 			mustNotPanic(t, "WriteMessage", func() error { return c.WriteMessage(OpcodeText, []byte("x")) })
 			mustNotPanic(t, "SetReadDeadline", func() error { return c.SetReadDeadline(time.Now()) })
 			mustNotPanic(t, "SetWriteDeadline", func() error { return c.SetWriteDeadline(time.Now()) })
 
 			// Contract checks after teardown.
-			if err := c.Close(CloseNormalClosure, ""); err != nil {
+			if err := c.Close(t.Context(), CloseNormalClosure, ""); err != nil {
 				t.Errorf("Close after teardown = %v, want nil (idempotent)", err)
 			}
 			if _, _, err := c.ReadMessage(); err == nil {
@@ -844,7 +844,7 @@ func TestTornDownNoPanicRealConn(t *testing.T) {
 			go io.Copy(io.Discard, client)
 
 			c := NewServerConn(server, WithCloseTimeout(100*time.Millisecond))
-			if err := c.Close(CloseNormalClosure, ""); !errors.Is(err, ErrCloseTimeout) {
+			if err := c.Close(t.Context(), CloseNormalClosure, ""); !errors.Is(err, ErrCloseTimeout) {
 				t.Fatalf("initial Close = %v, want ErrCloseTimeout", err)
 			}
 			assertTornDownNoPanic(t, c)
@@ -872,14 +872,14 @@ func TestTornDownNoPanicRealConn(t *testing.T) {
 func assertTornDownNoPanic(t *testing.T, c *Conn) {
 	t.Helper()
 
-	mustNotPanic(t, "Close", func() error { return c.Close(CloseNormalClosure, "x") })
-	mustNotPanic(t, "Close#2", func() error { return c.Close(CloseNormalClosure, "x") })
+	mustNotPanic(t, "Close", func() error { return c.Close(t.Context(), CloseNormalClosure, "x") })
+	mustNotPanic(t, "Close#2", func() error { return c.Close(t.Context(), CloseNormalClosure, "x") })
 	mustNotPanic(t, "ReadMessage", func() error { _, _, e := c.ReadMessage(); return e })
 	mustNotPanic(t, "WriteMessage", func() error { return c.WriteMessage(OpcodeText, []byte("x")) })
 	mustNotPanic(t, "SetReadDeadline", func() error { return c.SetReadDeadline(time.Now().Add(time.Second)) })
 	mustNotPanic(t, "SetWriteDeadline", func() error { return c.SetWriteDeadline(time.Now().Add(time.Second)) })
 
-	if err := c.Close(CloseNormalClosure, ""); err != nil {
+	if err := c.Close(t.Context(), CloseNormalClosure, ""); err != nil {
 		t.Errorf("Close after teardown = %v, want nil (idempotent)", err)
 	}
 	if _, _, err := c.ReadMessage(); err == nil {

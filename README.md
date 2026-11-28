@@ -321,6 +321,7 @@ path:
 package main
 
 import (
+	"context"
 	"log"
 	"net"
 
@@ -352,7 +353,7 @@ func serve(conn net.Conn) {
 		gows.WithBuffered(hs.Buffered),
 		gows.WithCompression(hs.Compressed),
 	)
-	defer c.Close(gows.CloseNormalClosure, "")
+	defer c.Close(context.Background(), gows.CloseNormalClosure, "")
 
 	for {
 		op, payload, err := c.ReadMessage()
@@ -382,7 +383,7 @@ func serve(conn net.Conn) {
 		gows.WithBuffered(hs.Buffered),
 		gows.WithCompression(hs.Compressed),
 	)
-	defer c.Close(gows.CloseNormalClosure, "")
+	defer c.Close(context.Background(), gows.CloseNormalClosure, "")
 
 	// Serve drains every complete message per wakeup and flushes the
 	// buffered replies in a single write before blocking again.
@@ -420,7 +421,7 @@ func handleWS(w http.ResponseWriter, r *http.Request) {
 		gows.WithBuffered(hs.Buffered),
 		gows.WithCompression(hs.Compressed),
 	)
-	defer c.Close(gows.CloseNormalClosure, "")
+	defer c.Close(r.Context(), gows.CloseNormalClosure, "")
 
 	for {
 		op, payload, err := c.ReadMessage()
@@ -460,7 +461,7 @@ func main() {
 		gows.WithBuffered(hs.Buffered),
 		gows.WithCompression(hs.Compressed),
 	)
-	defer c.Close(gows.CloseNormalClosure, "")
+	defer c.Close(context.Background(), gows.CloseNormalClosure, "")
 
 	if err := c.WriteMessage(gows.OpcodeText, []byte("hello")); err != nil {
 		log.Fatal(err)

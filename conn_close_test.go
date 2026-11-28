@@ -316,7 +316,7 @@ func TestWriteCloseWithActiveReader(t *testing.T) {
 	}
 }
 
-func TestCloseContextSuccess(t *testing.T) {
+func TestCloseSuccess(t *testing.T) {
 	a, b := net.Pipe()
 	c := NewServerConn(a)
 	peer := NewClientConn(b)
@@ -327,26 +327,26 @@ func TestCloseContextSuccess(t *testing.T) {
 		peerErr <- err
 	}()
 
-	if err := c.CloseContext(t.Context(), CloseNormalClosure, "done"); err != nil {
-		t.Fatalf("CloseContext = %v, want nil", err)
+	if err := c.Close(t.Context(), CloseNormalClosure, "done"); err != nil {
+		t.Fatalf("Close = %v, want nil", err)
 	}
 	var ce *CloseError
 	if err := <-peerErr; !errors.As(err, &ce) || ce.Code != CloseNormalClosure || ce.Reason != "done" {
 		t.Fatalf("peer reader = %v, want *CloseError(1000, \"done\")", err)
 	}
-	if err := c.CloseContext(t.Context(), CloseNormalClosure, "again"); err != nil {
-		t.Fatalf("second CloseContext = %v, want idempotent nil", err)
+	if err := c.Close(t.Context(), CloseNormalClosure, "again"); err != nil {
+		t.Fatalf("second Close = %v, want idempotent nil", err)
 	}
 }
 
-func TestCloseContextValidationLeavesConnUsable(t *testing.T) {
+func TestCloseValidationLeavesConnUsable(t *testing.T) {
 	a, b := net.Pipe()
 	defer a.Close()
 	defer b.Close()
 	c := NewServerConn(a)
 
-	if err := c.CloseContext(t.Context(), 0, ""); err == nil {
-		t.Fatal("CloseContext(0) = nil, want validation error")
+	if err := c.Close(t.Context(), 0, ""); err == nil {
+		t.Fatal("Close(0) = nil, want validation error")
 	}
 	assertNoWireBytes(t, b)
 
@@ -356,23 +356,23 @@ func TestCloseContextValidationLeavesConnUsable(t *testing.T) {
 	go func() { done <- c.WriteClose(CloseNormalClosure, "ok") }()
 	f := readWireFrame(t, b)
 	if f.h.Opcode != OpcodeClose {
-		t.Fatalf("frame after rejected CloseContext = %v, want Close", f.h.Opcode)
+		t.Fatalf("frame after rejected Close = %v, want Close", f.h.Opcode)
 	}
 	if err := <-done; err != nil {
-		t.Fatalf("WriteClose after rejected CloseContext = %v, want nil", err)
+		t.Fatalf("WriteClose after rejected Close = %v, want nil", err)
 	}
 }
 
-func TestCloseContextAlreadyCanceled(t *testing.T) {
+func TestCloseAlreadyCanceled(t *testing.T) {
 	a, b := net.Pipe()
 	defer b.Close()
 	c := NewServerConn(a)
 
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
-	err := c.CloseContext(ctx, CloseNormalClosure, "late")
+	err := c.Close(ctx, CloseNormalClosure, "late")
 	if !errors.Is(err, context.Canceled) || !errors.Is(err, ctx.Err()) {
-		t.Fatalf("CloseContext = %v, want errors.Is ctx.Err (context.Canceled)", err)
+		t.Fatalf("Close = %v, want errors.Is ctx.Err (context.Canceled)", err)
 	}
 	// Nothing was written and the transport is closed.
 	_ = b.SetReadDeadline(time.Now().Add(time.Second))
@@ -385,7 +385,7 @@ func TestCloseContextAlreadyCanceled(t *testing.T) {
 	}
 }
 
-func TestCloseContextCancelCauseMatchesErrAndCause(t *testing.T) {
+func TestCloseCancelCauseMatchesErrAndCause(t *testing.T) {
 	a, b := net.Pipe()
 	defer b.Close()
 	c := NewServerConn(a)
@@ -393,16 +393,16 @@ func TestCloseContextCancelCauseMatchesErrAndCause(t *testing.T) {
 	ctx, cancel := context.WithCancelCause(t.Context())
 	cancel(cause)
 
-	err := c.CloseContext(ctx, CloseNormalClosure, "late")
+	err := c.Close(ctx, CloseNormalClosure, "late")
 	if !errors.Is(err, ctx.Err()) {
-		t.Fatalf("CloseContext = %v, want errors.Is ctx.Err (%v)", err, ctx.Err())
+		t.Fatalf("Close = %v, want errors.Is ctx.Err (%v)", err, ctx.Err())
 	}
 	if !errors.Is(err, cause) {
-		t.Fatalf("CloseContext = %v, want errors.Is cancel cause", err)
+		t.Fatalf("Close = %v, want errors.Is cancel cause", err)
 	}
 }
 
-func TestCloseContextUsesCallerAbsoluteDeadline(t *testing.T) {
+func TestCloseUsesCallerAbsoluteDeadline(t *testing.T) {
 	a, b := net.Pipe()
 	defer b.Close()
 	armErr := errors.New("deadline rejected")
@@ -416,19 +416,19 @@ func TestCloseContextUsesCallerAbsoluteDeadline(t *testing.T) {
 	ctx, cancel := context.WithDeadline(t.Context(), deadline)
 	defer cancel()
 
-	err := c.CloseContext(ctx, CloseNormalClosure, "bye")
+	err := c.Close(ctx, CloseNormalClosure, "bye")
 	if !errors.Is(err, armErr) {
-		t.Fatalf("CloseContext = %v, want errors.Is SetDeadline failure", err)
+		t.Fatalf("Close = %v, want errors.Is SetDeadline failure", err)
 	}
 	if !rec.deadline.Equal(deadline) {
 		t.Fatalf("SetDeadline = %v, want caller deadline %v", rec.deadline, deadline)
 	}
 	if !rec.closed {
-		t.Error("CloseContext left the raw connection open after SetDeadline failed")
+		t.Error("Close left the raw connection open after SetDeadline failed")
 	}
 }
 
-func TestCloseContextCanceledDuringPeerCloseWait(t *testing.T) {
+func TestCloseCanceledDuringPeerCloseWait(t *testing.T) {
 	a, b := net.Pipe()
 	defer b.Close()
 	c := NewServerConn(a)
@@ -448,12 +448,12 @@ func TestCloseContextCanceledDuringPeerCloseWait(t *testing.T) {
 	}()
 
 	start := time.Now()
-	err := c.CloseContext(ctx, CloseNormalClosure, "going away")
+	err := c.Close(ctx, CloseNormalClosure, "going away")
 	if !errors.Is(err, context.Canceled) || !errors.Is(err, ctx.Err()) {
-		t.Fatalf("CloseContext = %v, want errors.Is ctx.Err (context.Canceled)", err)
+		t.Fatalf("Close = %v, want errors.Is ctx.Err (context.Canceled)", err)
 	}
 	if elapsed := time.Since(start); elapsed > 3*time.Second {
-		t.Errorf("CloseContext took %v to observe cancellation", elapsed)
+		t.Errorf("Close took %v to observe cancellation", elapsed)
 	}
 	// The force-close released the transport.
 	_ = b.SetReadDeadline(time.Now().Add(time.Second))
@@ -462,34 +462,34 @@ func TestCloseContextCanceledDuringPeerCloseWait(t *testing.T) {
 	}
 }
 
-// TestCloseContextBlockedWriteBounded pins the single-budget contract on
+// TestCloseBlockedWriteBounded pins the single-budget contract on
 // the write phase: a peer that never reads blocks the Close-frame write
 // (net.Pipe is synchronous), and the whole call still ends within one
 // close-timeout budget -- not the write-timeout-plus-wait-timeout double
 // budget the API explicitly rejects.
-func TestCloseContextBlockedWriteBounded(t *testing.T) {
+func TestCloseBlockedWriteBounded(t *testing.T) {
 	a, b := net.Pipe()
 	defer b.Close() // b never reads during the call; net.Pipe blocks the write
 	c := NewServerConn(a, WithCloseTimeout(500*time.Millisecond))
 
 	start := time.Now()
-	err := c.CloseContext(t.Context(), CloseNormalClosure, "bye")
+	err := c.Close(t.Context(), CloseNormalClosure, "bye")
 	elapsed := time.Since(start)
 	if !errors.Is(err, ErrCloseTimeout) {
-		t.Fatalf("CloseContext = %v, want errors.Is ErrCloseTimeout", err)
+		t.Fatalf("Close = %v, want errors.Is ErrCloseTimeout", err)
 	}
 	if !errors.Is(err, os.ErrDeadlineExceeded) {
-		t.Fatalf("CloseContext = %v, want the deadline cause in the chain", err)
+		t.Fatalf("Close = %v, want the deadline cause in the chain", err)
 	}
 	if elapsed < 400*time.Millisecond || elapsed > 950*time.Millisecond {
-		t.Fatalf("CloseContext took %v, want roughly one 500ms budget (no per-phase extension)", elapsed)
+		t.Fatalf("Close took %v, want roughly one 500ms budget (no per-phase extension)", elapsed)
 	}
 }
 
-// TestCloseContextDrainBounded is the read-phase twin: the write goes
+// TestCloseDrainBounded is the read-phase twin: the write goes
 // through, the peer never sends its Close, and write plus drain share
 // the one absolute deadline.
-func TestCloseContextDrainBounded(t *testing.T) {
+func TestCloseDrainBounded(t *testing.T) {
 	a, b := net.Pipe()
 	defer b.Close()
 	c := NewServerConn(a, WithCloseTimeout(500*time.Millisecond))
@@ -499,17 +499,17 @@ func TestCloseContextDrainBounded(t *testing.T) {
 	}()
 
 	start := time.Now()
-	err := c.CloseContext(t.Context(), CloseNormalClosure, "bye")
+	err := c.Close(t.Context(), CloseNormalClosure, "bye")
 	elapsed := time.Since(start)
 	if !errors.Is(err, ErrCloseTimeout) {
-		t.Fatalf("CloseContext = %v, want errors.Is ErrCloseTimeout", err)
+		t.Fatalf("Close = %v, want errors.Is ErrCloseTimeout", err)
 	}
 	if elapsed < 400*time.Millisecond || elapsed > 950*time.Millisecond {
-		t.Fatalf("CloseContext took %v, want roughly one 500ms budget (no per-phase extension)", elapsed)
+		t.Fatalf("Close took %v, want roughly one 500ms budget (no per-phase extension)", elapsed)
 	}
 }
 
-func TestCloseContextDeadlineFromContext(t *testing.T) {
+func TestCloseDeadlineFromContext(t *testing.T) {
 	a, b := net.Pipe()
 	defer b.Close()
 	// The Conn's own close timeout is far larger; the ctx deadline must
@@ -523,23 +523,23 @@ func TestCloseContextDeadlineFromContext(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), 300*time.Millisecond)
 	defer cancel()
 	start := time.Now()
-	err := c.CloseContext(ctx, CloseNormalClosure, "bye")
+	err := c.Close(ctx, CloseNormalClosure, "bye")
 	elapsed := time.Since(start)
 	if !errors.Is(err, context.DeadlineExceeded) {
-		t.Fatalf("CloseContext = %v, want errors.Is context.DeadlineExceeded", err)
+		t.Fatalf("Close = %v, want errors.Is context.DeadlineExceeded", err)
 	}
 	if elapsed > 950*time.Millisecond {
-		t.Fatalf("CloseContext took %v, want the ctx deadline to bind", elapsed)
+		t.Fatalf("Close took %v, want the ctx deadline to bind", elapsed)
 	}
 }
 
-// TestCloseContextCancelRace drives cancellation into the success
+// TestCloseCancelRace drives cancellation into the success
 // boundary -- the peer's Close echo and ctx cancellation race by
 // construction (both are released by the peer observing the closing
 // handshake) -- and accepts either outcome while the race detector
 // checks the callback synchronization. Exercised repeatedly under
 // -race -count=100 by the verification gates.
-func TestCloseContextCancelRace(t *testing.T) {
+func TestCloseCancelRace(t *testing.T) {
 	a, b := net.Pipe()
 	c := NewServerConn(a)
 	peer := NewClientConn(b)
@@ -559,14 +559,14 @@ func TestCloseContextCancelRace(t *testing.T) {
 		cancel()
 	}()
 
-	err := c.CloseContext(ctx, CloseNormalClosure, "racing")
+	err := c.Close(ctx, CloseNormalClosure, "racing")
 	if err != nil && !errors.Is(err, context.Canceled) {
-		t.Fatalf("CloseContext = %v, want nil or errors.Is context.Canceled", err)
+		t.Fatalf("Close = %v, want nil or errors.Is context.Canceled", err)
 	}
 	<-peerDone
 	<-cancelerDone
 	// Whatever the outcome, the Conn is closed and stays idempotent.
-	if err := c.CloseContext(ctx, CloseNormalClosure, "again"); err != nil {
-		t.Fatalf("follow-up CloseContext = %v, want nil", err)
+	if err := c.Close(ctx, CloseNormalClosure, "again"); err != nil {
+		t.Fatalf("follow-up Close = %v, want nil", err)
 	}
 }

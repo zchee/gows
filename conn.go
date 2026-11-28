@@ -91,9 +91,8 @@ const maxCoalescedWriteSize = 2 << 10
 // while a reader is active in another goroutine, call [Conn.WriteClose]
 // (write-only, safe alongside the reader) and let that reader observe
 // the peer's Close reply as its usual [*CloseError]. Once the read side
-// is quiescent, [Conn.Close] or the context-bounded [Conn.CloseContext]
-// performs the full closing handshake. To instead shut the connection down
-// abruptly from any goroutine, call [Conn.CloseNow]: it closes the
+// is quiescent, [Conn.Close] performs the full closing handshake. To shut the
+// connection down abruptly from any goroutine, call [Conn.CloseNow]: it closes the
 // transport, which unblocks every pending read and write, and the blocked
 // reader releases the read side's buffers as it returns. Calling Close
 // directly while a read is still blocked races the read side's buffers.
@@ -256,9 +255,8 @@ func WithSkipUTF8Validation(skip bool) ConnOption {
 }
 
 // WithCloseTimeout sets one timeout for sending the Close frame and waiting for
-// the peer's Close frame. It applies to [Conn.Close] and to [Conn.CloseContext]
-// when its context has no deadline. A non-positive value selects the default
-// (5 seconds).
+// the peer's Close frame. It applies to [Conn.Close] when its context has no
+// deadline. A non-positive value selects the default (5 seconds).
 func WithCloseTimeout(d time.Duration) ConnOption {
 	return func(c *connConfig) {
 		if d > 0 {
@@ -466,43 +464,15 @@ func (e *CloseError) Is(target error) bool {
 }
 
 // SetReadDeadline sets the read deadline on the underlying connection; see
-// [net.Conn.SetReadDeadline]. Do not change it during [Conn.CloseContext].
+// [net.Conn.SetReadDeadline]. Do not change it during [Conn.Close].
 func (c *Conn) SetReadDeadline(t time.Time) error {
 	return c.conn.SetReadDeadline(t)
 }
 
 // SetWriteDeadline sets the write deadline on the underlying connection; see
-// [net.Conn.SetWriteDeadline]. Do not change it during [Conn.CloseContext].
+// [net.Conn.SetWriteDeadline]. Do not change it during [Conn.Close].
 func (c *Conn) SetWriteDeadline(t time.Time) error {
 	return c.conn.SetWriteDeadline(t)
-}
-
-// Close performs the WebSocket closing handshake (RFC 6455 §7): it sends a
-// Close frame with the given code and reason (unless one was already sent),
-// waits for the peer's Close frame, and closes the transport. The write and
-// wait share one deadline set by [WithCloseTimeout]. If either times out,
-// Close returns an error matching [ErrCloseTimeout]. If the handshake fails
-// for another reason, Close returns that error.
-//
-// The handshake overwrites both transport deadlines. No goroutine may change
-// either deadline during the handshake. The timeout bounds transport I/O,
-// not a caller-supplied [DeflateBackend] holding the write lock or the
-// transport's own Close. TLS can spend up to five additional seconds sending
-// close_notify.
-//
-// code must be a valid sendable close code ([ValidCloseCode];
-// [ErrInvalidCloseCode] if not); reason must be valid UTF-8
-// ([ErrInvalidCloseReason] if not) and, with the 2-byte code, at most
-// 125 bytes ([ErrCloseReasonTooLong] if not; RFC 6455 §5.5). Invalid arguments
-// leave an open connection usable. Close is idempotent: on an already closed
-// connection, it writes nothing, releases the buffers, and returns nil.
-//
-// Call Close on the reading goroutine or after it has returned. Use
-// [Conn.CloseContext] to supply a context, [Conn.WriteClose] to send the
-// Close frame while a reader is active, or [Conn.CloseNow] to close abruptly
-// from any goroutine. Close returns [ErrConnMode] on a frame-mode connection.
-func (c *Conn) Close(code CloseCode, reason string) error {
-	return c.CloseContext(context.Background(), code, reason)
 }
 
 // teardown closes the underlying connection and releases pooled buffers,
@@ -592,7 +562,7 @@ func (c *Conn) closeTransport() {
 //
 // CloseNow does not release buffers or invalidate a [Conn.ReadFrame] payload.
 // The reader releases the buffers when it observes the closed transport. Once
-// the reader has stopped, [Conn.Close] or [Conn.CloseContext] can also release
+// the reader has stopped, [Conn.Close] can also release
 // them on a message-mode or unused Conn without writing. Otherwise, if no read
 // follows, the buffers and any frame compressor are left to the garbage collector.
 //
@@ -641,7 +611,7 @@ var errClosedNow = fmt.Errorf("gows: connection closed abruptly: %w", net.ErrClo
 
 // WriteClose sends a Close frame with the given code and reason -- the
 // write-only half of the closing handshake (RFC 6455 §7) -- without
-// touching the read side. Unlike [Conn.Close] and [Conn.CloseContext],
+// touching the read side. Unlike [Conn.Close],
 // it is safe to call while another goroutine is blocked in
 // [Conn.ReadMessage], [Conn.Serve], or a [Conn.NextReader] stream's
 // Read: the frame write is serialized under the same writer lock as
@@ -649,8 +619,7 @@ var errClosedNow = fmt.Errorf("gows: connection closed abruptly: %w", net.ErrClo
 // peer's Close reply, which it reports as the usual [*CloseError].
 // A successful WriteClose does not wait for that reply or close the
 // underlying connection; completion is driven by the reader observing
-// the peer's Close, or by [Conn.Close]/[Conn.CloseContext] once the
-// read side is quiescent.
+// the peer's Close, or by [Conn.Close] once the read side is quiescent.
 //
 // code and reason are validated exactly as for [Conn.Close], with the
 // same helper: code must be sendable per [ValidCloseCode]
@@ -689,52 +658,39 @@ func (c *Conn) WriteClose(code CloseCode, reason string) error {
 	return err
 }
 
-// CloseContext performs the full WebSocket closing handshake
-// (RFC 6455 §7) like [Conn.Close], bounded by ctx and by one absolute
-// deadline: it sends a Close frame with the given code and reason
-// (unless one was already sent), drains inbound frames until the peer's
-// Close frame is observed, and closes the underlying connection.
+// Close performs the WebSocket closing handshake (RFC 6455 §7): it sends a
+// Close frame with the given code and reason (unless one was already sent),
+// waits for the peer's Close frame, and closes the transport. Call Close on
+// the reading goroutine or after it has returned. To send a Close frame while
+// a reader is active, use [Conn.WriteClose]; to close abruptly from any
+// goroutine, use [Conn.CloseNow]. Close returns [ErrConnMode] in frame mode.
 //
-// CloseContext takes over the read side exactly as Close does, so it
-// must only be called once no other goroutine is using the Conn's read
-// side ([Conn.ReadMessage], [Conn.Serve], or a [Conn.NextReader]
-// stream) -- from the reading goroutine itself, or after that goroutine
-// has returned. It is not a cross-goroutine interrupt: to nudge a live
-// connection toward closure while a reader is active elsewhere, use
-// [Conn.WriteClose] and let that reader observe the peer's reply, or use
-// [Conn.CloseNow] to close it abruptly.
+// On an open connection, code must be sendable per [ValidCloseCode]
+// ([ErrInvalidCloseCode] otherwise), and reason must be valid UTF-8
+// ([ErrInvalidCloseReason]) and fit in 123 bytes ([ErrCloseReasonTooLong]).
+// Invalid arguments leave the connection usable. Close is idempotent: on an
+// already closed connection it writes nothing, releases the buffers, and
+// returns nil, even if an earlier write failed.
 //
-// The whole handshake -- the Close-frame write and the wait for the
-// peer's Close -- shares a single absolute deadline fixed once on entry.
-// When ctx has a deadline, that exact deadline is authoritative;
-// otherwise time.Now() plus the Conn's close timeout
-// ([WithCloseTimeout]) is used. No phase renews or extends the budget.
-// When the close-timeout budget expires,
-// CloseContext force-closes the connection and returns
-// [ErrCloseTimeout]. Whenever ctx is what ends the handshake early --
-// cancellation, or its own deadline being the binding half -- the
-// connection is force-closed to unblock whichever I/O is in flight and
-// the returned error wraps ctx.Err and any distinct cancellation cause,
-// so errors.Is matches both; the cancellation callback is
-// stopped and fully synchronized before CloseContext returns, and the
-// connection is closed on every path -- the error only reports whether
-// the closing handshake completed cleanly.
+// The write and the wait share ctx's deadline or, if ctx has none, one
+// deadline set by [WithCloseTimeout]. Expiry of the close timeout returns
+// an error matching [ErrCloseTimeout]. If ctx ends the handshake, Close
+// closes the transport and returns an error matching ctx.Err() and any
+// distinct cancellation cause. No cancellation callback runs after Close
+// returns. Other handshake failures are returned as they occur: a read
+// failure before the deadline remains a read failure even if closing the
+// transport takes it past the deadline.
 //
-// code and reason are validated before any I/O on an open connection. On a
-// connection already closed, CloseContext releases the buffers and returns nil.
-// If ctx already ended or setting the deadline fails, CloseContext abandons the
-// handshake: a writer interrupted by that close does not retain its error. If
-// ctx ends during the handshake, CloseContext returns the context error, but
-// a concurrent writer retains its own transport failure for subsequent writes.
-// A drain ending before the budget expires returns its error, even if closing
-// the transport later takes it past the deadline.
+// If ctx has already ended or setting the deadline fails, Close abandons the
+// handshake before writing. A concurrent writer interrupted by that close
+// does not retain its error. If ctx ends during the handshake, the writer
+// retains its own transport failure for subsequent writes.
 //
-// The deadline applies to transport I/O in both directions and overwrites
-// application deadlines; neither deadline may be changed during the handshake.
-// It does not bound a caller-supplied compressor holding the write lock or the
-// transport's own Close. In particular TLS can spend up to five additional
-// seconds sending close_notify.
-func (c *Conn) CloseContext(ctx context.Context, code CloseCode, reason string) error {
+// Close overwrites both transport deadlines; neither may be changed during
+// the handshake. The deadline bounds transport I/O, not a caller-supplied
+// [DeflateBackend] holding the write lock or the transport's own Close.
+// TLS can spend up to five additional seconds sending close_notify.
+func (c *Conn) Close(ctx context.Context, code CloseCode, reason string) error {
 	if err := c.selectMode(connModeMessage); err != nil {
 		return err
 	}
@@ -829,7 +785,7 @@ func (c *Conn) CloseContext(ctx context.Context, code CloseCode, reason string) 
 }
 
 // validateCloseArgs checks a closing-handshake code and reason exactly
-// as [Conn.Close], [Conn.CloseContext], and [Conn.WriteClose] document:
+// as [Conn.Close] and [Conn.WriteClose] document:
 // code must be sendable per [ValidCloseCode], reason must be valid
 // UTF-8 (RFC 6455 §5.5.1) and, with the 2-byte code, fit a control
 // frame's 125-byte payload (RFC 6455 §5.5).
