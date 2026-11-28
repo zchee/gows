@@ -49,6 +49,7 @@ func TestPeerTextInCanonicalHeaderName(t *testing.T) {
 func TestErrorsCarryNoPeerText(t *testing.T) {
 	const refusedBody = "denied: " + peerMark
 	const redirectHost = peerMark + ".invalid"
+	const redirectAddr = "127.0.0.1:80"
 	redirect := func(*testing.T, []byte) string { return redirectResponse("ws://" + redirectHost) }
 	dialFailure := errors.New("test dial failure")
 	fail := func(string) error { return dialFailure }
@@ -182,6 +183,9 @@ func TestErrorsCarryNoPeerText(t *testing.T) {
 		"native dial redirect path query userinfo": {
 			dialer: func(t *testing.T) *gows.Dialer {
 				return &gows.Dialer{
+					NetDial: failSecondDial(redirectAddr, func(string) error {
+						return &net.OpError{Op: "dial", Net: "tcp", Err: syscall.ECONNREFUSED}
+					}),
 					CheckRedirect: func(req *http.Request, _ []*http.Request) error {
 						if req.URL.Path != "/p/"+peerMark || req.URL.RawQuery != "q="+peerMark || req.URL.User != nil {
 							t.Errorf("CheckRedirect URL = %v (User=%v), want path=/p/%s query=q=%s nil userinfo", req.URL, req.URL.User, peerMark, peerMark)
@@ -190,15 +194,8 @@ func TestErrorsCarryNoPeerText(t *testing.T) {
 					},
 				}
 			},
-			respond: func(t *testing.T, _ []byte) string {
-				ln, err := net.Listen("tcp", "127.0.0.1:0")
-				if err != nil {
-					t.Fatalf("listen dead hop: %v", err)
-				}
-				deadAddr := ln.Addr().String()
-				_ = ln.Close()
-				loc := "ws://u:" + peerMark + "@" + deadAddr + "/p/" + peerMark + "?q=" + peerMark
-				return "HTTP/1.1 302 Found\r\nLocation: " + loc + "\r\nContent-Length: 0\r\n\r\n"
+			respond: func(*testing.T, []byte) string {
+				return redirectResponse("ws://u:" + peerMark + "@" + redirectAddr + "/p/" + peerMark + "?q=" + peerMark)
 			},
 			check: func(t *testing.T, err error) {
 				if _, ok := errors.AsType[*net.OpError](err); !ok || !errors.Is(err, syscall.ECONNREFUSED) {
