@@ -54,7 +54,7 @@ func TestReadFrameControlsAndFragments(t *testing.T) {
 			add(OpcodeClose, true, nil)
 			nc := &scriptConn{in: wire, chunk: 1}
 			c := NewServerConn(nc)
-			defer c.Abort()
+			defer c.CloseNow()
 			for i, expected := range want {
 				f, err := c.ReadFrame()
 				if err != nil || f.Header != expected.Header || f.Compressed || !bytes.Equal(f.Payload, expected.Payload) {
@@ -99,7 +99,7 @@ func TestReadFrameProtocolErrors(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			nc := &scriptConn{in: tt.wire}
 			c := newConn(nc, tt.client, []ConnOption{WithCompression(tt.compression)})
-			defer c.Abort()
+			defer c.CloseNow()
 			var err error
 			for range 3 {
 				if _, err = c.ReadFrame(); err != nil {
@@ -127,7 +127,7 @@ func TestReadFrameBufferedPrefixes(t *testing.T) {
 			buffered := bytes.Clone(wire[:prefix])
 			c := NewServerConn(&scriptConn{in: wire[prefix:], chunk: 1}, WithBuffered(buffered), WithReadBufferSize(16))
 			clear(buffered)
-			defer c.Abort()
+			defer c.CloseNow()
 			for _, want := range []string{"payload", "next"} {
 				f, err := c.ReadFrame()
 				if err != nil || string(f.Payload) != want {
@@ -158,7 +158,7 @@ func TestReadFrameLimitsAndTruncation(t *testing.T) {
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
 			c := NewServerConn(&scriptConn{in: tt.wire}, WithReadLimit(tt.limit))
-			defer c.Abort()
+			defer c.CloseNow()
 			var err error
 			for range 4 {
 				if _, err = c.ReadFrame(); err != nil {
@@ -180,30 +180,25 @@ func TestReadFrameLimitsAndTruncation(t *testing.T) {
 	}
 }
 
-func TestAbortBlockedFrameRead(t *testing.T) {
+func TestCloseNowKeepsHeldPayload(t *testing.T) {
 	nc, peer := net.Pipe()
 	defer peer.Close()
-	c := NewClientConn(nc)
-	done := make(chan error, 1)
-	go func() { _, err := c.ReadFrame(); done <- err }()
-	// A complete header proves the read has entered frame mode and is blocked
-	// waiting for its payload before Abort interrupts the transport.
-	if _, err := peer.Write([]byte{0x82, 1}); err != nil {
+	const want = "held payload"
+	c := NewServerConn(nc, WithBuffered(clientFrame(true, OpcodeText, []byte(want))))
+	f, err := c.ReadFrame()
+	if err != nil {
 		t.Fatal(err)
 	}
-	if err := c.Abort(); err != nil {
+	if err := awaitResult(t, "CloseNow", asyncResult(c.CloseNow)); err != nil {
 		t.Fatal(err)
 	}
-	if err := <-done; err == nil {
-		t.Fatal("blocked read succeeded after Abort")
+	if string(f.Payload) != want || c.rbuf == nil || c.msgBuf == nil {
+		t.Fatalf("after CloseNow: payload = %q, read buffer present = %v, payload buffer present = %v", f.Payload, c.rbuf != nil, c.msgBuf != nil)
 	}
-	if err := c.Abort(); err != nil {
-		t.Fatal(err)
+	if _, err := c.ReadFrame(); err != io.ErrClosedPipe {
+		t.Fatalf("ReadFrame = %v, want %v", err, io.ErrClosedPipe)
 	}
 	if c.rbuf != nil || c.msgBuf != nil {
-		t.Fatal("read buffers retained after Abort")
-	}
-	if _, err := c.ReadFrame(); err == nil {
-		t.Fatal("read succeeded after Abort")
+		t.Fatal("ReadFrame retained buffers after observing the closed transport")
 	}
 }

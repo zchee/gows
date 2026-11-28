@@ -25,7 +25,7 @@ type frameWriteState struct {
 // never mutating it. op and fin explicitly select fragment boundaries, including
 // empty fragments. The connection role determines masking, with a fresh key per
 // client frame. Frame writes are serialized and may run alongside one reader.
-// SetWriteDeadline or Abort interrupts blocked writes; write failures are sticky.
+// SetWriteDeadline or [Conn.CloseNow] interrupts blocked writes; write failures are sticky.
 //
 // compress selects compression only on the opening Text or Binary frame and
 // must match that selection on every continuation. Compression must have been

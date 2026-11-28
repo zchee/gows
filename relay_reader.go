@@ -37,13 +37,13 @@ type frameReadState struct {
 // ProtocolError. Other transport errors are preserved and terminal.
 //
 // Payload is unmasked but remains wire-compressed when Compressed is true.
-// Its storage belongs to the Conn and is valid until the next ReadFrame or
-// Abort. Copy it before retaining it or writing concurrently with another read.
+// Its storage belongs to the Conn and is valid until the next ReadFrame.
+// [Conn.CloseNow] does not invalidate it. Copy it before retaining it across reads.
 // WithBuffered bytes are consumed before the transport and are never reread.
 // The read limit bounds total wire bytes across a data message; compressed
 // plaintext must additionally be validated and bounded by the frame decoder.
 //
-// One reader may run concurrently with one frame writer. Abort safely interrupts
+// One reader may run concurrently with one frame writer. [Conn.CloseNow] interrupts
 // either operation; SetReadDeadline can also interrupt a blocked read. Any read
 // error is sticky. Protocol violations never write an unsolicited Close frame.
 func (c *Conn) ReadFrame() (Frame, error) {
@@ -160,21 +160,4 @@ func (c *Conn) relayTransportError(err error) error {
 	c.readErr = err
 	c.teardown()
 	return err
-}
-
-// Abort abruptly closes a frame-mode transport without writing a control frame
-// or draining inbound data. It safely interrupts blocked frame reads and writes,
-// waits for their buffer use to finish, and releases connection buffers exactly
-// once. Repeated calls return nil. Calling Abort on a message-mode Conn returns
-// ErrConnMode; use the message-mode closing handshake or [Conn.CloseNow] on
-// that connection.
-func (c *Conn) Abort() error {
-	if err := c.selectMode(connModeFrame); err != nil {
-		return err
-	}
-	c.closeTransport()
-	c.frameReadMu.Lock()
-	defer c.frameReadMu.Unlock()
-	c.teardown()
-	return nil
 }

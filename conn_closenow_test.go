@@ -485,24 +485,6 @@ func TestCloseNowAnyMode(t *testing.T) {
 	}
 }
 
-func TestCloseNowModeExclusion(t *testing.T) {
-	t.Parallel()
-
-	t.Run("message-mode Abort", func(t *testing.T) {
-		a, b := net.Pipe()
-		defer a.Close()
-		defer b.Close()
-		c := NewServerConn(a)
-		go func() { _, _ = io.Copy(io.Discard, b) }()
-		if err := c.WriteMessage(OpcodeText, []byte("x")); err != nil {
-			t.Fatalf("WriteMessage: %v", err)
-		}
-		if err := c.Abort(); !errors.Is(err, ErrConnMode) {
-			t.Fatalf("Abort on a message-mode Conn = %v, want ErrConnMode", err)
-		}
-	})
-}
-
 // TestCloseNowDeliversBufferedMessages pins what a read after CloseNow
 // returns when complete messages are already in the read buffer: the read
 // path checks no flag, so it delivers them, and only the read that needs

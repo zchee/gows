@@ -51,7 +51,7 @@ func TestUpgradeHTTPResponseHeaders(t *testing.T) {
 					return
 				}
 				ws := gows.NewServerConn(conn, gows.WithBuffered(hs.Buffered))
-				defer ws.Abort()
+				defer ws.CloseNow()
 				frame, err := ws.ReadFrame()
 				if err == nil && (!frame.Header.Fin || frame.Header.Opcode != gows.OpcodeText || !bytes.Equal(frame.Payload, []byte("hello"))) {
 					err = fmt.Errorf("first frame = %+v", frame)

@@ -17,9 +17,73 @@ package gows
 import (
 	"bytes"
 	"errors"
+	"fmt"
+	"io"
+	"net"
 	"strings"
 	"testing"
 )
+
+type heldDeflateReader struct {
+	DeflateReader
+	entered chan struct{}
+	release <-chan struct{}
+}
+
+func (r *heldDeflateReader) Reset(src io.Reader, dict []byte) error {
+	close(r.entered)
+	<-r.release
+	return r.DeflateReader.Reset(src, dict)
+}
+
+func TestCloseNowDuringDecodeFrame(t *testing.T) {
+	entered, release := make(chan struct{}), make(chan struct{}, 1)
+	defer close(release)
+	backend := *defaultDeflateBackend
+	backend.NewReader = func(bits int) DeflateReader {
+		return &heldDeflateReader{defaultDeflateBackend.NewReader(bits), entered, release}
+	}
+	withDeflateBackend(t, &backend, defaultDeflateLevel, deflateWindowBits)
+
+	const want = "decode this buffered frame"
+	compressed, err := compressPayload([]byte(want))
+	if err != nil {
+		t.Fatal(err)
+	}
+	nc, peer := net.Pipe()
+	defer peer.Close()
+	wire := frameBytes(true, OpcodeText, RSV1, true, testKey, compressed)
+	c := NewServerConn(nc, WithCompression(true), WithBuffered(wire))
+	// A non-final outgoing fragment keeps a pooled compressor leased until teardown.
+	write := asyncResult(func() error { return c.WriteFrame(OpcodeBinary, false, []byte("pending"), true) })
+	readWireFrame(t, peer)
+	if err := awaitResult(t, "WriteFrame", write); err != nil || c.frameWrite.lease.pool == nil {
+		t.Fatalf("WriteFrame: err = %v, pooled lease present = %v", err, c.frameWrite.lease.pool != nil)
+	}
+	f, err := c.ReadFrame()
+	if err != nil {
+		t.Fatal(err)
+	}
+	read := asyncResult(func() error {
+		p, complete, err := c.DecodeFrame(f)
+		if err != nil || !complete || string(p) != want {
+			return fmt.Errorf("DecodeFrame = (%q, %t, %v), want (%q, true, nil)", p, complete, err, want)
+		}
+		_, err = c.ReadFrame()
+		return err
+	})
+	awaitResult(t, "decoder entry", entered)
+	if err := awaitResult(t, "CloseNow during DecodeFrame", asyncResult(c.CloseNow)); err != nil {
+		t.Fatal(err)
+	}
+	release <- struct{}{}
+	if err := awaitResult(t, "frame reader", read); err != io.ErrClosedPipe {
+		t.Fatalf("frame reader = %v, want %v", err, io.ErrClosedPipe)
+	}
+	if c.rbuf != nil || c.msgBuf != nil || c.inflateBuf != nil || c.frameDecode.buf != nil || c.frameWrite.lease.w != nil {
+		t.Fatal("frame reader retained buffers or the compressor lease after reading the closed pipe")
+	}
+}
 
 func TestDecodeFrameLifecycle(t *testing.T) {
 	tests := map[string]struct {
@@ -34,7 +98,7 @@ func TestDecodeFrameLifecycle(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			nc := &scriptConn{}
 			src := newConn(nc, tt.client, []ConnOption{WithCompressionParams(tt.params)})
-			defer src.Abort()
+			defer src.CloseNow()
 			messages := []string{strings.Repeat("dictionary ", 200), "plain", strings.Repeat("dictionary ", 200), "", strings.Repeat("dictionary ", 200)}
 			for i, p := range messages {
 				cut := len(p) / 2
@@ -50,7 +114,7 @@ func TestDecodeFrameLifecycle(t *testing.T) {
 				}
 			}
 			dst := newConn(&scriptConn{}, !tt.client, []ConnOption{WithCompressionParams(tt.params), WithBuffered(nc.out.Bytes())})
-			defer dst.Abort()
+			defer dst.CloseNow()
 			for i, want := range messages {
 				var got []byte
 				for {
@@ -98,7 +162,7 @@ func TestDecodeFrameErrors(t *testing.T) {
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
 			c := NewClientConn(&scriptConn{}, WithCompression(true), WithReadLimit(tt.limit))
-			defer c.Abort()
+			defer c.CloseNow()
 			f := Frame{Header: Header{Opcode: tt.op, Fin: true, Rsv: RSV1, Length: int64(len(tt.payload))}, Payload: tt.payload, Compressed: true}
 			_, _, err := c.DecodeFrame(f)
 			pe, ok := errors.AsType[*ProtocolError](err)
@@ -114,7 +178,7 @@ func TestDecodeFrameErrors(t *testing.T) {
 		})
 	}
 	c := NewClientConn(&scriptConn{}, WithCompression(true))
-	defer c.Abort()
+	defer c.CloseNow()
 	f := Frame{Header: Header{Opcode: OpcodePing, Fin: true}}
 	if _, _, err := c.DecodeFrame(f); err == nil {
 		t.Fatal("decoder accepted a control")
@@ -142,7 +206,7 @@ func TestDecodeFrameInvalidText(t *testing.T) {
 		t.Fatal(err)
 	}
 	c := NewClientConn(&scriptConn{}, WithCompression(true))
-	defer c.Abort()
+	defer c.CloseNow()
 	f := Frame{Header: Header{Opcode: OpcodeText, Rsv: RSV1, Fin: true, Length: int64(len(p))}, Payload: p, Compressed: true}
 	if _, _, err := c.DecodeFrame(f); err == nil {
 		t.Fatal("decoder accepted compressed invalid UTF-8")
@@ -153,17 +217,17 @@ func TestDecodeFrameRelayRecompression(t *testing.T) {
 	p := []byte(strings.Repeat("message ", 200))
 	wire := &scriptConn{}
 	inbound := NewServerConn(wire, WithCompressionParams(CompressionParams{ServerContextTakeover: true}))
-	defer inbound.Abort()
+	defer inbound.CloseNow()
 	for range 3 {
 		if err := inbound.WriteFrame(OpcodeBinary, true, p, true); err != nil {
 			t.Fatal(err)
 		}
 	}
 	reader := NewClientConn(&scriptConn{}, WithCompressionParams(CompressionParams{ServerContextTakeover: true}), WithBuffered(wire.out.Bytes()))
-	defer reader.Abort()
+	defer reader.CloseNow()
 	out := &scriptConn{}
 	writer := NewClientConn(out, WithCompression(true))
-	defer writer.Abort()
+	defer writer.CloseNow()
 	for range 3 {
 		f, err := reader.ReadFrame()
 		if err != nil {
@@ -179,7 +243,7 @@ func TestDecodeFrameRelayRecompression(t *testing.T) {
 		}
 	}
 	target := NewServerConn(&scriptConn{}, WithCompression(true), WithBuffered(out.out.Bytes()))
-	defer target.Abort()
+	defer target.CloseNow()
 	for range 3 {
 		f, err := target.ReadFrame()
 		if err != nil {

@@ -30,7 +30,7 @@ func TestWriteFrameFragments(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			nc := &scriptConn{}
 			c := newConn(nc, tt.client, []ConnOption{WithCompression(tt.compressed)})
-			defer c.Abort()
+			defer c.CloseNow()
 			frames := []Frame{
 				{Header: Header{Opcode: OpcodeText}, Payload: []byte("hello")},
 				{Header: Header{Opcode: OpcodePing, Fin: true}, Payload: []byte("control")},
@@ -48,7 +48,7 @@ func TestWriteFrameFragments(t *testing.T) {
 				}
 			}
 			reader := newConn(&scriptConn{in: nc.out.Bytes()}, !tt.client, []ConnOption{WithCompression(tt.compressed)})
-			defer reader.Abort()
+			defer reader.CloseNow()
 			var compressed []byte
 			for i, want := range frames {
 				f, err := reader.ReadFrame()
@@ -95,7 +95,7 @@ func TestWriteFrameUsage(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			nc := &scriptConn{}
 			c := NewServerConn(nc)
-			defer c.Abort()
+			defer c.CloseNow()
 			err := c.WriteFrame(tt.op, tt.fin, tt.payload, tt.compress)
 			if _, ok := errors.AsType[*FrameUsageError](err); !ok {
 				t.Fatalf("error = %v, want FrameUsageError", err)
@@ -110,7 +110,7 @@ func TestWriteFrameUsage(t *testing.T) {
 	}
 	nc := &scriptConn{}
 	c := NewServerConn(nc, WithCompression(true))
-	defer c.Abort()
+	defer c.CloseNow()
 	if err := c.WriteFrame(OpcodeBinary, false, nil, true); err != nil {
 		t.Fatal(err)
 	}
@@ -140,32 +140,11 @@ type shortFrameConn struct{ scriptConn }
 func (c *shortFrameConn) Write(p []byte) (int, error) { return len(p) - 1, nil }
 func TestWriteFrameShortWrite(t *testing.T) {
 	c := NewServerConn(&shortFrameConn{})
-	defer c.Abort()
+	defer c.CloseNow()
 	if err := c.WriteFrame(OpcodeBinary, true, []byte("x"), false); !errors.Is(err, io.ErrShortWrite) {
 		t.Fatalf("short write: %v", err)
 	}
 	if err := c.WriteFrame(OpcodeBinary, true, nil, false); !errors.Is(err, io.ErrShortWrite) {
 		t.Fatalf("sticky write: %v", err)
-	}
-}
-
-func TestAbortBlockedFrameWrite(t *testing.T) {
-	nc, peer := net.Pipe()
-	defer peer.Close()
-	c := NewClientConn(nc)
-	done := make(chan error, 1)
-	go func() { done <- c.WriteFrame(OpcodeBinary, true, []byte("blocked"), false) }()
-	// Reading the header byte establishes an in-flight write with unread bytes.
-	if _, err := io.ReadFull(peer, make([]byte, 1)); err != nil {
-		t.Fatal(err)
-	}
-	if err := c.Abort(); err != nil {
-		t.Fatal(err)
-	}
-	if err := <-done; err == nil {
-		t.Fatal("blocked write succeeded")
-	}
-	if c.wpay != nil || c.wstage != nil {
-		t.Fatal("writer buffers retained after Abort")
 	}
 }

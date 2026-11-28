@@ -156,8 +156,8 @@ type Conn struct {
 	teardownOnce       sync.Once
 	closeTimeout       time.Duration
 	mode               atomic.Uint32 // permanent message/frame API selection.
-	frameReadMu        sync.Mutex    // coordinates frame reads and Abort.
-	transportOnce      sync.Once     // closes the transport once, for teardown, Abort, and CloseNow alike.
+	frameReadMu        sync.Mutex    // serializes ReadFrame and DecodeFrame.
+	transportOnce      sync.Once     // shared by teardown, CloseNow, and write failures.
 	closedNow          atomic.Bool   // CloseNow (or a context ending a call) closed the transport; read only on error paths.
 	frameRead          frameReadState
 	frameWrite         frameWriteState  // guarded by wmu.
@@ -594,7 +594,7 @@ func (c *Conn) teardown() {
 }
 
 // closeTransport closes the underlying connection, exactly once across
-// teardown, [Conn.Abort], [Conn.CloseNow], and a frame write failure.
+// teardown, [Conn.CloseNow], and write failures.
 func (c *Conn) closeTransport() {
 	c.transportOnce.Do(func() { _ = c.conn.Close() })
 }
