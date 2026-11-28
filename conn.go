@@ -435,23 +435,26 @@ type CloseError struct {
 	// Code is the close status code (RFC 6455 §7.4). For a peer Close frame
 	// with no body it is [CloseNoStatusReceived] (1005).
 	Code CloseCode
-	// Reason is the close reason text, if any.
+	// Reason is the close reason text, if any. When Sent is false, Reason is
+	// peer-controlled and is deliberately excluded from Error's text.
 	Reason string
 	// Sent reports whether this Conn originated the close (true) or observed
 	// the peer's Close frame (false).
 	Sent bool
 }
 
-// Error implements the error interface.
+// Error implements the error interface. A close this Conn sent (Sent true:
+// a caller-supplied or protocol-violation reason) formats the direction, code,
+// and non-empty Reason; a received close (Sent false) formats only the
+// direction and code so peer-controlled text never reaches the error string.
 func (e *CloseError) Error() string {
-	dir := "received"
-	if e.Sent {
-		dir = "sent"
+	if !e.Sent {
+		return "gows: connection closed (received code " + strconv.Itoa(int(e.Code)) + ")"
 	}
 	if e.Reason == "" {
-		return "gows: connection closed (" + dir + " code " + strconv.Itoa(int(e.Code)) + ")"
+		return "gows: connection closed (sent code " + strconv.Itoa(int(e.Code)) + ")"
 	}
-	return "gows: connection closed (" + dir + " code " + strconv.Itoa(int(e.Code)) + "): " + e.Reason
+	return "gows: connection closed (sent code " + strconv.Itoa(int(e.Code)) + "): " + e.Reason
 }
 
 // Is reports whether target is [net.ErrClosed], letting callers test a

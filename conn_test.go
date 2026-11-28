@@ -642,13 +642,33 @@ func TestSetDeadlines(t *testing.T) {
 
 func TestCloseErrorFormat(t *testing.T) {
 	t.Parallel()
-	withReason := &CloseError{Code: CloseNormalClosure, Reason: "bye", Sent: true}
-	noReason := &CloseError{Code: CloseProtocolError, Sent: false}
-	if !strings.Contains(withReason.Error(), "bye") || !strings.Contains(withReason.Error(), "1000") {
-		t.Errorf("Error() = %q, want it to mention reason and code", withReason.Error())
+	tests := map[string]struct {
+		err  CloseError
+		want string
+	}{
+		"sent with reason": {
+			err:  CloseError{Code: CloseNormalClosure, Reason: "bye", Sent: true},
+			want: "gows: connection closed (sent code 1000): bye",
+		},
+		"sent without reason": {
+			err:  CloseError{Code: CloseNormalClosure, Sent: true},
+			want: "gows: connection closed (sent code 1000)",
+		},
+		"received without reason": {
+			err:  CloseError{Code: CloseProtocolError, Sent: false},
+			want: "gows: connection closed (received code 1002)",
+		},
+		"received with reason": {
+			err:  CloseError{Code: CloseNormalClosure, Reason: "bye", Sent: false},
+			want: "gows: connection closed (received code 1000)",
+		},
 	}
-	if !strings.Contains(noReason.Error(), "1002") {
-		t.Errorf("Error() = %q, want it to mention code", noReason.Error())
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			if got := tt.err.Error(); got != tt.want {
+				t.Errorf("Error() = %q, want %q", got, tt.want)
+			}
+		})
 	}
 }
 

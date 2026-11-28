@@ -314,6 +314,58 @@ func TestErrorsCarryNoPeerText(t *testing.T) {
 				<-serverDone
 			},
 		},
+		"Conn received Close reason": {
+			run: func(t *testing.T) {
+				serverConn, clientConn := net.Pipe()
+				t.Cleanup(func() {
+					_ = clientConn.Close()
+					_ = serverConn.Close()
+				})
+				ws := gows.NewClientConn(clientConn)
+				t.Cleanup(func() { _ = ws.CloseNow() })
+
+				payload := append([]byte{0x03, 0xe8}, peerMark...)
+				frame := append([]byte{0x88, byte(len(payload))}, payload...)
+				serverDone := make(chan struct{})
+				go func() {
+					defer close(serverDone)
+					_, _ = serverConn.Write(frame)
+					_, _ = io.Copy(io.Discard, serverConn)
+				}()
+
+				_, _, err := ws.ReadMessage()
+				if err == nil {
+					t.Fatal("ReadMessage err = nil, want *CloseError")
+				}
+				if !errors.Is(err, net.ErrClosed) {
+					t.Fatalf("ReadMessage err = %v, want errors.Is net.ErrClosed", err)
+				}
+				ce, ok := errors.AsType[*gows.CloseError](err)
+				if !ok || ce.Sent || ce.Code != gows.CloseNormalClosure || ce.Reason != peerMark {
+					t.Fatalf("CloseError = %+v (ok=%v), want Sent=false Code=%d Reason=%q", ce, ok, gows.CloseNormalClosure, peerMark)
+				}
+				assertNoPeerText(t, err, peerMark)
+
+				_ = serverConn.Close()
+				<-serverDone
+			},
+		},
+		"ParseClose received reason": {
+			run: func(t *testing.T) {
+				payload := append([]byte{0x03, 0xe8}, peerMark...)
+				ce, err := gows.ParseClose(payload)
+				if err != nil {
+					t.Fatalf("ParseClose err = %v, want nil", err)
+				}
+				if ce.Sent || ce.Code != gows.CloseNormalClosure || ce.Reason != peerMark {
+					t.Fatalf("ParseClose = %+v, want Sent=false Code=%d Reason=%q", ce, gows.CloseNormalClosure, peerMark)
+				}
+				if strings.Contains(ce.Error(), peerMark) {
+					t.Fatalf("CloseError.Error() = %q, must not contain %q", ce.Error(), peerMark)
+				}
+				assertNoPeerText(t, &ce, peerMark)
+			},
+		},
 	}
 	for name, tt := range connTests {
 		t.Run(name, tt.run)
