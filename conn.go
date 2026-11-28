@@ -659,46 +659,48 @@ func (c *Conn) WriteClose(code CloseCode, reason string) error {
 	return err
 }
 
-// Close performs the WebSocket closing handshake (RFC 6455 §7): it sends a
-// Close frame with the given code and reason (unless one was already sent),
-// waits for the peer's Close frame, and closes the transport. Call Close on
-// the reading goroutine or after it has returned. To send a Close frame while
-// a reader is active, use [Conn.WriteClose]; to close abruptly from any
+// Close performs the WebSocket closing handshake (RFC 6455 §7): it attempts to
+// send the given code and reason if the write side is still open, waits for the
+// peer's Close frame if the send did not fail, and closes the transport. Call
+// Close on the reading goroutine or after it has returned. To send a Close frame
+// while a reader is active, use [Conn.WriteClose]; to close abruptly from any
 // goroutine, use [Conn.CloseNow]. Close returns [ErrConnMode] in frame mode.
 //
 // On an open connection, code must be sendable per [ValidCloseCode]
 // ([ErrInvalidCloseCode] otherwise), and reason must be valid UTF-8
 // ([ErrInvalidCloseReason]) and fit in 123 bytes ([ErrCloseReasonTooLong]).
 // Invalid arguments leave the connection usable. Close is idempotent: on an
-// already closed connection it writes nothing, releases the buffers, and
+// already closed connection it writes nothing, releases its pooled buffers, and
 // returns nil, even if an earlier write failed.
 //
 // The write and the wait share ctx's deadline or, if ctx has none, one
 // deadline set by [WithCloseTimeout]. Expiry of the close timeout returns
 // an error matching [ErrCloseTimeout]. If ctx ends the handshake, Close
-// closes the transport and returns an error matching ctx.Err() and any
-// distinct cancellation cause. No cancellation callback runs after Close
-// returns.
+// closes the transport and returns an error matching ctx.Err(). It also wraps
+// the cancellation cause if that cause does not itself match ctx.Err(). No
+// cancellation callback runs after Close returns.
 //
-// Unless ctx ends the handshake, a send or read error matching
-// [os.ErrDeadlineExceeded] counts as deadline expiry if the deadline has passed
-// when Close observes the error. On reads this includes time spent closing the
-// transport. If Close finds the connection marked for abrupt closure with nothing
-// left to send at or after the deadline, it reports expiry instead of the read
-// error unless it receives the peer's Close. This can happen when the shared
-// deadline interrupts a writer holding the write lock. Close returns other send
-// and read failures unchanged. If the peer's Close reply fails validation, Close
-// returns a [*CloseError] with Sent set to true.
+// Once the deadline is set, the following results apply unless ctx ends the
+// handshake. A nil result means the reader accepted the peer's Close frame.
+// If the reader receives the frame but rejects its body, Close returns the
+// reader's protocol error. A send or read error matching [os.ErrDeadlineExceeded]
+// counts as expiry if Close observes it at or after the deadline. For a read,
+// this check follows the transport's Close. Expiry can also take precedence over
+// a read error, as when the deadline interrupts a writer holding the write lock.
+// Otherwise Close returns the write side's error for a failed send or the
+// reader's error for a failed wait. The reader reports a protocol violation it
+// detects as a [*CloseError] with Sent set to true.
 //
 // If ctx has already ended or setting the deadline fails, Close abandons the
 // handshake before writing. A concurrent writer interrupted by that close
-// does not retain its error. If ctx ends during the handshake, the writer
-// retains its own transport failure for subsequent writes.
+// does not retain its error. Unless an abrupt local close intervenes, a writer
+// interrupted by ctx during the handshake retains its transport failure for
+// subsequent data writes.
 //
 // Close overwrites both transport deadlines; neither may be changed during
 // the handshake. The deadline bounds transport I/O, not a caller-supplied
 // [DeflateBackend] holding the write lock or the transport's own Close.
-// TLS can spend up to five additional seconds sending close_notify.
+// Closing a TLS transport can take additional time to send close_notify.
 func (c *Conn) Close(ctx context.Context, code CloseCode, reason string) error {
 	if err := c.selectMode(connModeMessage); err != nil {
 		return err
