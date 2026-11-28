@@ -17,6 +17,7 @@ package gows_test
 import (
 	"context"
 	"crypto/tls"
+	"crypto/x509"
 	"errors"
 	"io"
 	"net"
@@ -36,22 +37,58 @@ import (
 // peerSecret is text a peer controls. No error a Dial returns may carry it.
 const peerSecret = "PEERSECRET"
 
-// errorTexts returns the Error text of err and of every error it wraps,
-// following both Unwrap() error and Unwrap() []error.
-func errorTexts(err error) []string {
+// errorLinks returns err and every non-nil error it wraps, following both
+// Unwrap() error and Unwrap() []error.
+func errorLinks(err error) []error {
 	if err == nil {
 		return nil
 	}
-	texts := []string{err.Error()}
+	links := []error{err}
 	switch u := err.(type) {
 	case interface{ Unwrap() error }:
-		texts = append(texts, errorTexts(u.Unwrap())...)
+		links = append(links, errorLinks(u.Unwrap())...)
 	case interface{ Unwrap() []error }:
 		for _, e := range u.Unwrap() {
-			texts = append(texts, errorTexts(e)...)
+			links = append(links, errorLinks(e)...)
 		}
 	}
+	return links
+}
+
+// errorTexts returns the Error text of err and of every error it wraps,
+// following both Unwrap() error and Unwrap() []error.
+func errorTexts(err error) []string {
+	links := errorLinks(err)
+	if len(links) == 0 {
+		return nil
+	}
+	texts := make([]string, len(links))
+	for i, link := range links {
+		texts[i] = link.Error()
+	}
 	return texts
+}
+
+// ownText returns err's Error text with each direct child's Error text removed
+// once.
+func ownText(err error) string {
+	if err == nil {
+		return ""
+	}
+	s := err.Error()
+	switch u := err.(type) {
+	case interface{ Unwrap() error }:
+		if child := u.Unwrap(); child != nil {
+			s = strings.Replace(s, child.Error(), "", 1)
+		}
+	case interface{ Unwrap() []error }:
+		for _, child := range u.Unwrap() {
+			if child != nil {
+				s = strings.Replace(s, child.Error(), "", 1)
+			}
+		}
+	}
+	return s
 }
 
 // assertNoPeerText fails the test when secret appears in the text of err
@@ -62,6 +99,30 @@ func assertNoPeerText(t *testing.T, err error, secret string) {
 		if strings.Contains(text, secret) {
 			t.Fatalf("error tree carries peer text %q: %q (top: %v)", secret, text, err)
 		}
+	}
+}
+
+// assertPeerTextOnlyInAllowedLinks fails the test unless every link of err's
+// tree whose own text contains secret belongs to the network and TLS error
+// classes permitted to name a peer-chosen host or certificate name, and at
+// least one such link exists.
+func assertPeerTextOnlyInAllowedLinks(t *testing.T, err error, secret string) {
+	t.Helper()
+	matched := 0
+	for _, link := range errorLinks(err) {
+		own := ownText(link)
+		if !strings.Contains(own, secret) {
+			continue
+		}
+		switch link.(type) {
+		case *net.DNSError, *net.OpError, *net.AddrError, *tls.CertificateVerificationError, x509.HostnameError:
+			matched++
+		default:
+			t.Fatalf("error link %T carries peer text %q in its own text %q (top: %v)", link, secret, own, err)
+		}
+	}
+	if matched == 0 {
+		t.Fatalf("no allowed error link carries peer text %q (top: %v)", secret, err)
 	}
 }
 
