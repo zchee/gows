@@ -222,12 +222,12 @@ func (a *application) afterClientCase(n, count int) {
 func (a *application) dialCase(url string) (*gows.Conn, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), caseTimeout)
 	defer cancel()
-	conn, hs, err := a.config.Dialer.DialNetConn(ctx, url)
+	c, _, err := a.config.Dialer.Dial(ctx, url, gows.WithReadLimit(readLimit))
 	if err != nil {
 		return nil, fmt.Errorf("dial %s: %w", url, err)
 	}
-	_ = conn.SetReadDeadline(time.Now().Add(caseTimeout))
-	return gows.NewClientConn(conn, connOptions(hs)...), nil
+	_ = c.SetReadDeadline(time.Now().Add(caseTimeout))
+	return c, nil
 }
 
 func connOptions(hs gows.Handshake) []gows.ConnOption {

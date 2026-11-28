@@ -115,7 +115,7 @@ func dialSession(t *testing.T, srv *httptest.Server, token string) (*gows.Conn, 
 		return nil, nil, err
 	}
 	sc := &readSignalConn{Conn: conn, reading: make(chan struct{})}
-	c := gows.NewClientConn(sc, gows.WithBuffered(hs.Buffered), gows.WithCompression(hs.Compressed))
+	c := gows.NewClientConn(sc, gows.WithHandshake(hs))
 	t.Cleanup(func() { _ = c.CloseNow() })
 	return c, sc.reading, nil
 }

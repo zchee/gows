@@ -199,7 +199,7 @@ func dialClient(ctx context.Context, client clientKind, rawURL string, message m
 			_ = conn.Close()
 			return nil, err
 		}
-		return &gowsClient{conn: conn, ws: gows.NewClientConn(conn, gows.WithBuffered(handshake.Buffered)), opcode: opcode}, nil
+		return &gowsClient{conn: conn, ws: gows.NewClientConn(conn, gows.WithHandshake(handshake)), opcode: opcode}, nil
 	case clientGobwas:
 		conn, reader, _, err := ws.Dial(ctx, rawURL)
 		if err != nil {
