@@ -791,6 +791,9 @@ func TestCloseConcurrentBlockedWrite(t *testing.T) {
 					t.Fatalf("Close = %v, buffer released = %t", err, c.rbuf == nil)
 				}
 				later(t, c, e)
+				if err := c.WriteClose(CloseNormalClosure, "bye"); err != e {
+					t.Fatalf("WriteClose = %v (%p); want retained error %v (%p)", err, err, e, e)
+				}
 				final(t, c, spy)
 			})
 		}
@@ -856,6 +859,9 @@ func TestCloseConcurrentBlockedWrite(t *testing.T) {
 		e := within(t, "writer", bound, w)
 		requireWriteFailure(t, e, cause)
 		later(t, c, e)
+		if err := c.WriteClose(CloseNormalClosure, "bye"); err != e {
+			t.Fatalf("WriteClose = %v (%p); want retained error %v (%p)", err, err, e, e)
+		}
 		final(t, c, spy)
 	})
 }
