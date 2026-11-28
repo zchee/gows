@@ -398,9 +398,13 @@ type messageWriter struct {
 // §5.4 permits control frames between fragments). A data message cannot: a
 // concurrent [Conn.WriteMessage], [Conn.WriteMessageBuffered],
 // [Conn.WritePreparedMessage], or second NextWriter, from any goroutine,
-// returns [ErrWriterBusy] without writing until this writer is Closed. An
-// un-Closed writer therefore blocks all future data writes on the Conn; the
-// refusal is the safety net rather than silent stream corruption.
+// returns [ErrWriterBusy] while this writer is open and the Conn can still
+// write data. A fragment transport failure, or a compression or framing
+// failure after a fragment was sent, ends writes on an open Conn: the writer
+// and subsequent data writes return the same error (see [Conn]). Before the
+// first fragment, a compression or framing error affects only this writer;
+// Close returns that error and frees the slot without sending a frame. Once
+// the Conn is closing, a compressor error likewise stays with the writer.
 //
 // Compression: when permessage-deflate ([WithCompression]) is negotiated and
 // outgoing compression is not disabled, NextWriter uses the same threshold
@@ -618,10 +622,13 @@ func (w *messageWriter) writeCompressed(p []byte) (int, error) {
 	_, err := w.lease.w.Write(p)
 	w.fedToCompressor = true
 	if err != nil {
+		w.err = fmt.Errorf("gows: compress message: %w", err)
 		c.wmu.Lock()
 		w.disableTakeoverIfFed()
+		if w.started && !c.closeSent && !c.tornDown.Load() && !c.closedNow.Load() {
+			w.err = c.retainWriteError(w.err)
+		}
 		c.wmu.Unlock()
-		w.err = fmt.Errorf("gows: compress message: %w", err)
 		return 0, w.err
 	}
 	c.wmu.Lock()
@@ -685,14 +692,19 @@ func (w *messageWriter) closeLargeLocked() error {
 // sync Flush, strip the 4-byte marker, emit the remainder as the final Fin
 // fragment. The caller must hold wmu.
 func (w *messageWriter) closeCompressedLocked() error {
-	if err := w.lease.w.Flush(); err != nil {
-		w.disableTakeoverIfFed()
-		return fmt.Errorf("gows: flush compressed message: %w", err)
-	}
+	err := w.lease.w.Flush()
 	out := w.lease.sw.b
-	if len(out) < len(deflateFlushTail) {
+	if err != nil {
+		err = fmt.Errorf("gows: flush compressed message: %w", err)
+	} else if len(out) < len(deflateFlushTail) {
+		err = errors.New("gows: compressed output shorter than the sync-flush marker")
+	}
+	if err != nil {
 		w.disableTakeoverIfFed()
-		return errors.New("gows: compressed output shorter than the sync-flush marker")
+		if c := w.c; w.started && !c.closeSent && !c.tornDown.Load() && !c.closedNow.Load() {
+			return c.retainWriteError(err)
+		}
+		return err
 	}
 	w.lease.sw.b = out[:len(out)-len(deflateFlushTail)]
 	if err := w.emitCompressedChunkLocked(w.lease.sw.b, true); err != nil {
