@@ -637,8 +637,10 @@ func TestCloseNowWaitsForTransportClose(t *testing.T) {
 // A stack sample can observe the join parked on sync.Once's mutex; testing/synctest cannot.
 func awaitTransportJoin(t *testing.T, method string, result <-chan error) {
 	t.Helper()
-	const pkg = "\ngithub.com/zchee/gows."
-	const connFrame = pkg + "(*Conn)."
+	pc, _, _, _ := runtime.Caller(0)
+	name := runtime.FuncForPC(pc).Name()
+	pkg := "\n" + name[:strings.LastIndexByte(name, '.')+1]
+	connFrame := pkg + "(*Conn)."
 	caller := connFrame + method + "("
 	test, _, _ := strings.Cut(t.Name(), "/")
 	testFrame := pkg + test + "."
