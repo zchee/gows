@@ -123,7 +123,7 @@ func (c *Conn) WritePreparedMessage(pm *PreparedMessage) error {
 	c.wmu.Lock()
 	defer c.wmu.Unlock()
 	if c.closeSent || c.tornDown.Load() {
-		return errWriteClosed
+		return c.closedWriteErr()
 	}
 	if c.msgWriter != nil {
 		return ErrWriterBusy

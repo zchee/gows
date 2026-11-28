@@ -73,12 +73,13 @@ const maxCoalescedWriteSize = 2 << 10
 // a Serve drain round from any goroutine sends all pending frames, and a
 // Serve handler error discards all of them. A deadline set with
 // [Conn.SetWriteDeadline] applies to every writer, including the read side's
-// automatic Pong. A write that fails may leave part of a frame on the wire.
-// After a failed application write the Conn still accepts later writes, so
-// treat any write error as fatal for the connection. A failed automatic Pong
-// instead ends the connection: the read side closes the transport and
-// returns the error, and later writes fail. That includes a Pong that times
-// out on a write deadline the application set for its own writes.
+// automatic Pong. In message mode, a transport error or short write may
+// leave a partial frame on the wire. Unless interrupted by a local close,
+// the failing write returns an error matching both its cause and [net.ErrClosed],
+// and starts closing the transport without waiting for Close. Later data
+// writes return that same error. A failed automatic Pong ends the reader with
+// that error too. Validation errors and compression errors before anything
+// is written do not close the connection.
 //
 // [Conn.Close] participates in the read
 // side and must not run concurrently with [Conn.ReadMessage] -- nor with
@@ -104,9 +105,8 @@ const maxCoalescedWriteSize = 2 << 10
 // amd64 L1D lines). TestConnFieldLayout pins the invariants with
 // unsafe.Offsetof so a future reorder cannot silently regress them:
 //
-//   - Every field the ReadMessage/NextReader hot path touches per frame lives
-//     in the first 128 bytes -- the whole read working set fits one M-series
-//     line (or two amd64 lines).
+//   - The first 128 bytes hold the read buffer, decoder and message state.
+//     ReadMessage and NextReader also check mode and teardown outside this region.
 //   - The write block (wmu and the write scratch/state that WriteMessage,
 //     the control replies, and NextWriter serialize under it) starts on the
 //     next 128-byte boundary, via an explicit pad, so a concurrent writer's
@@ -161,6 +161,7 @@ type Conn struct {
 	closedNow          atomic.Bool   // CloseNow (or a context ending a call) closed the transport; read only on error paths.
 	frameRead          frameReadState
 	frameWrite         frameWriteState  // guarded by wmu.
+	werr               error            // first terminal write error; guarded by wmu.
 	frameDecode        frameDecodeState // guarded by frameReadMu.
 }
 
@@ -464,13 +465,13 @@ func (e *CloseError) Is(target error) bool {
 }
 
 // SetReadDeadline sets the read deadline on the underlying connection; see
-// [net.Conn.SetReadDeadline].
+// [net.Conn.SetReadDeadline]. Do not change it during [Conn.CloseContext].
 func (c *Conn) SetReadDeadline(t time.Time) error {
 	return c.conn.SetReadDeadline(t)
 }
 
 // SetWriteDeadline sets the write deadline on the underlying connection; see
-// [net.Conn.SetWriteDeadline].
+// [net.Conn.SetWriteDeadline]. Do not change it during [Conn.CloseContext].
 func (c *Conn) SetWriteDeadline(t time.Time) error {
 	return c.conn.SetWriteDeadline(t)
 }
@@ -689,7 +690,7 @@ var errClosedNow = fmt.Errorf("gows: connection closed abruptly: %w", net.ErrClo
 // failure nothing is written. WriteClose is idempotent and safe for
 // concurrent use: once a Close frame has been sent (by any API) or the
 // connection is torn down, it returns nil without writing. A transport
-// failure while writing the frame is returned as-is.
+// failure while sending the frame is retained like a [Conn.WriteMessage] failure.
 //
 // Like every frame write, WriteClose blocks until the frame is written
 // or the connection's write deadline expires; bound it with
@@ -738,10 +739,20 @@ func (c *Conn) WriteClose(code CloseCode, reason string) error {
 // connection is closed on every path -- the error only reports whether
 // the closing handshake completed cleanly.
 //
-// code and reason are validated exactly as for [Conn.Close] before any
-// I/O, and like Close, CloseContext is idempotent: once the connection
-// is torn down it returns nil immediately. After [Conn.CloseNow] it writes
-// nothing, releases the buffers, and returns nil.
+// code and reason are validated before any I/O on an open connection. On a
+// connection already closed, CloseContext releases the buffers and returns nil.
+// If ctx already ended or setting the deadline fails, CloseContext abandons the
+// handshake: a writer interrupted by that close does not retain its error. If
+// ctx ends during the handshake, CloseContext returns the context error, but
+// a concurrent writer retains its own transport failure for subsequent writes.
+// A drain ending before the budget expires returns its error, even if closing
+// the transport later takes it past the deadline.
+//
+// The deadline applies to transport I/O in both directions and overwrites
+// application deadlines; neither deadline may be changed during the handshake.
+// It does not bound a caller-supplied compressor holding the write lock or the
+// transport's own Close. In particular TLS can spend up to five additional
+// seconds sending close_notify.
 func (c *Conn) CloseContext(ctx context.Context, code CloseCode, reason string) error {
 	if err := c.selectMode(connModeMessage); err != nil {
 		return err
@@ -757,7 +768,8 @@ func (c *Conn) CloseContext(ctx context.Context, code CloseCode, reason string) 
 		return err
 	}
 	if ctx.Err() != nil {
-		// Already ended: close the connection without writing anything.
+		// Mark the local close before the transport wakes a blocked writer.
+		c.closedNow.Store(true)
 		c.teardown()
 		return fmt.Errorf("gows: close: %w", contextError(ctx))
 	}
@@ -773,11 +785,17 @@ func (c *Conn) CloseContext(ctx context.Context, code CloseCode, reason string) 
 	}
 	g, err := guardConnClosing(ctx, c.conn, deadline, c.closeTransport)
 	if err != nil {
+		c.closedNow.Store(true)
 		c.teardown()
 		return fmt.Errorf("gows: set close deadline: %w", err)
 	}
 
 	sendErr := c.sendClose(code, []byte(reason))
+	// A writer holding wmu may have expired on our deadline, leaving sendClose
+	// nothing to send. Distinguish that from an earlier, unrelated failure
+	// before a slow transport Close can take us past the deadline.
+	sendExpired := errors.Is(sendErr, os.ErrDeadlineExceeded) && !time.Now().Before(deadline)
+	writerExpired := sendErr == nil && c.closedNow.Load() && !time.Now().Before(deadline)
 	var drainErr error
 	if sendErr == nil && !c.closeRcvd.Load() {
 		for {
@@ -787,6 +805,7 @@ func (c *Conn) CloseContext(ctx context.Context, code CloseCode, reason string) 
 			}
 		}
 	}
+	drainExpired := errors.Is(drainErr, os.ErrDeadlineExceeded) && !time.Now().Before(deadline)
 	clean := g.release()
 	closeRcvd := c.closeRcvd.Load()
 	c.teardown()
@@ -815,22 +834,15 @@ func (c *Conn) CloseContext(ctx context.Context, code CloseCode, reason string) 
 		// races the caller after this return); the transport errors above
 		// were just the interrupt's symptom.
 		return fmt.Errorf("gows: close: %w", contextError(ctx))
+	case sendExpired:
+		return budgetExpired(sendErr)
 	case sendErr != nil:
-		if errors.Is(sendErr, os.ErrDeadlineExceeded) {
-			// The Close-frame write ran out of the shared budget against a
-			// peer that stopped reading -- the same "peer unresponsive
-			// during the closing handshake" condition as the drain timing
-			// out, so surface the same shape with the cause chained.
-			return budgetExpired(sendErr)
-		}
 		return sendErr
 	case !closeRcvd:
-		// The peer's Close never arrived: the shared budget expired, or
-		// the transport failed first.
-		if drainErr != nil && !errors.Is(drainErr, os.ErrDeadlineExceeded) {
-			return drainErr
+		if writerExpired || drainExpired {
+			return budgetExpired(nil)
 		}
-		return budgetExpired(nil)
+		return drainErr
 	}
 	return nil
 }
@@ -859,3 +871,43 @@ func validateCloseArgs(code CloseCode, reason string) error {
 // errWriteClosed is returned by writes attempted after a Close frame has been
 // sent. It wraps [net.ErrClosed] so errors.Is(err, net.ErrClosed) holds.
 var errWriteClosed = fmt.Errorf("gows: write on closed connection: %w", net.ErrClosed)
+
+// writeError preserves the cause of the first terminal write failure.
+type writeError struct{ cause error }
+
+// Error describes the failure that closed the connection.
+func (e *writeError) Error() string {
+	return "gows: write failed, connection closed: " + e.cause.Error()
+}
+
+// Unwrap returns the original write failure.
+func (e *writeError) Unwrap() error { return e.cause }
+
+// Is reports whether target is [net.ErrClosed].
+func (e *writeError) Is(target error) bool { return target == net.ErrClosed }
+
+// closedWriteErr returns the terminal error for a refused write, with wmu held.
+func (c *Conn) closedWriteErr() error {
+	if c.werr != nil {
+		return c.werr
+	}
+	return errWriteClosed
+}
+
+// retainWriteError records a failed write under wmu before notifying the reader.
+// Closing a TLS transport can block sending close_notify; neither this writer
+// nor the next one should wait for it.
+func (c *Conn) retainWriteError(cause error) error {
+	if c.werr != nil {
+		return c.werr
+	}
+	if c.closedNow.Load() {
+		c.closeSent = true
+		return c.closedError(cause)
+	}
+	c.werr = &writeError{cause: cause}
+	c.closeSent = true
+	c.closedNow.Store(true)
+	go c.closeTransport()
+	return c.werr
+}

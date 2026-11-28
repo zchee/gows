@@ -33,7 +33,7 @@ import (
 const cacheLine = 128
 
 // TestConnFieldLayout pins the cache-line packing of Conn:
-// the read-hot working set fits in the first 128-byte line, the write block
+// the read buffer and decoder state fit in the first 128-byte line, the write block
 // starts on the next 128-byte boundary, and compression-only scratch is pushed
 // off both hot lines. It is a layout guard, not a behavioral test: it fails if a
 // future field reorder silently regresses the packing.
@@ -47,7 +47,10 @@ func TestConnFieldLayout(t *testing.T) {
 		t.Errorf("wmu (write block start) at offset %d, want %d (fresh 128B boundary)", off, cacheLine)
 	}
 
-	// Every read-hot field must lie wholly within the first 128B line.
+	if werr, mode, decode := unsafe.Offsetof(c.werr), unsafe.Offsetof(c.mode), unsafe.Offsetof(c.frameDecode); werr <= mode || decode != werr+16 {
+		t.Errorf("mode, werr, frameDecode offsets = %d, %d, %d; want mode before werr and frameDecode 16 bytes after werr", mode, werr, decode)
+	}
+	// The read buffer and decoder fields must lie wholly within the first line.
 	readHot := []struct {
 		name      string
 		off, size uintptr

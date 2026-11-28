@@ -77,7 +77,7 @@ func (c *Conn) WriteMessage(op Opcode, p []byte) error {
 	if c.client || c.compression {
 		err = c.writeMessageLocked(op, p)
 	} else if c.closeSent || c.tornDown.Load() {
-		err = errWriteClosed
+		err = c.closedWriteErr()
 	} else if c.msgWriter != nil {
 		err = ErrWriterBusy
 	} else {
@@ -90,8 +90,11 @@ func (c *Conn) WriteMessage(op Opcode, p []byte) error {
 		if len(p) <= maxCoalescedWriteSize {
 			c.wpay = append(c.wpay[:0], c.whdr...)
 			c.wpay = append(c.wpay, p...)
-			if _, err = c.conn.Write(c.wpay); err != nil {
-				err = c.closedError(err)
+			n, writeErr := c.conn.Write(c.wpay)
+			if writeErr != nil {
+				err = c.retainWriteError(writeErr)
+			} else if n != len(c.wpay) {
+				err = c.retainWriteError(io.ErrShortWrite)
 			}
 		} else {
 			err = c.writeFrame(c.whdr, p)
@@ -105,7 +108,7 @@ func (c *Conn) writeMessageLocked(op Opcode, p []byte) error {
 	// closeSent covers graceful/protocol closes; tornDown additionally covers
 	// the I/O-error path, which tears down without sending a Close frame.
 	if c.closeSent || c.tornDown.Load() {
-		return errWriteClosed
+		return c.closedWriteErr()
 	}
 	// A NextWriter session owns the message stream until it is Closed; another
 	// data message must not interleave with its fragments. On the
@@ -144,15 +147,7 @@ func (c *Conn) writeMessageLocked(op Opcode, p []byte) error {
 			rsv = RSV1
 		}
 	}
-	err := c.emitFrameLocked(op, true, rsv, payload)
-	if err != nil && rsv == RSV1 && c.deflate != nil && c.deflate.outgoingTakeover {
-		// compressMessage already advanced the persistent compressor's window;
-		// the peer never saw those bytes, so every later compressed message
-		// would desync. Uncompressed traffic is invisible to the deflate
-		// context, so future sends stay correct if the connection survives.
-		c.deflate.outgoingDisabled = true
-	}
-	return err
+	return c.emitFrameLocked(op, true, rsv, payload)
 }
 
 // writeControl sends a control frame (its payload must be at most 125 bytes),
@@ -277,13 +272,16 @@ func (c *Conn) writev(a, b []byte) error {
 	c.wiov[0], c.wiov[1] = a, b
 	c.wbufs = c.wiov[:]
 	n, err := c.wbufs.WriteTo(c.conn)
-	if err != nil {
-		return c.closedError(err)
+	if err == nil {
+		if n == int64(len(a)+len(b)) {
+			return nil
+		}
+		err = io.ErrShortWrite
 	}
-	if n != int64(len(a)+len(b)) {
-		return io.ErrShortWrite
+	if c.mode.Load() == connModeFrame {
+		return c.closedError(err) // WriteFrame handles the failure and releases its compressor.
 	}
-	return nil
+	return c.retainWriteError(err)
 }
 
 // stageWrite sends header a followed by non-empty payload b as one frame on a
@@ -316,13 +314,16 @@ func (c *Conn) stageWrite(a, b []byte) error {
 
 func (c *Conn) writeFrameBytes(p []byte) error {
 	n, err := c.conn.Write(p)
-	if err != nil {
-		return c.closedError(err)
+	if err == nil {
+		if n == len(p) {
+			return nil
+		}
+		err = io.ErrShortWrite
 	}
-	if n != len(p) {
-		return io.ErrShortWrite
+	if c.mode.Load() == connModeFrame {
+		return c.closedError(err) // WriteFrame handles the failure and releases its compressor.
 	}
-	return nil
+	return c.retainWriteError(err)
 }
 
 // maskingKey returns an unpredictable 32-bit masking key. RFC 6455 §5.3
@@ -423,7 +424,7 @@ func (c *Conn) NextWriter(op Opcode) (io.WriteCloser, error) {
 	c.wmu.Lock()
 	defer c.wmu.Unlock()
 	if c.closeSent || c.tornDown.Load() {
-		return nil, errWriteClosed
+		return nil, c.closedWriteErr()
 	}
 	if c.msgWriter != nil {
 		return nil, ErrWriterBusy
@@ -551,7 +552,7 @@ func (w *messageWriter) flush() error {
 func (w *messageWriter) flushLocked(fin bool) error {
 	c := w.c
 	if c.closeSent || c.tornDown.Load() {
-		return errWriteClosed
+		return c.closedWriteErr()
 	}
 	op := OpcodeContinuation
 	if !w.started {
@@ -707,7 +708,7 @@ func (w *messageWriter) closeCompressedLocked() error {
 func (w *messageWriter) emitCompressedChunkLocked(payload []byte, fin bool) error {
 	c := w.c
 	if c.closeSent || c.tornDown.Load() {
-		return errWriteClosed
+		return c.closedWriteErr()
 	}
 	op := OpcodeContinuation
 	rsv := byte(0)

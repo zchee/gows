@@ -15,6 +15,7 @@
 package gows
 
 import (
+	"io"
 	"net"
 
 	"github.com/zchee/gows/internal/mask"
@@ -210,7 +211,7 @@ func (c *Conn) WriteMessageBuffered(op Opcode, p []byte) error {
 	c.wmu.Lock()
 	defer c.wmu.Unlock()
 	if c.closeSent || c.tornDown.Load() {
-		return errWriteClosed
+		return c.closedWriteErr()
 	}
 	if c.msgWriter != nil {
 		return ErrWriterBusy
@@ -266,9 +267,10 @@ func (c *Conn) discardBuffered() {
 // otherwise discards them).
 //
 // Flush serializes with every other frame write via the connection's write
-// mutex. If the connection has been closed it discards the batch and returns a
-// write-closed error (matching errors.Is(err, [net.ErrClosed])); a transport
-// error from the underlying write is returned verbatim.
+// mutex. An empty batch returns nil even after a write failure. A non-empty
+// batch on a closed connection is discarded; Flush returns the retained write
+// error if there is one, or a closed-connection error matching [net.ErrClosed].
+// A transport failure during Flush is retained as for [Conn.WriteMessage].
 func (c *Conn) Flush() error {
 	if err := c.selectMode(connModeMessage); err != nil {
 		return err
@@ -282,20 +284,22 @@ func (c *Conn) Flush() error {
 // flushBufferedLocked writes the pending WriteMessageBuffered batch to the
 // transport in one call and resets it, retaining the buffer's capacity for
 // reuse. The caller must hold wmu. An empty batch is a no-op; a batch present
-// after the connection has closed is discarded with errWriteClosed rather than
-// written.
+// after the connection has closed is discarded rather than written.
 func (c *Conn) flushBufferedLocked() error {
 	if len(c.wbatch) == 0 {
 		return nil
 	}
 	if c.closeSent || c.tornDown.Load() {
 		c.wbatch = c.wbatch[:0]
-		return errWriteClosed
+		return c.closedWriteErr()
 	}
-	_, err := c.conn.Write(c.wbatch)
+	n, err := c.conn.Write(c.wbatch)
+	if err == nil && n != len(c.wbatch) {
+		err = io.ErrShortWrite
+	}
 	c.wbatch = c.wbatch[:0]
 	if err != nil {
-		return c.closedError(err)
+		return c.retainWriteError(err)
 	}
 	return nil
 }

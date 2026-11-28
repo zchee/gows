@@ -190,13 +190,12 @@ func TestWriteCloseWriteError(t *testing.T) {
 	boom := errors.New("transport exploded")
 	c := NewServerConn(&failWriteConn{Conn: a, err: boom})
 
-	if err := c.WriteClose(CloseNormalClosure, "bye"); !errors.Is(err, boom) {
-		t.Fatalf("WriteClose = %v, want the transport error", err)
+	err := c.WriteClose(CloseNormalClosure, "bye")
+	if !errors.Is(err, boom) || !errors.Is(err, net.ErrClosed) {
+		t.Fatalf("WriteClose = %v, want a closed connection wrapping the transport error", err)
 	}
-	// The Close frame was consumed by the attempt (closeSent), so a
-	// retry reports the idempotent nil rather than re-emitting.
-	if err := c.WriteClose(CloseNormalClosure, "bye"); err != nil {
-		t.Fatalf("second WriteClose = %v, want nil", err)
+	if got := c.WriteMessage(OpcodeText, nil); got != err {
+		t.Fatalf("WriteMessage = %v, want retained WriteClose error %v", got, err)
 	}
 }
 

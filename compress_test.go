@@ -2237,9 +2237,6 @@ func (f *failOnceConn) Write(p []byte) (int, error) {
 	return f.scriptConn.Write(p)
 }
 
-// TestOutgoingDisabledOnTakeoverEmitFailure confirms that a failed
-// WriteMessage on a context-takeover Conn sets outgoingDisabled, so a
-// subsequent WriteMessage over a healthy conn goes out uncompressed.
 func TestOutgoingDisabledOnTakeoverEmitFailure(t *testing.T) {
 	withDeflateBackend(t, DefaultDeflateBackend(), 6, deflateWindowBits)
 
@@ -2247,26 +2244,10 @@ func TestOutgoingDisabledOnTakeoverEmitFailure(t *testing.T) {
 	c := NewServerConn(fc, WithCompressionParams(CompressionParams{ServerContextTakeover: true}))
 	payload := bytes.Repeat([]byte{'z'}, defaultCompressMinSize)
 	err := c.WriteMessage(OpcodeBinary, payload)
-	if err == nil {
-		t.Fatalf("WriteMessage: want error from failOnceConn")
+	if !errors.Is(err, net.ErrClosed) || fc.out.Len() != fc.failAfter {
+		t.Fatalf("partial frame: WriteMessage = %v, bytes = %d", err, fc.out.Len())
 	}
-	if c.deflate == nil || !c.deflate.outgoingDisabled {
-		t.Fatalf("want outgoingDisabled after emit failure, got deflate=%+v", c.deflate)
-	}
-
-	// Subsequent write over the now-healthy path must go uncompressed.
-	fc.out.Reset()
-	if err := c.WriteMessage(OpcodeBinary, payload); err != nil {
-		t.Fatalf("WriteMessage after disable: %v", err)
-	}
-	h, n, err := DecodeHeader(fc.out.Bytes())
-	if err != nil {
-		t.Fatalf("DecodeHeader: %v", err)
-	}
-	if h.Rsv&RSV1 != 0 {
-		t.Fatalf("RSV1 set after outgoingDisabled, want clear")
-	}
-	if !bytes.Equal(fc.out.Bytes()[n:], payload) {
-		t.Fatalf("payload mismatch after outgoingDisabled")
+	if got := c.WriteMessage(OpcodeBinary, payload); got != err || fc.out.Len() != fc.failAfter {
+		t.Fatalf("follow-up WriteMessage = %v, bytes = %d; want same failure and no more bytes", got, fc.out.Len())
 	}
 }

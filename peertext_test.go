@@ -301,6 +301,56 @@ func TestErrorsCarryNoPeerText(t *testing.T) {
 	connTests := map[string]struct {
 		run func(t *testing.T)
 	}{
+		"Conn retained write after peer Close": {
+			run: func(t *testing.T) {
+				listener, err := net.Listen("tcp4", "127.0.0.1:0")
+				if err != nil {
+					t.Fatal(err)
+				}
+				defer listener.Close()
+				raw, err := net.Dial("tcp4", listener.Addr().String())
+				if err != nil {
+					t.Fatal(err)
+				}
+				defer raw.Close()
+				peer, err := listener.(*net.TCPListener).AcceptTCP()
+				if err != nil {
+					t.Fatal(err)
+				}
+				defer peer.Close()
+				body := gows.AppendCloseBody(nil, gows.CloseNormalClosure, []byte(peerMark))
+				frame := append([]byte{0x88, byte(len(body))}, body...)
+				if _, err := peer.Write(frame); err != nil {
+					t.Fatal(err)
+				}
+				if err := raw.SetReadDeadline(time.Now().Add(2 * time.Second)); err != nil {
+					t.Fatal(err)
+				}
+				buffered := make([]byte, len(frame))
+				if _, err := io.ReadFull(raw, buffered); err != nil {
+					t.Fatal(err)
+				}
+				if err := peer.SetLinger(0); err != nil {
+					t.Fatal(err)
+				}
+				if err := peer.Close(); err != nil {
+					t.Fatal(err)
+				}
+				if _, err := raw.Read(make([]byte, 1)); !errors.Is(err, syscall.ECONNRESET) {
+					t.Fatalf("peer reset = %v", err)
+				}
+				ws := gows.NewClientConn(raw, gows.WithBuffered(buffered))
+				_, _, readErr := ws.ReadMessage()
+				if ce, ok := errors.AsType[*gows.CloseError](readErr); !ok || ce.Reason != peerMark || ce.Sent {
+					t.Fatalf("received Close = %v", readErr)
+				}
+				writeErr := ws.WriteMessage(gows.OpcodeText, nil)
+				if !errors.Is(writeErr, net.ErrClosed) || !errors.Is(writeErr, syscall.EPIPE) || ws.WriteMessage(gows.OpcodeText, nil) != writeErr {
+					t.Fatalf("retained Close reply failure = %v", writeErr)
+				}
+				assertNoPeerText(t, writeErr, peerMark)
+			},
+		},
 		"Conn frame protocol violation": {
 			run: func(t *testing.T) {
 				serverConn, clientConn := net.Pipe()
