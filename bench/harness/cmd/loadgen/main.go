@@ -24,8 +24,8 @@ import (
 	"github.com/go-json-experiment/json"
 	"github.com/gobwas/ws"
 	"github.com/gobwas/ws/wsutil"
-	"github.com/zchee/gows"
 
+	"github.com/zchee/gows"
 	"github.com/zchee/gows/bench/harness/support"
 )
 
@@ -190,7 +190,7 @@ func gowsOpcode(kind messageKind) (gows.Opcode, error) {
 func dialClient(ctx context.Context, client clientKind, rawURL string, message messageKind, payloadLen int) (wsClient, error) {
 	switch client {
 	case clientGoWS:
-		conn, handshake, err := gows.Dial(ctx, rawURL)
+		conn, handshake, err := (&gows.Dialer{}).DialNetConn(ctx, rawURL)
 		if err != nil {
 			return nil, err
 		}
@@ -199,7 +199,7 @@ func dialClient(ctx context.Context, client clientKind, rawURL string, message m
 			_ = conn.Close()
 			return nil, err
 		}
-		return &gowsClient{conn: conn, ws: gows.NewClientConn(conn, gows.WithBuffered(handshake.Buffered)), opcode: opcode}, nil
+		return &gowsClient{conn: conn, ws: gows.NewClientConn(conn, gows.WithHandshake(handshake)), opcode: opcode}, nil
 	case clientGobwas:
 		conn, reader, _, err := ws.Dial(ctx, rawURL)
 		if err != nil {

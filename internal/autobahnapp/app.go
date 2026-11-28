@@ -140,7 +140,7 @@ func (a *application) serveConn(conn net.Conn) {
 		return
 	}
 	c := gows.NewServerConn(conn, connOptions(hs)...)
-	defer c.Close(gows.CloseNormalClosure, "")
+	defer c.Close(context.Background(), gows.CloseNormalClosure, "")
 	a.echoLoop(c)
 }
 
@@ -222,12 +222,12 @@ func (a *application) afterClientCase(n, count int) {
 func (a *application) dialCase(url string) (*gows.Conn, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), caseTimeout)
 	defer cancel()
-	conn, hs, err := a.config.Dialer.Dial(ctx, url)
+	c, _, err := a.config.Dialer.Dial(ctx, url, gows.WithReadLimit(readLimit))
 	if err != nil {
 		return nil, fmt.Errorf("dial %s: %w", url, err)
 	}
-	_ = conn.SetReadDeadline(time.Now().Add(caseTimeout))
-	return gows.NewClientConn(conn, connOptions(hs)...), nil
+	_ = c.SetReadDeadline(time.Now().Add(caseTimeout))
+	return c, nil
 }
 
 func connOptions(hs gows.Handshake) []gows.ConnOption {
@@ -243,7 +243,7 @@ func (a *application) getCaseCount(base string) (int, error) {
 	if err != nil {
 		return 0, err
 	}
-	defer c.Close(gows.CloseNormalClosure, "")
+	defer c.Close(context.Background(), gows.CloseNormalClosure, "")
 	op, payload, err := c.ReadMessage()
 	if err != nil {
 		return 0, fmt.Errorf("read case count: %w", err)
@@ -264,7 +264,7 @@ func (a *application) runCase(base string, n int) error {
 	if err != nil {
 		return err
 	}
-	defer c.Close(gows.CloseNormalClosure, "")
+	defer c.Close(context.Background(), gows.CloseNormalClosure, "")
 	a.echoLoop(c)
 	return nil
 }
@@ -275,7 +275,7 @@ func (a *application) updateReports(base string) error {
 	if err != nil {
 		return err
 	}
-	defer c.Close(gows.CloseNormalClosure, "")
+	defer c.Close(context.Background(), gows.CloseNormalClosure, "")
 	for {
 		if _, _, err := c.ReadMessage(); err != nil {
 			return nil

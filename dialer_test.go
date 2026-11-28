@@ -94,7 +94,7 @@ func TestDialSuccessPipe(t *testing.T) {
 					return clientConn, nil
 				},
 			}
-			conn, hs, err := d.Dial(t.Context(), "ws://example.invalid/chat?x=1")
+			conn, hs, err := d.DialNetConn(t.Context(), "ws://example.invalid/chat?x=1")
 			if err != nil {
 				t.Fatalf("Dial: unexpected error %v", err)
 			}
@@ -141,7 +141,7 @@ func TestDialSuccessTCP(t *testing.T) {
 	}()
 
 	d := &gows.Dialer{}
-	conn, hs, err := d.Dial(t.Context(), "ws://"+ln.Addr().String()+"/")
+	conn, hs, err := d.DialNetConn(t.Context(), "ws://"+ln.Addr().String()+"/")
 	if err != nil {
 		t.Fatalf("Dial: unexpected error %v", err)
 	}
@@ -157,7 +157,7 @@ func TestDialSuccessTCP(t *testing.T) {
 
 func TestDialBadScheme(t *testing.T) {
 	d := &gows.Dialer{}
-	_, _, err := d.Dial(t.Context(), "http://example.com/")
+	_, _, err := d.DialNetConn(t.Context(), "http://example.com/")
 	if !errors.Is(err, gows.ErrNotWebSocketScheme) {
 		t.Fatalf("Dial: err = %v, want ErrNotWebSocketScheme", err)
 	}
@@ -179,7 +179,7 @@ func TestDialRejectsHostlessOriginBeforeNetworkIO(t *testing.T) {
 					return nil, errors.New("must not be reached")
 				},
 			}
-			_, _, err := d.Dial(t.Context(), rawURL)
+			_, _, err := d.DialNetConn(t.Context(), rawURL)
 			if _, ok := errors.AsType[net.InvalidAddrError](err); !ok {
 				t.Fatalf("Dial = %v, want net.InvalidAddrError", err)
 			}
@@ -211,7 +211,7 @@ func TestDialSanitizesMalformedOriginURL(t *testing.T) {
 					return nil, errors.New("must not be reached")
 				},
 			}
-			_, _, err := d.Dial(t.Context(), rawURL)
+			_, _, err := d.DialNetConn(t.Context(), rawURL)
 			if _, ok := errors.AsType[net.InvalidAddrError](err); !ok {
 				t.Fatalf("Dial = %v, want net.InvalidAddrError", err)
 			}
@@ -245,7 +245,7 @@ func TestDialValidOriginAuthorityFormation(t *testing.T) {
 					return nil, boom
 				},
 			}
-			_, _, err := d.Dial(t.Context(), tt.rawURL)
+			_, _, err := d.DialNetConn(t.Context(), tt.rawURL)
 			if !errors.Is(err, boom) {
 				t.Fatalf("Dial = %v, want address-capture error", err)
 			}
@@ -334,7 +334,7 @@ func TestDialFakeServerRejections(t *testing.T) {
 					return clientConn, nil
 				},
 			}
-			conn, _, err := d.Dial(t.Context(), "ws://example.invalid/")
+			conn, _, err := d.DialNetConn(t.Context(), "ws://example.invalid/")
 			if conn != nil {
 				t.Fatalf("Dial conn = %v, want nil on validation failure", conn)
 			}
@@ -379,7 +379,7 @@ func TestDialPipelinedFrame(t *testing.T) {
 			return clientConn, nil
 		},
 	}
-	conn, hs, err := d.Dial(t.Context(), "ws://example.invalid/")
+	conn, hs, err := d.DialNetConn(t.Context(), "ws://example.invalid/")
 	if err != nil {
 		t.Fatalf("Dial: unexpected error %v", err)
 	}
@@ -422,7 +422,7 @@ func TestDialWSS(t *testing.T) {
 	rootCAs.AddCert(leaf)
 
 	d := &gows.Dialer{TLSConfig: &tls.Config{RootCAs: rootCAs}}
-	conn, _, err := d.Dial(t.Context(), "wss://"+ln.Addr().String()+"/")
+	conn, _, err := d.DialNetConn(t.Context(), "wss://"+ln.Addr().String()+"/")
 	if err != nil {
 		t.Fatalf("Dial: unexpected error %v", err)
 	}
@@ -455,7 +455,7 @@ func TestDialWSSCertificateRejected(t *testing.T) {
 
 	// No RootCAs configured: the self-signed cert must not verify.
 	d := &gows.Dialer{}
-	_, _, err = d.Dial(t.Context(), "wss://"+ln.Addr().String()+"/")
+	_, _, err = d.DialNetConn(t.Context(), "wss://"+ln.Addr().String()+"/")
 	if err == nil {
 		t.Fatal("Dial: expected a TLS verification error, got nil")
 	}
@@ -522,7 +522,7 @@ func TestDialHeaderTooLarge(t *testing.T) {
 	}()
 
 	d := &gows.Dialer{}
-	_, _, err = d.Dial(t.Context(), "ws://"+ln.Addr().String()+"/")
+	_, _, err = d.DialNetConn(t.Context(), "ws://"+ln.Addr().String()+"/")
 	if !errors.Is(err, gows.ErrHeaderTooLarge) {
 		t.Fatalf("Dial: err = %v, want ErrHeaderTooLarge", err)
 	}
@@ -545,7 +545,7 @@ func TestUpgradeHTTPAgainstDial(t *testing.T) {
 
 	wsURL := "ws" + srv.URL[len("http"):] + "/room?x=1"
 	d := &gows.Dialer{Subprotocols: []string{"chat"}}
-	conn, hs, err := d.Dial(t.Context(), wsURL)
+	conn, hs, err := d.DialNetConn(t.Context(), wsURL)
 	if err != nil {
 		t.Fatalf("Dial: unexpected error %v", err)
 	}
@@ -616,7 +616,7 @@ func TestDialServerWindowBitsOffer(t *testing.T) {
 					return clientConn, nil
 				},
 			}
-			conn, hs, err := d.Dial(t.Context(), "ws://example.invalid/")
+			conn, hs, err := d.DialNetConn(t.Context(), "ws://example.invalid/")
 			if tt.wantErr != nil {
 				if conn != nil {
 					t.Fatalf("Dial conn = %v, want nil", conn)
@@ -663,7 +663,7 @@ func TestDialInvalidServerWindowBits(t *testing.T) {
 					return nil, nil
 				},
 			}
-			_, _, err := d.Dial(t.Context(), "ws://example.invalid/")
+			_, _, err := d.DialNetConn(t.Context(), "ws://example.invalid/")
 			if !errors.Is(err, gows.ErrInvalidWindowBits) {
 				t.Fatalf("Dial err = %v, want ErrInvalidWindowBits", err)
 			}
@@ -683,7 +683,7 @@ func TestDialUnsupportedWindowBitsBeforeDial(t *testing.T) {
 			return nil, nil
 		},
 	}
-	_, _, err := d.Dial(t.Context(), "ws://example.invalid/")
+	_, _, err := d.DialNetConn(t.Context(), "ws://example.invalid/")
 	if !errors.Is(err, gows.ErrUnsupportedWindowBits) {
 		t.Fatalf("Dial err = %v, want ErrUnsupportedWindowBits", err)
 	}
@@ -698,7 +698,7 @@ func TestDialConflictingClientWindowBitsBeforeAnything(t *testing.T) {
 				return nil, nil
 			},
 		}
-		_, _, err := d.Dial(t.Context(), ":// malformed")
+		_, _, err := d.DialNetConn(t.Context(), ":// malformed")
 		if !errors.Is(err, gows.ErrConflictingClientWindowBits) {
 			t.Fatalf("compression=%v err=%v, want conflict", enabled, err)
 		}
@@ -721,7 +721,7 @@ func TestDialBareClientMaxWindowBits(t *testing.T) {
 				_, _ = serverConn.Write([]byte(resp))
 			}()
 			d := &gows.Dialer{EnableCompression: true, OfferClientMaxWindowBits: true, NetDial: func(context.Context, string, string) (net.Conn, error) { return clientConn, nil }}
-			conn, hs, err := d.Dial(t.Context(), "ws://example.invalid/")
+			conn, hs, err := d.DialNetConn(t.Context(), "ws://example.invalid/")
 			if err != nil {
 				t.Fatalf("Dial: %v", err)
 			}
@@ -755,7 +755,7 @@ func TestDialBareClientMaxWindowBitsResponseFailuresClose(t *testing.T) {
 				closed <- err
 			}()
 			d := &gows.Dialer{EnableCompression: true, OfferClientMaxWindowBits: true, NetDial: func(context.Context, string, string) (net.Conn, error) { return clientConn, nil }}
-			conn, _, err := d.Dial(t.Context(), "ws://example.invalid/")
+			conn, _, err := d.DialNetConn(t.Context(), "ws://example.invalid/")
 			if conn != nil || err == nil {
 				t.Fatalf("Dial = %v, %v, want nil conn/error", conn, err)
 			}
@@ -806,7 +806,7 @@ func TestDialContextAlreadyCanceled(t *testing.T) {
 			return nil, errors.New("must not be reached")
 		},
 	}
-	_, _, err := d.Dial(ctx, "ws://example.invalid/")
+	_, _, err := d.DialNetConn(ctx, "ws://example.invalid/")
 	if !errors.Is(err, context.Canceled) || !errors.Is(err, ctx.Err()) {
 		t.Fatalf("Dial = %v, want errors.Is ctx.Err (context.Canceled)", err)
 	}
@@ -830,7 +830,7 @@ func TestDialContextCanceledDuringNetDial(t *testing.T) {
 			return nil, ctx.Err()
 		},
 	}
-	_, _, err := d.Dial(ctx, "ws://example.invalid/")
+	_, _, err := d.DialNetConn(ctx, "ws://example.invalid/")
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("Dial = %v, want errors.Is context.Canceled", err)
 	}
@@ -852,7 +852,7 @@ func TestDialContextCancelCauseDuringNetDialMatchesErrAndCause(t *testing.T) {
 			return nil, ctx.Err()
 		},
 	}
-	_, _, err := d.Dial(ctx, "ws://example.invalid/")
+	_, _, err := d.DialNetConn(ctx, "ws://example.invalid/")
 	if !errors.Is(err, ctx.Err()) {
 		t.Fatalf("Dial = %v, want errors.Is ctx.Err (%v)", err, ctx.Err())
 	}
@@ -948,7 +948,7 @@ func TestDialContextCanceledDuringRequestWrite(t *testing.T) {
 			return rec, nil
 		},
 	}
-	_, _, err := d.Dial(ctx, "ws://example.invalid/")
+	_, _, err := d.DialNetConn(ctx, "ws://example.invalid/")
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("Dial = %v, want errors.Is context.Canceled", err)
 	}
@@ -980,7 +980,7 @@ func TestDialContextCanceledDuringResponseRead(t *testing.T) {
 		},
 	}
 	start := time.Now()
-	_, _, err := d.Dial(ctx, "ws://example.invalid/")
+	_, _, err := d.DialNetConn(ctx, "ws://example.invalid/")
 	if !errors.Is(err, context.Canceled) || !errors.Is(err, ctx.Err()) {
 		t.Fatalf("Dial = %v, want errors.Is ctx.Err (context.Canceled)", err)
 	}
@@ -1023,7 +1023,7 @@ func TestDialContextCanceledDuringTLS(t *testing.T) {
 
 	var d gows.Dialer
 	start := time.Now()
-	_, _, err = d.Dial(ctx, "wss://"+ln.Addr().String()+"/")
+	_, _, err = d.DialNetConn(ctx, "wss://"+ln.Addr().String()+"/")
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("Dial = %v, want errors.Is context.Canceled", err)
 	}
@@ -1048,7 +1048,7 @@ func TestDialContextDeadlineExceeded(t *testing.T) {
 		},
 	}
 	start := time.Now()
-	_, _, err := d.Dial(ctx, "ws://example.invalid/")
+	_, _, err := d.DialNetConn(ctx, "ws://example.invalid/")
 	if !errors.Is(err, context.DeadlineExceeded) {
 		t.Fatalf("Dial = %v, want errors.Is context.DeadlineExceeded", err)
 	}
@@ -1069,7 +1069,7 @@ func TestDialContextCancelCauseMatchesErrAndCause(t *testing.T) {
 			return nil, errors.New("must not be reached")
 		},
 	}
-	_, _, err := d.Dial(ctx, "ws://example.invalid/")
+	_, _, err := d.DialNetConn(ctx, "ws://example.invalid/")
 	if !errors.Is(err, ctx.Err()) {
 		t.Fatalf("Dial = %v, want errors.Is ctx.Err (%v)", err, ctx.Err())
 	}
@@ -1094,7 +1094,7 @@ func TestDialDeadlineArmFailureClosesConnection(t *testing.T) {
 			return rec, nil
 		},
 	}
-	conn, _, err := d.Dial(ctx, "ws://example.invalid/")
+	conn, _, err := d.DialNetConn(ctx, "ws://example.invalid/")
 	if conn != nil {
 		conn.Close()
 		t.Fatal("Dial returned a connection after SetDeadline failed")
@@ -1129,7 +1129,7 @@ func TestDialDeadlineClearFailureClosesConnection(t *testing.T) {
 			return rec, nil
 		},
 	}
-	conn, _, err := d.Dial(ctx, "ws://example.invalid/")
+	conn, _, err := d.DialNetConn(ctx, "ws://example.invalid/")
 	if conn != nil {
 		conn.Close()
 		t.Fatal("Dial returned a connection with an uncleared deadline")
@@ -1166,7 +1166,7 @@ func TestDialSuccessClearsDeadlines(t *testing.T) {
 			return rec, nil
 		},
 	}
-	conn, _, err := d.Dial(ctx, "ws://example.invalid/")
+	conn, _, err := d.DialNetConn(ctx, "ws://example.invalid/")
 	if err != nil {
 		t.Fatalf("Dial: unexpected error %v", err)
 	}
@@ -1228,7 +1228,7 @@ func TestDialCancelAtSuccessBoundary(t *testing.T) {
 			return rec, nil
 		},
 	}
-	conn, _, err := d.Dial(ctx, "ws://example.invalid/")
+	conn, _, err := d.DialNetConn(ctx, "ws://example.invalid/")
 	if conn != nil {
 		conn.Close()
 		t.Fatal("Dial returned a connection after ctx became done at the success boundary")
@@ -1268,7 +1268,7 @@ func dialViaPipe(t *testing.T, d *gows.Dialer, rawURL string, beforeDial func())
 		}
 		return clientConn, nil
 	}
-	conn, _, err := d.Dial(t.Context(), rawURL)
+	conn, _, err := d.DialNetConn(t.Context(), rawURL)
 	if err != nil {
 		t.Fatalf("Dial: unexpected error %v", err)
 	}
@@ -1406,7 +1406,7 @@ func TestDialHeaderValidation(t *testing.T) {
 					return nil, errors.New("must not be reached")
 				},
 			}
-			_, _, err := d.Dial(t.Context(), "ws://example.invalid/")
+			_, _, err := d.DialNetConn(t.Context(), "ws://example.invalid/")
 			if !errors.Is(err, tt.wantErr) {
 				t.Fatalf("Dial = %v, want errors.Is %v", err, tt.wantErr)
 			}
@@ -1442,7 +1442,7 @@ func TestDialHeaderBoundary(t *testing.T) {
 			return nil, errors.New("must not be reached")
 		},
 	}
-	_, _, err := over.Dial(t.Context(), "ws://example.invalid/")
+	_, _, err := over.DialNetConn(t.Context(), "ws://example.invalid/")
 	if !errors.Is(err, gows.ErrHeaderTooLarge) {
 		t.Fatalf("Dial = %v, want errors.Is ErrHeaderTooLarge", err)
 	}

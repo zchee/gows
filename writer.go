@@ -57,7 +57,8 @@ import (
 // frame write (including the automatic Pong and Close replies issued by the
 // read path), so concurrent messages never interleave on the wire; see
 // [Conn] for the full write-side contract. It returns [ErrWriterBusy] without
-// writing while a [Conn.NextWriter] stream is open.
+// writing while a [Conn.NextWriter] stream is open and the Conn can still write
+// data. A retained write error or a closed-connection error takes precedence.
 func (c *Conn) WriteMessage(op Opcode, p []byte) error {
 	if err := c.selectMode(connModeMessage); err != nil {
 		return err
@@ -77,7 +78,7 @@ func (c *Conn) WriteMessage(op Opcode, p []byte) error {
 	if c.client || c.compression {
 		err = c.writeMessageLocked(op, p)
 	} else if c.closeSent || c.tornDown.Load() {
-		err = errWriteClosed
+		err = c.closedWriteErr()
 	} else if c.msgWriter != nil {
 		err = ErrWriterBusy
 	} else {
@@ -90,8 +91,11 @@ func (c *Conn) WriteMessage(op Opcode, p []byte) error {
 		if len(p) <= maxCoalescedWriteSize {
 			c.wpay = append(c.wpay[:0], c.whdr...)
 			c.wpay = append(c.wpay, p...)
-			if _, err = c.conn.Write(c.wpay); err != nil {
-				err = c.closedError(err)
+			n, writeErr := c.conn.Write(c.wpay)
+			if writeErr != nil {
+				err = c.retainWriteError(writeErr)
+			} else if n != len(c.wpay) {
+				err = c.retainWriteError(io.ErrShortWrite)
 			}
 		} else {
 			err = c.writeFrame(c.whdr, p)
@@ -105,7 +109,7 @@ func (c *Conn) writeMessageLocked(op Opcode, p []byte) error {
 	// closeSent covers graceful/protocol closes; tornDown additionally covers
 	// the I/O-error path, which tears down without sending a Close frame.
 	if c.closeSent || c.tornDown.Load() {
-		return errWriteClosed
+		return c.closedWriteErr()
 	}
 	// A NextWriter session owns the message stream until it is Closed; another
 	// data message must not interleave with its fragments. On the
@@ -144,15 +148,7 @@ func (c *Conn) writeMessageLocked(op Opcode, p []byte) error {
 			rsv = RSV1
 		}
 	}
-	err := c.emitFrameLocked(op, true, rsv, payload)
-	if err != nil && rsv == RSV1 && c.deflate != nil && c.deflate.outgoingTakeover {
-		// compressMessage already advanced the persistent compressor's window;
-		// the peer never saw those bytes, so every later compressed message
-		// would desync. Uncompressed traffic is invisible to the deflate
-		// context, so future sends stay correct if the connection survives.
-		c.deflate.outgoingDisabled = true
-	}
-	return err
+	return c.emitFrameLocked(op, true, rsv, payload)
 }
 
 // writeControl sends a control frame (its payload must be at most 125 bytes),
@@ -277,13 +273,16 @@ func (c *Conn) writev(a, b []byte) error {
 	c.wiov[0], c.wiov[1] = a, b
 	c.wbufs = c.wiov[:]
 	n, err := c.wbufs.WriteTo(c.conn)
-	if err != nil {
-		return c.closedError(err)
+	if err == nil {
+		if n == int64(len(a)+len(b)) {
+			return nil
+		}
+		err = io.ErrShortWrite
 	}
-	if n != int64(len(a)+len(b)) {
-		return io.ErrShortWrite
+	if c.mode.Load() == connModeFrame {
+		return c.closedError(err) // WriteFrame handles the failure and releases its compressor.
 	}
-	return nil
+	return c.retainWriteError(err)
 }
 
 // stageWrite sends header a followed by non-empty payload b as one frame on a
@@ -316,13 +315,16 @@ func (c *Conn) stageWrite(a, b []byte) error {
 
 func (c *Conn) writeFrameBytes(p []byte) error {
 	n, err := c.conn.Write(p)
-	if err != nil {
-		return c.closedError(err)
+	if err == nil {
+		if n == len(p) {
+			return nil
+		}
+		err = io.ErrShortWrite
 	}
-	if n != len(p) {
-		return io.ErrShortWrite
+	if c.mode.Load() == connModeFrame {
+		return c.closedError(err) // WriteFrame handles the failure and releases its compressor.
 	}
-	return nil
+	return c.retainWriteError(err)
 }
 
 // maskingKey returns an unpredictable 32-bit masking key. RFC 6455 §5.3
@@ -397,9 +399,13 @@ type messageWriter struct {
 // §5.4 permits control frames between fragments). A data message cannot: a
 // concurrent [Conn.WriteMessage], [Conn.WriteMessageBuffered],
 // [Conn.WritePreparedMessage], or second NextWriter, from any goroutine,
-// returns [ErrWriterBusy] without writing until this writer is Closed. An
-// un-Closed writer therefore blocks all future data writes on the Conn; the
-// refusal is the safety net rather than silent stream corruption.
+// returns [ErrWriterBusy] while this writer is open and the Conn can still
+// write data. A fragment transport failure, or a compression or framing
+// failure after a fragment was sent, ends writes on an open Conn: the writer
+// and subsequent data writes return the same error (see [Conn]). Before the
+// first fragment, a compression or framing error affects only this writer;
+// Close returns that error and frees the slot without sending a frame. Once
+// the Conn is closing, a compressor error likewise stays with the writer.
 //
 // Compression: when permessage-deflate ([WithCompression]) is negotiated and
 // outgoing compression is not disabled, NextWriter uses the same threshold
@@ -423,7 +429,7 @@ func (c *Conn) NextWriter(op Opcode) (io.WriteCloser, error) {
 	c.wmu.Lock()
 	defer c.wmu.Unlock()
 	if c.closeSent || c.tornDown.Load() {
-		return nil, errWriteClosed
+		return nil, c.closedWriteErr()
 	}
 	if c.msgWriter != nil {
 		return nil, ErrWriterBusy
@@ -493,8 +499,7 @@ func (w *messageWriter) Write(p []byte) (int, error) {
 // Close flushes the message's final Fin fragment, releases the fragment
 // buffer and any borrowed compressor, and clears the writer from the Conn so
 // a later WriteMessage or NextWriter can proceed. It implements [io.Closer]
-// and is idempotent. Close is mandatory: until it runs the Conn refuses other
-// data writes with [ErrWriterBusy].
+// and is idempotent. The caller must call Close even if a write fails.
 func (w *messageWriter) Close() error {
 	if w.closed {
 		return w.err // idempotent: nil after a clean close, else the sticky error
@@ -551,7 +556,7 @@ func (w *messageWriter) flush() error {
 func (w *messageWriter) flushLocked(fin bool) error {
 	c := w.c
 	if c.closeSent || c.tornDown.Load() {
-		return errWriteClosed
+		return c.closedWriteErr()
 	}
 	op := OpcodeContinuation
 	if !w.started {
@@ -617,10 +622,13 @@ func (w *messageWriter) writeCompressed(p []byte) (int, error) {
 	_, err := w.lease.w.Write(p)
 	w.fedToCompressor = true
 	if err != nil {
+		w.err = fmt.Errorf("gows: compress message: %w", err)
 		c.wmu.Lock()
 		w.disableTakeoverIfFed()
+		if w.started && !c.closeSent && !c.tornDown.Load() && !c.closedNow.Load() {
+			w.err = c.retainWriteError(w.err)
+		}
 		c.wmu.Unlock()
-		w.err = fmt.Errorf("gows: compress message: %w", err)
 		return 0, w.err
 	}
 	c.wmu.Lock()
@@ -684,14 +692,19 @@ func (w *messageWriter) closeLargeLocked() error {
 // sync Flush, strip the 4-byte marker, emit the remainder as the final Fin
 // fragment. The caller must hold wmu.
 func (w *messageWriter) closeCompressedLocked() error {
-	if err := w.lease.w.Flush(); err != nil {
-		w.disableTakeoverIfFed()
-		return fmt.Errorf("gows: flush compressed message: %w", err)
-	}
+	err := w.lease.w.Flush()
 	out := w.lease.sw.b
-	if len(out) < len(deflateFlushTail) {
+	if err != nil {
+		err = fmt.Errorf("gows: flush compressed message: %w", err)
+	} else if len(out) < len(deflateFlushTail) {
+		err = errors.New("gows: compressed output shorter than the sync-flush marker")
+	}
+	if err != nil {
 		w.disableTakeoverIfFed()
-		return errors.New("gows: compressed output shorter than the sync-flush marker")
+		if c := w.c; w.started && !c.closeSent && !c.tornDown.Load() && !c.closedNow.Load() {
+			return c.retainWriteError(err)
+		}
+		return err
 	}
 	w.lease.sw.b = out[:len(out)-len(deflateFlushTail)]
 	if err := w.emitCompressedChunkLocked(w.lease.sw.b, true); err != nil {
@@ -707,7 +720,7 @@ func (w *messageWriter) closeCompressedLocked() error {
 func (w *messageWriter) emitCompressedChunkLocked(payload []byte, fin bool) error {
 	c := w.c
 	if c.closeSent || c.tornDown.Load() {
-		return errWriteClosed
+		return c.closedWriteErr()
 	}
 	op := OpcodeContinuation
 	rsv := byte(0)

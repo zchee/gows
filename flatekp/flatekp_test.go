@@ -370,11 +370,11 @@ func TestIntegrationEchoFlatekpBothEnds(t *testing.T) {
 			return cliConn, nil
 		},
 	}
-	conn, clientHS, err := d.Dial(t.Context(), "ws://example.invalid/")
+	cli, clientHS, err := d.Dial(t.Context(), "ws://example.invalid/")
 	if err != nil {
 		t.Fatalf("Dial: %v", err)
 	}
-	closeConnOnCleanup(t, conn)
+	closeConnOnCleanup(t, cliConn)
 	if err := <-serverErr; err != nil {
 		t.Fatalf("Upgrade: %v", err)
 	}
@@ -384,7 +384,6 @@ func TestIntegrationEchoFlatekpBothEnds(t *testing.T) {
 	}
 
 	srv := gows.NewServerConn(srvConn, gows.WithCompression(true))
-	cli := gows.NewClientConn(conn, gows.WithCompression(true))
 	done := runServerEchoLoop(srv)
 
 	payloads := payloadFixtures()
@@ -393,7 +392,7 @@ func TestIntegrationEchoFlatekpBothEnds(t *testing.T) {
 			echoRoundTrip(t, cli, gows.OpcodeBinary, p)
 		})
 	}
-	_ = cli.Close(gows.CloseNormalClosure, "bye")
+	_ = cli.Close(t.Context(), gows.CloseNormalClosure, "bye")
 	<-done
 }
 
@@ -417,11 +416,11 @@ func TestIntegrationBareClientMaxWindowBitsSub15(t *testing.T) {
 		EnableCompression: true, OfferClientMaxWindowBits: true, ServerWindowBits: 9, AllowContextTakeover: true,
 		NetDial: func(context.Context, string, string) (net.Conn, error) { return cliConn, nil },
 	}
-	conn, clientHS, err := d.Dial(t.Context(), "ws://example.invalid/")
+	cli, clientHS, err := d.Dial(t.Context(), "ws://example.invalid/")
 	if err != nil {
 		t.Fatalf("Dial: %v", err)
 	}
-	closeConnOnCleanup(t, conn)
+	closeConnOnCleanup(t, cliConn)
 	server := <-serverResult
 	if server.err != nil {
 		t.Fatalf("Upgrade: %v", server.err)
@@ -430,11 +429,10 @@ func TestIntegrationBareClientMaxWindowBitsSub15(t *testing.T) {
 		t.Fatalf("client negotiated params = %+v, want both window ceilings 9", clientHS.CompressionParams)
 	}
 	srv := gows.NewServerConn(srvConn, gows.WithCompressionParams(server.hs.CompressionParams))
-	cli := gows.NewClientConn(conn, gows.WithCompressionParams(clientHS.CompressionParams))
 	done := runServerEchoLoop(srv)
 	echoRoundTrip(t, cli, gows.OpcodeBinary, []byte(strings.Repeat("bare sub-15 takeover payload ", 80)))
 	echoRoundTrip(t, cli, gows.OpcodeBinary, []byte(strings.Repeat("bare sub-15 takeover payload ", 80)))
-	_ = cli.Close(gows.CloseNormalClosure, "")
+	_ = cli.Close(t.Context(), gows.CloseNormalClosure, "")
 	<-done
 }
 
@@ -463,11 +461,11 @@ func TestIntegrationEchoMixedNegotiation(t *testing.T) {
 			return cliConn, nil
 		},
 	}
-	conn, clientHS, err := d.Dial(t.Context(), "ws://example.invalid/")
+	cli, clientHS, err := d.Dial(t.Context(), "ws://example.invalid/")
 	if err != nil {
 		t.Fatalf("Dial: %v", err)
 	}
-	closeConnOnCleanup(t, conn)
+	closeConnOnCleanup(t, cliConn)
 	if err := <-serverErr; err != nil {
 		t.Fatalf("Upgrade: %v", err)
 	}
@@ -477,10 +475,9 @@ func TestIntegrationEchoMixedNegotiation(t *testing.T) {
 	}
 
 	srv := gows.NewServerConn(srvConn, gows.WithCompression(true))
-	cli := gows.NewClientConn(conn, gows.WithCompression(true))
 	done := runServerEchoLoop(srv)
 	echoRoundTrip(t, cli, gows.OpcodeText, []byte(strings.Repeat("mixed negotiation echo payload ", 40)))
-	_ = cli.Close(gows.CloseNormalClosure, "")
+	_ = cli.Close(t.Context(), gows.CloseNormalClosure, "")
 	<-done
 }
 

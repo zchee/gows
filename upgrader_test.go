@@ -772,7 +772,7 @@ func TestPackageLevelDialAndUpgrade(t *testing.T) {
 			results := make(chan serverResult, 1)
 			wsURL := tt.start(t, results)
 
-			conn, hs, err := gows.Dial(t.Context(), wsURL)
+			conn, hs, err := (&gows.Dialer{}).DialNetConn(t.Context(), wsURL)
 			if err != nil {
 				t.Fatalf("Dial(%q): %v", wsURL, err)
 			}

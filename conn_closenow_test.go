@@ -17,9 +17,11 @@ package gows
 import (
 	"bytes"
 	"context"
+	"crypto/tls"
 	"errors"
 	"io"
 	"net"
+	"os"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -117,7 +119,7 @@ func TestCloseNowReleasesBlockedReader(t *testing.T) {
 			_, _, again := c.ReadMessage()
 			wantClosed(t, "later ReadMessage", again)
 			wantClosed(t, "later WriteMessage", c.WriteMessage(OpcodeText, []byte("late")))
-			if err := c.Close(CloseNormalClosure, ""); err != nil {
+			if err := c.Close(t.Context(), CloseNormalClosure, ""); err != nil {
 				t.Fatalf("Close after CloseNow = %v, want nil", err)
 			}
 			if n := cc.closes.Load(); n != 1 {
@@ -281,6 +283,53 @@ func TestCloseNowReleasesBlockedWriter(t *testing.T) {
 	}
 }
 
+func TestCloseNowTLS(t *testing.T) {
+	raw, peer := loopbackPair(t)
+	if err := raw.(*net.TCPConn).SetWriteBuffer(4096); err != nil {
+		t.Fatal(err)
+	}
+	if err := peer.(*net.TCPConn).SetReadBuffer(4096); err != nil {
+		t.Fatal(err)
+	}
+	probe := &writeProbe{Conn: raw}
+	server := tls.Server(probe, &tls.Config{Certificates: []tls.Certificate{selfSignedCert(t)}})
+	client := tls.Client(peer, &tls.Config{InsecureSkipVerify: true}) // Test-only self-signed loopback.
+	handshake := asyncResult(func() error { return client.HandshakeContext(t.Context()) })
+	if err := server.HandshakeContext(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if err := awaitResult(t, "TLS handshake", handshake); err != nil {
+		t.Fatal(err)
+	}
+
+	// A TCP write timeout proves backpressure. Resume the same record without
+	// a deadline so TLS still has a Write in flight when CloseNow runs.
+	blocked := make(chan struct{})
+	probe.write = func(b []byte) (int, error) {
+		if err := raw.SetWriteDeadline(time.Now().Add(100 * time.Millisecond)); err != nil {
+			return 0, err
+		}
+		n, err := raw.Write(b)
+		if !errors.Is(err, os.ErrDeadlineExceeded) {
+			return n, err
+		}
+		if err := raw.SetWriteDeadline(time.Time{}); err != nil {
+			return n, err
+		}
+		probe.write = raw.Write
+		close(blocked)
+		m, err := raw.Write(b[n:])
+		return n + m, err
+	}
+	c := NewServerConn(server)
+	writer := asyncResult(func() error { return c.WriteMessage(OpcodeBinary, make([]byte, 1<<20)) })
+	awaitResult(t, "TCP backpressure", blocked)
+	if err := within(t, "CloseNow with TLS write in flight", 2*time.Second, asyncResult(c.CloseNow)); err != nil {
+		t.Fatalf("CloseNow: %v", err)
+	}
+	wantClosed(t, "blocked TLS WriteMessage", within(t, "WriteMessage", 2*time.Second, writer))
+}
+
 // TestCloseNowReleasesReaderBlockedInPong covers the read side blocked in a
 // write of its own: the peer sends a Ping and stops reading, so the reader's
 // automatic Pong blocks on the transport.
@@ -318,10 +367,7 @@ func TestCloseNowWithoutReader(t *testing.T) {
 	t.Parallel()
 
 	followUps := map[string]func(*Conn) error{
-		"Close": func(c *Conn) error { return c.Close(CloseNormalClosure, "bye") },
-		"CloseContext": func(c *Conn) error {
-			return c.CloseContext(t.Context(), CloseNormalClosure, "bye")
-		},
+		"Close":    func(c *Conn) error { return c.Close(t.Context(), CloseNormalClosure, "bye") },
 		"CloseNow": func(c *Conn) error { return c.CloseNow() },
 	}
 	for name, followUp := range followUps {
@@ -345,8 +391,8 @@ func TestCloseNowWithoutReader(t *testing.T) {
 				t.Fatalf("peer Read = (%d, %v), want (0, io.EOF)", n, err)
 			}
 			wantClosed(t, "WriteMessage", c.WriteMessage(OpcodeText, []byte("late")))
-			if err := c.WriteClose(CloseNormalClosure, ""); err != nil {
-				t.Fatalf("WriteClose after CloseNow = %v, want nil", err)
+			if err := c.WriteClose(CloseNormalClosure, ""); err != errClosedNow {
+				t.Fatalf("WriteClose after CloseNow = %v, want %v", err, errClosedNow)
 			}
 
 			if err := followUp(c); err != nil {
@@ -372,9 +418,8 @@ func TestCloseNowBeforeAnyIO(t *testing.T) {
 	if err := c.CloseNow(); err != nil {
 		t.Fatalf("CloseNow = %v, want nil", err)
 	}
-	// The first call selected message mode.
-	if err := c.Abort(); !errors.Is(err, ErrConnMode) {
-		t.Fatalf("Abort after CloseNow = %v, want ErrConnMode", err)
+	if mode := c.mode.Load(); mode != 0 {
+		t.Fatalf("mode after CloseNow = %d, want unselected", mode)
 	}
 	_, _, err := c.ReadMessage()
 	wantClosed(t, "ReadMessage", err)
@@ -383,35 +428,58 @@ func TestCloseNowBeforeAnyIO(t *testing.T) {
 	}
 }
 
-func TestCloseNowModeExclusion(t *testing.T) {
+func TestCloseNowAnyMode(t *testing.T) {
 	t.Parallel()
-
-	t.Run("frame-mode CloseNow", func(t *testing.T) {
-		a, b := net.Pipe()
-		defer a.Close()
-		defer b.Close()
-		c := NewServerConn(a)
-		go func() { _, _ = io.Copy(io.Discard, b) }()
-		if err := c.WriteFrame(OpcodeText, true, []byte("x"), false); err != nil {
-			t.Fatalf("WriteFrame: %v", err)
-		}
-		if err := c.CloseNow(); !errors.Is(err, ErrConnMode) {
-			t.Fatalf("CloseNow on a frame-mode Conn = %v, want ErrConnMode", err)
-		}
-	})
-	t.Run("message-mode Abort", func(t *testing.T) {
-		a, b := net.Pipe()
-		defer a.Close()
-		defer b.Close()
-		c := NewServerConn(a)
-		go func() { _, _ = io.Copy(io.Discard, b) }()
-		if err := c.WriteMessage(OpcodeText, []byte("x")); err != nil {
-			t.Fatalf("WriteMessage: %v", err)
-		}
-		if err := c.Abort(); !errors.Is(err, ErrConnMode) {
-			t.Fatalf("Abort on a message-mode Conn = %v, want ErrConnMode", err)
-		}
-	})
+	tests := map[string]struct {
+		mode      uint32
+		readFrame bool
+	}{
+		"unused then message": {},
+		"unused then frame":   {readFrame: true},
+		"message mode":        {mode: connModeMessage},
+		"frame mode":          {mode: connModeFrame, readFrame: true},
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			a, b := net.Pipe()
+			defer a.Close()
+			defer b.Close()
+			cc := newCloseCountConn(a)
+			c := NewServerConn(cc)
+			switch tt.mode {
+			case connModeMessage:
+				if err := c.Flush(); err != nil {
+					t.Fatal(err)
+				}
+			case connModeFrame:
+				if _, _, err := c.DecodeFrame(Frame{Header: Header{Opcode: OpcodeText, Fin: true}}); err != nil {
+					t.Fatal(err)
+				}
+			}
+			for range 2 {
+				if err := c.CloseNow(); err != nil {
+					t.Fatalf("CloseNow: %v", err)
+				}
+			}
+			if got := c.mode.Load(); got != tt.mode {
+				t.Fatalf("mode after CloseNow = %d, want %d", got, tt.mode)
+			}
+			if n := cc.closes.Load(); n != 1 {
+				t.Fatalf("transport closed %d times, want 1", n)
+			}
+			if !tt.readFrame {
+				_, _, err := c.ReadMessage()
+				wantClosed(t, "ReadMessage", err)
+				return
+			}
+			if _, err := c.ReadFrame(); err != io.ErrClosedPipe {
+				t.Fatalf("ReadFrame = %v, want the pipe's %v", err, io.ErrClosedPipe)
+			}
+			if err := c.WriteFrame(OpcodeText, true, nil, false); err != errClosedNow {
+				t.Fatalf("WriteFrame = %v, want %v", err, errClosedNow)
+			}
+		})
+	}
 }
 
 // TestCloseNowDeliversBufferedMessages pins what a read after CloseNow
@@ -439,11 +507,11 @@ func TestCloseNowDeliversBufferedMessages(t *testing.T) {
 	}
 }
 
-// TestCloseContextEndedMidDrainClosesOnce pins the exactly-once transport
+// TestCloseEndedMidDrainClosesOnce pins the exactly-once transport
 // close when the context bounding a closing handshake ends while the drain
 // waits for the peer's Close: the force-close the context triggers and the
 // teardown that follows must share one close.
-func TestCloseContextEndedMidDrainClosesOnce(t *testing.T) {
+func TestCloseEndedMidDrainClosesOnce(t *testing.T) {
 	t.Parallel()
 	a, b := net.Pipe()
 	defer b.Close()
@@ -459,12 +527,12 @@ func TestCloseContextEndedMidDrainClosesOnce(t *testing.T) {
 		<-cc.readEntered
 		cancel(cause)
 	}()
-	err := c.CloseContext(ctx, CloseNormalClosure, "bye")
-	wantContextError(t, "CloseContext", err, ctx, cause)
+	err := c.Close(ctx, CloseNormalClosure, "bye")
+	wantContextError(t, "Close", err, ctx, cause)
 	if n := cc.closes.Load(); n != 1 {
 		t.Fatalf("transport closed %d times, want exactly 1", n)
 	}
 	if c.rbuf != nil || !c.tornDown.Load() {
-		t.Fatal("CloseContext returned without releasing the buffers")
+		t.Fatal("Close returned without releasing the buffers")
 	}
 }

@@ -98,8 +98,11 @@ func (c *Conn) readMessageContext(ctx context.Context) (Opcode, []byte, error) {
 // later -- and the returned error wraps ctx.Err and any distinct cancellation
 // cause, so errors.Is matches both. The read side's buffers are released by
 // the reader when it observes the closed transport, or by a later
-// [Conn.Close] or [Conn.CloseContext]. A ctx that has already ended fails the
-// call the same way without any I/O and without closing the connection. The
+// [Conn.Close], which returns nil. A ctx that has already ended fails the
+// call the same way without any I/O and without closing the connection, even
+// if a previous write failed. A write interrupted by cancellation does not
+// retain the transport error. Later data writes fail with [net.ErrClosed]; if
+// a failure was retained before cancellation, they return that same error. The
 // cancellation callback is stopped, and waited for if it has started, before
 // WriteMessageContext returns, so a ctx that ends after a successful return
 // never closes the connection.

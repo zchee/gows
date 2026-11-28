@@ -23,7 +23,7 @@ import (
 
 // connGuard binds a context to a net.Conn for the duration of one
 // bounded I/O exchange -- a dial hop's proxy/TLS/handshake phases, or a
-// [Conn.CloseContext] closing handshake. It is the single place that
+// [Conn.Close] closing handshake. It is the single place that
 // owns the ctx-to-connection lifecycle, so no phase spawns its own
 // callback goroutine:
 //

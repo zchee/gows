@@ -19,14 +19,13 @@ import "fmt"
 type frameWriteState struct {
 	active, compressed bool
 	lease              compressorLease
-	err                error
 }
 
 // WriteFrame writes exactly one frame, borrowing payload only until return and
 // never mutating it. op and fin explicitly select fragment boundaries, including
 // empty fragments. The connection role determines masking, with a fresh key per
 // client frame. Frame writes are serialized and may run alongside one reader.
-// SetWriteDeadline or Abort interrupts blocked writes; write failures are sticky.
+// SetWriteDeadline or [Conn.CloseNow] interrupts blocked writes; write failures are sticky.
 //
 // compress selects compression only on the opening Text or Binary frame and
 // must match that selection on every continuation. Compression must have been
@@ -36,7 +35,12 @@ type frameWriteState struct {
 // opening fragment. Controls can interleave, must be final and uncompressed,
 // and are validated before emission. A Close stops later data writes, but still
 // permits the application's control completion. Usage errors do not write or
-// poison the writer. The first call permanently selects frame mode.
+// poison the writer. Unless interrupted by a local close, a transport failure
+// (including a Ping or Pong after Close) or a compression failure on any
+// fragment -- including the opening frame, unlike message mode, because the
+// compressor's window may have advanced -- starts closing the transport and is
+// returned by the failing call and every later WriteFrame, matching both its
+// cause and [net.ErrClosed]. The first call permanently selects frame mode.
 func (c *Conn) WriteFrame(op Opcode, fin bool, payload []byte, compress bool) error {
 	if err := c.selectMode(connModeFrame); err != nil {
 		return err
@@ -44,8 +48,8 @@ func (c *Conn) WriteFrame(op Opcode, fin bool, payload []byte, compress bool) er
 	c.wmu.Lock()
 	defer c.wmu.Unlock()
 	s := &c.frameWrite
-	if s.err != nil {
-		return s.err
+	if c.werr != nil {
+		return c.werr
 	}
 	if c.tornDown.Load() {
 		return errWriteClosed
@@ -136,9 +140,6 @@ func (c *Conn) releaseFrameCompressor() {
 }
 
 func (c *Conn) failFrameWrite(err error) error {
-	c.frameWrite.err = err
 	c.releaseFrameCompressor()
-	// No later writes may repair a partially emitted frame or compressor context.
-	c.closeTransport()
-	return err
+	return c.retainWriteError(err)
 }

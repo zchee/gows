@@ -397,7 +397,7 @@ func (c *Conn) handleControl(h Header) error {
 	switch h.Opcode {
 	case OpcodePing:
 		// Once this side's Close frame has been sent -- by a concurrent
-		// [Conn.WriteClose], or by Close/CloseContext before their drain
+		// [Conn.WriteClose], or by [Conn.Close] before its drain
 		// loop -- writeControl short-circuits with errWriteClosed before
 		// any I/O. Swallow exactly that sentinel: RFC 6455 §5.5.3 permits
 		// not answering a Ping after a Close has been sent, and the read
@@ -520,9 +520,9 @@ func (c *Conn) ioError(err error) error {
 
 // errStreamReaderStale is the sticky error a [Conn.NextReader] reader's Read
 // returns once it has been superseded -- by a later NextReader, a
-// [Conn.ReadMessage], or a [Conn.Close]. Because the invalidation swaps the
-// Conn's active reader, it can never be undone, so the error is permanently
-// sticky for that reader.
+// [Conn.ReadMessage], or a [Conn.Close] that ends the connection or finds it
+// already closed. Because the invalidation swaps the Conn's active reader, it
+// can never be undone, so the error is permanently sticky for that reader.
 var errStreamReaderStale = errors.New("gows: stream reader superseded by a later read")
 
 // messageReader streams one inbound data message's payload through the
@@ -579,13 +579,16 @@ type messageReader struct {
 // to stream messages larger than the default limit should raise it with
 // WithReadLimit.
 //
-// Lifetime and mixing: the returned reader is valid only until the next
-// NextReader, ReadMessage, or Close call on the same Conn; afterward its Read
-// returns a sticky "superseded" error. NextReader and ReadMessage may be
-// interleaved from one message to the next but never used concurrently (the
-// single-reader contract), and -- per [Conn]'s own concurrency doc -- a Read
-// on the returned reader must not run concurrently with [Conn.Close] either;
-// it drives the same read side and shares the same buffers ReadMessage does.
+// Lifetime and mixing: starting another message read on the same Conn supersedes
+// the returned reader. A read call that returns without starting one leaves the
+// reader and its error unchanged. Close supersedes the reader if it ends the
+// connection or finds it already closed. Once superseded, the reader's Read
+// returns a sticky "superseded" error. A Close with invalid arguments on an
+// open Conn leaves the reader usable. NextReader and
+// ReadMessage may be interleaved from one message to the next but never used
+// concurrently (the single-reader contract), and -- per [Conn]'s own concurrency
+// doc -- a Read on the returned reader must not run concurrently with [Conn.Close]
+// either; it drives the same read side and shares the same buffers ReadMessage does.
 // [Conn.CloseNow] may run concurrently with it and unblocks a pending Read.
 // Starting a new read -- via either method -- while a previously returned
 // reader has not been drained to io.EOF discards the unread remainder of

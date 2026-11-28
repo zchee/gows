@@ -609,7 +609,7 @@ func TestNextWriterStreamingCompression(t *testing.T) {
 	t.Run("success: context takeover across NextWriter and WriteMessage", testNextWriterTakeoverAcrossAPIs)
 	t.Run("success: takeover sub-threshold NextWriter leaves window untouched", testNextWriterTakeoverSubThresholdLeavesWindow)
 	t.Run("success: incompressible data multi-fragment roundtrip", testNextWriterIncompressibleMultiFragment)
-	t.Run("error: takeover mid-stream emit failure disables outgoing", testNextWriterTakeoverEmitFailureDisables)
+	t.Run("error: takeover mid-stream emit failure is retained", testNextWriterTakeoverEmitFailureRetained)
 }
 
 // testNextWriterCompressedMultiFragment writes enough expanding data that
@@ -1003,7 +1003,7 @@ func (f *failNthWriteConn) Write(p []byte) (int, error) {
 	return f.scriptConn.Write(p)
 }
 
-func testNextWriterTakeoverEmitFailureDisables(t *testing.T) {
+func testNextWriterTakeoverEmitFailureRetained(t *testing.T) {
 	// Payload large enough for multi-fragment compressed emission so the
 	// second frame's write can fail after plaintext has entered the
 	// takeover compressor (stdlib flate at default level 1 emits around one
@@ -1019,28 +1019,11 @@ func testNextWriterTakeoverEmitFailureDisables(t *testing.T) {
 	// Write may fail mid-stream, or succeed if all drains fit before fail;
 	// Close must surface the error if Write did not.
 	cerr := w.Close()
-	if werr == nil && cerr == nil {
-		t.Fatalf("want a write/close error from failNthWriteConn")
+	if !errors.Is(cerr, net.ErrClosed) || (werr != nil && werr != cerr) {
+		t.Fatalf("stream Write = %v, Close = %v; want same terminal write error", werr, cerr)
 	}
-	if c.deflate == nil || !c.deflate.outgoingDisabled {
-		t.Fatalf("want outgoingDisabled after mid-stream failure, got deflate=%+v", c.deflate)
-	}
-
-	// Subsequent WriteMessage over the now-healthy path must go uncompressed.
-	fc.out.Reset()
-	follow := bytes.Repeat([]byte{'z'}, defaultCompressMinSize)
-	if err := c.WriteMessage(OpcodeBinary, follow); err != nil {
-		t.Fatalf("WriteMessage after disable: %v", err)
-	}
-	h, n, err := DecodeHeader(fc.out.Bytes())
-	if err != nil {
-		t.Fatalf("DecodeHeader: %v", err)
-	}
-	if h.Rsv&RSV1 != 0 {
-		t.Fatalf("RSV1 set after outgoingDisabled, want clear")
-	}
-	if !bytes.Equal(fc.out.Bytes()[n:], follow) {
-		t.Fatalf("payload mismatch after outgoingDisabled")
+	if got := c.WriteMessage(OpcodeBinary, payload); got != cerr || fc.writes != fc.failAt {
+		t.Fatalf("later WriteMessage = %v, transport writes = %d; want %v, %d", got, fc.writes, cerr, fc.failAt)
 	}
 }
 
@@ -1214,7 +1197,7 @@ func TestNextWriterConcurrentControlReply(t *testing.T) {
 
 	close(stop) // writer done: let the peer close now
 	<-readerDone
-	_ = srv.Close(CloseNormalClosure, "")
+	_ = srv.Close(t.Context(), CloseNormalClosure, "")
 
 	select {
 	case got := <-recv:

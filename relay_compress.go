@@ -37,15 +37,16 @@ type frameDecodeState struct {
 // their payload directly and complete equals FIN. DEFLATE plaintext has no
 // correspondence to the original compressed fragment sizes.
 //
-// Compressed output belongs to the Conn until the next DecodeFrame or Abort;
-// uncompressed output retains the ReadFrame payload's lifetime. Copy either to
-// retain it. Wire and plaintext message sizes are bounded by WithReadLimit;
+// Compressed output belongs to the Conn until the next DecodeFrame or ReadFrame;
+// uncompressed output retains the ReadFrame payload's lifetime. [Conn.CloseNow]
+// does not invalidate either. Copy the output to retain it across reads or decodes.
+// Wire and plaintext message sizes are bounded by WithReadLimit;
 // exceeding either returns ProtocolError code 1009 and releases decode buffers.
 // Invalid DEFLATE or text returns ProtocolError code 1007. Decode failures are
 // sticky and do not send controls. Compression dictionaries are inbound-only,
 // honor this Conn's peer-direction parameters and survive only when context
-// takeover was negotiated. One reader/decoder may run alongside a frame writer;
-// Abort safely releases its buffers. This method permanently selects frame mode.
+// takeover was negotiated. One reader/decoder may run alongside a frame writer.
+// This method permanently selects frame mode.
 func (c *Conn) DecodeFrame(f Frame) ([]byte, bool, error) {
 	if err := c.selectMode(connModeFrame); err != nil {
 		return nil, false, err

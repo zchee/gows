@@ -321,6 +321,7 @@ path:
 package main
 
 import (
+	"context"
 	"log"
 	"net"
 
@@ -352,7 +353,7 @@ func serve(conn net.Conn) {
 		gows.WithBuffered(hs.Buffered),
 		gows.WithCompression(hs.Compressed),
 	)
-	defer c.Close(gows.CloseNormalClosure, "")
+	defer c.Close(context.Background(), gows.CloseNormalClosure, "")
 
 	for {
 		op, payload, err := c.ReadMessage()
@@ -382,7 +383,7 @@ func serve(conn net.Conn) {
 		gows.WithBuffered(hs.Buffered),
 		gows.WithCompression(hs.Compressed),
 	)
-	defer c.Close(gows.CloseNormalClosure, "")
+	defer c.Close(context.Background(), gows.CloseNormalClosure, "")
 
 	// Serve drains every complete message per wakeup and flushes the
 	// buffered replies in a single write before blocking again.
@@ -420,7 +421,7 @@ func handleWS(w http.ResponseWriter, r *http.Request) {
 		gows.WithBuffered(hs.Buffered),
 		gows.WithCompression(hs.Compressed),
 	)
-	defer c.Close(gows.CloseNormalClosure, "")
+	defer c.Close(r.Context(), gows.CloseNormalClosure, "")
 
 	for {
 		op, payload, err := c.ReadMessage()
@@ -452,15 +453,11 @@ import (
 
 func main() {
 	dialer := gows.Dialer{EnableCompression: true}
-	conn, hs, err := dialer.Dial(context.Background(), "ws://127.0.0.1:9001/ws")
+	c, _, err := dialer.Dial(context.Background(), "ws://127.0.0.1:9001/ws")
 	if err != nil {
 		log.Fatal(err)
 	}
-	c := gows.NewClientConn(conn,
-		gows.WithBuffered(hs.Buffered),
-		gows.WithCompression(hs.Compressed),
-	)
-	defer c.Close(gows.CloseNormalClosure, "")
+	defer c.Close(context.Background(), gows.CloseNormalClosure, "")
 
 	if err := c.WriteMessage(gows.OpcodeText, []byte("hello")); err != nil {
 		log.Fatal(err)
@@ -500,7 +497,7 @@ import (
 // apply, and returns a refused handshake's status as an error.
 func open(ctx context.Context, hc *http.Client, url string) (*gows.Conn, error) {
 	dialer := gows.Dialer{HTTPClient: hc, MaxErrorBodyBytes: 4096}
-	conn, hs, err := dialer.Dial(ctx, url)
+	c, _, err := dialer.Dial(ctx, url)
 	if refused, ok := errors.AsType[*gows.UnexpectedStatusError](err); ok {
 		// refused.Header and refused.Body hold the server's response.
 		return nil, fmt.Errorf("handshake refused with status %d: %w", refused.StatusCode, err)
@@ -508,10 +505,7 @@ func open(ctx context.Context, hc *http.Client, url string) (*gows.Conn, error) 
 	if err != nil {
 		return nil, err
 	}
-	return gows.NewClientConn(conn,
-		gows.WithBuffered(hs.Buffered),
-		gows.WithCompression(hs.Compressed),
-	), nil
+	return c, nil
 }
 
 func main() {

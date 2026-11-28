@@ -83,16 +83,29 @@ func (d *Dialer) deflateOffer() string {
 	return b.String()
 }
 
-// Dial performs the client side of a WebSocket opening handshake to
-// rawURL using the zero-value [Dialer] (no subprotocols, default TLS
-// config, [net.Dialer]'s default dialing). It is a convenience
-// equivalent to (&Dialer{}).Dial(ctx, rawURL).
-func Dial(ctx context.Context, rawURL string) (net.Conn, Handshake, error) {
+// Dial opens a WebSocket connection to rawURL using a zero-value [Dialer].
+// It is equivalent to (&Dialer{}).Dial(ctx, rawURL, opts...).
+func Dial(ctx context.Context, rawURL string, opts ...ConnOption) (*Conn, Handshake, error) {
 	var d Dialer
-	return d.Dial(ctx, rawURL)
+	return d.Dial(ctx, rawURL, opts...)
 }
 
-// Dial performs the client side of a WebSocket opening handshake
+// Dial opens a WebSocket connection to rawURL and returns the negotiated
+// handshake. The Conn reads any bytes buffered past the handshake before
+// reading the transport, so the returned [Handshake.Buffered] is nil.
+// Negotiated compression settings and buffered bytes take precedence over
+// opts. As with [Dialer.DialNetConn], ctx bounds only the opening handshake.
+func (d *Dialer) Dial(ctx context.Context, rawURL string, opts ...ConnOption) (*Conn, Handshake, error) {
+	nc, hs, err := d.DialNetConn(ctx, rawURL)
+	if err != nil {
+		return nil, hs, err
+	}
+	c := newConnFromHandshake(nc, true, &hs, opts)
+	hs.Buffered = nil
+	return c, hs, nil
+}
+
+// DialNetConn performs the client side of a WebSocket opening handshake
 // (RFC 6455 §4.1) to rawURL, which must have scheme "ws" or "wss"
 // (otherwise [ErrNotWebSocketScheme]). It connects (via
 // [Dialer.NetDial] if set, else [net.Dialer.DialContext]), performs a
@@ -102,9 +115,9 @@ func Dial(ctx context.Context, rawURL string) (net.Conn, Handshake, error) {
 // "websocket", a Connection header containing the "Upgrade" token, and a
 // Sec-WebSocket-Accept header matching the value computed from the
 // Sec-WebSocket-Key this call generated. If the response selects a
-// Sec-WebSocket-Protocol not in [Dialer.Subprotocols], Dial fails with
+// Sec-WebSocket-Protocol not in [Dialer.Subprotocols], the handshake fails with
 // [ErrUnrequestedSubprotocol]. A well-formed response status other than
-// 101 fails Dial with a [*UnexpectedStatusError] (matching
+// 101 fails with a [*UnexpectedStatusError] (matching
 // [ErrUnexpectedStatus]) carrying the numeric status, the response
 // headers, and -- only when [Dialer.MaxErrorBodyBytes] is positive -- up to
 // that many bytes of the response body.
@@ -114,13 +127,13 @@ func Dial(ctx context.Context, rawURL string) (net.Conn, Handshake, error) {
 // response-header read, and each redirect hop. Its deadline, if any, is
 // applied to the connection, and its cancellation force-closes the
 // connection to interrupt whichever phase is in flight -- also on a ctx
-// with no deadline. When ctx ends the dial early, Dial returns an error
+// with no deadline. When ctx ends the dial early, DialNetConn returns an error
 // wrapping both ctx.Err and any distinct cancellation cause, so
 // errors.Is matches [context.Canceled], [context.DeadlineExceeded], and
 // a [context.WithCancelCause] cause. An already-ended ctx fails before
 // any network I/O. On success, the ctx-derived deadline is cleared from
 // the returned net.Conn, and the cancellation callback is stopped and
-// fully synchronized, before Dial returns -- a late callback can never
+// fully synchronized, before DialNetConn returns -- a late callback can never
 // close a connection the caller owns.
 //
 // [Dialer.HTTPHeader] adds extra request headers from a snapshot taken
@@ -128,7 +141,7 @@ func Dial(ctx context.Context, rawURL string) (net.Conn, Handshake, error) {
 // [Dialer.CheckRedirect] opts in to following redirects. See each
 // field's documentation.
 //
-// With [Dialer.HTTPClient] set, Dial sends the handshake request through
+// With [Dialer.HTTPClient] set, DialNetConn sends the handshake request through
 // that client instead of connecting itself: dialing, TLS, proxying, and
 // redirects are the client's, and ctx and the client's Timeout bound the
 // handshake only. net/http parses the response, and the handshake fields
@@ -136,23 +149,17 @@ func Dial(ctx context.Context, rawURL string) (net.Conn, Handshake, error) {
 // documentation for the responses whose outcome differs by path and for
 // the returned connection.
 //
-// On any failure after a connection was established, Dial returns a
-// non-nil error alongside a nil net.Conn. On the native path Dial closes
-// that connection, so a canceled or failed connection is never reused. On
-// the [Dialer.HTTPClient] path the client's transport owns it instead: a
-// refused handshake whose response body was read to its end leaves the
-// connection in the client's idle pool for reuse. On success, the caller owns the
-// returned net.Conn (e.g. to build a Conn on top of it) and any bytes
-// the server had already sent past the handshake response (e.g. a
-// pipelined first WebSocket frame) are returned as Handshake.Buffered;
-// see [Handshake] for the contract a caller building a Conn on top of
-// the returned net.Conn must follow. When redirects are followed, only
-// the final hop's Handshake (and Buffered) is returned.
+// On the native path, once a dial returns a connection, every subsequent
+// failure closes it. On the [Dialer.HTTPClient] path the transport owns the
+// connection instead: after a refusal, it may reuse the connection when the
+// response body was read to its end.
 //
-// Dial is not on gows's zero-allocation hot path (a handshake happens
-// once per connection, not once per message) and allocates freely to
-// keep its implementation straightforward.
-func (d *Dialer) Dial(ctx context.Context, rawURL string) (net.Conn, Handshake, error) {
+// On success, the caller owns the returned net.Conn. Use [NewClientConn]
+// with [WithHandshake] to read any bytes buffered past the 101 and apply
+// the negotiated compression settings. [Handshake.Buffered] is always nil
+// on the HTTPClient path: the response body replays those bytes itself.
+// When redirects are followed, only the final hop's Handshake is returned.
+func (d *Dialer) DialNetConn(ctx context.Context, rawURL string) (net.Conn, Handshake, error) {
 	if d.WindowBits != 0 && d.OfferClientMaxWindowBits {
 		return nil, Handshake{}, ErrConflictingClientWindowBits
 	}
@@ -198,7 +205,7 @@ func (d *Dialer) Dial(ctx context.Context, rawURL string) (net.Conn, Handshake, 
 
 	var via []*http.Request
 	for {
-		conn, hs, location, err := d.dialHop(ctx, u, hdr)
+		conn, hs, location, err := d.dialHop(ctx, u, hdr, len(via) != 0)
 		if err != nil {
 			return nil, Handshake{}, err
 		}
@@ -239,7 +246,7 @@ func (d *Dialer) Dial(ctx context.Context, rawURL string) (net.Conn, Handshake, 
 // and the hop answered with a redirect carrying a Location -- the raw
 // Location value, with the hop's connection already closed. On error,
 // the hop's connection is closed before dialHop returns.
-func (d *Dialer) dialHop(ctx context.Context, u *url.URL, hdr http.Header) (net.Conn, Handshake, string, error) {
+func (d *Dialer) dialHop(ctx context.Context, u *url.URL, hdr http.Header, redirected bool) (net.Conn, Handshake, string, error) {
 	useTLS := u.Scheme == "wss"
 
 	var proxyURL *url.URL
@@ -271,10 +278,16 @@ func (d *Dialer) dialHop(ctx context.Context, u *url.URL, hdr http.Header) (net.
 		dialAddr = net.JoinHostPort(proxyURL.Hostname(), port)
 	}
 
+	// After a redirect, even the proxy address may derive from the peer's Location.
+	dialTarget := dialAddr
+	if redirected {
+		dialTarget = "redirect target"
+	}
+
 	// Fail before any network I/O on an already-ended context; a custom
 	// [Dialer.NetDial] is not obliged to check it.
 	if ctx.Err() != nil {
-		return nil, Handshake{}, "", fmt.Errorf("gows: dial %s: %w", dialAddr, contextError(ctx))
+		return nil, Handshake{}, "", fmt.Errorf("gows: dial %s: %w", dialTarget, contextError(ctx))
 	}
 
 	dial := d.NetDial
@@ -285,9 +298,9 @@ func (d *Dialer) dialHop(ctx context.Context, u *url.URL, hdr http.Header) (net.
 	conn, err := dial(ctx, "tcp", dialAddr)
 	if err != nil {
 		if ctx.Err() != nil && !errorContainsContext(err, ctx) {
-			return nil, Handshake{}, "", fmt.Errorf("gows: dial %s: %w: %w", dialAddr, contextError(ctx), err)
+			return nil, Handshake{}, "", fmt.Errorf("gows: dial %s: %w: %w", dialTarget, contextError(ctx), err)
 		}
-		return nil, Handshake{}, "", fmt.Errorf("gows: dial %s: %w", dialAddr, err)
+		return nil, Handshake{}, "", fmt.Errorf("gows: dial %s: %w", dialTarget, err)
 	}
 
 	// One guard owns the ctx-to-connection lifecycle for every phase of
@@ -304,7 +317,7 @@ func (d *Dialer) dialHop(ctx context.Context, u *url.URL, hdr http.Header) (net.
 	fail := func(err error) (net.Conn, Handshake, string, error) {
 		g.abort()
 		// The connection deadline can fire a beat before the context timer
-		// (same race CloseContext's budgetExpired handles). When the I/O
+		// (same race Close's budgetExpired handles). When the I/O
 		// timed out under a ctx-bound deadline, wait for that beat so Dial
 		// surfaces ctx.Err deterministically -- errors.Is(err, ctx.Err())
 		// and errors.Is(err, context.DeadlineExceeded) both hold.

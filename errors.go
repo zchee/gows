@@ -179,18 +179,18 @@ var (
 	// case; install a backend whose MinWindowBits is at most the desired
 	// ceiling (e.g. via github.com/zchee/gows/flatekp) before dialing.
 	ErrUnsupportedWindowBits = errors.New("gows: negotiated window bits unsupported by the active deflate backend")
-	// ErrInvalidCloseCode indicates a [Conn.Close], [Conn.CloseContext],
+	// ErrInvalidCloseCode indicates a [Conn.Close]
 	// or [Conn.WriteClose] call's code is not sendable per [ValidCloseCode]
 	// (reserved 1005/1006/1015, out of the defined ranges, etc.). The
 	// call returns this before sending anything.
 	ErrInvalidCloseCode = errors.New("gows: invalid close code")
-	// ErrInvalidCloseReason indicates a [Conn.Close], [Conn.CloseContext],
+	// ErrInvalidCloseReason indicates a [Conn.Close]
 	// or [Conn.WriteClose] call's reason string was not valid UTF-8, which
 	// RFC 6455 §5.5.1 requires for a Close frame's reason text. The call
 	// returns this before sending anything -- putting invalid UTF-8 on the
 	// wire would make this package the non-conformant peer.
 	ErrInvalidCloseReason = errors.New("gows: close reason is not valid UTF-8")
-	// ErrCloseReasonTooLong indicates a [Conn.Close], [Conn.CloseContext],
+	// ErrCloseReasonTooLong indicates a [Conn.Close]
 	// or [Conn.WriteClose] call's reason, with the 2-byte close code, would
 	// exceed a control frame's 125-byte payload limit (RFC 6455 §5.5). The
 	// call returns this before sending anything.
@@ -229,14 +229,12 @@ var (
 	// returns it for a malformed pending response header, before
 	// hijacking and after writing a 500 response.
 	ErrMalformedHeader = errors.New("gows: extra handshake header is malformed")
-	// ErrCloseTimeout indicates a [Conn.CloseContext] closing handshake
-	// did not complete within the Conn's own close-timeout budget
-	// ([WithCloseTimeout]): the Close-frame write or the wait for the
-	// peer's Close frame ran out of it. When the context's deadline is
-	// the binding bound instead, CloseContext reports the context's
-	// cause (matching ctx.Err()), not this sentinel. The connection is
-	// closed either way; the error only means the closing handshake did
-	// not complete cleanly.
+	// ErrCloseTimeout indicates that [Conn.Close] exhausted its
+	// [WithCloseTimeout] budget while writing the Close frame or
+	// waiting for the peer's reply. If the Close-frame write timed out, the
+	// returned error also wraps the retained write error. When the context's
+	// deadline expires instead, Close returns the context error and
+	// cause, not this sentinel. In either case the connection is closed.
 	ErrCloseTimeout = errors.New("gows: closing handshake timed out")
 	// ErrProxyUnsupportedScheme indicates [Dialer.Proxy] returned a
 	// proxy URL whose scheme is not "http". [Dialer.Dial] returns it

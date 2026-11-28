@@ -32,7 +32,7 @@ func TestFrameCompressionDirectionWindows(t *testing.T) {
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
 			c := newConn(&scriptConn{}, tt.client, []ConnOption{WithCompressionParams(tt.params)})
-			defer c.Abort()
+			defer c.CloseNow()
 			// Each independent 64-byte DEFLATE stream is valid for every RFC window.
 			// Resetting outbound compression is legal even with takeover negotiated.
 			payload := bytes.Repeat([]byte("x"), 64)
@@ -56,7 +56,7 @@ func TestFrameCompressionDirectionWindows(t *testing.T) {
 
 func TestFrameCompressionUnsupportedOutgoingWindow(t *testing.T) {
 	c := NewServerConn(&scriptConn{}, WithCompressionParams(CompressionParams{ServerMaxWindowBits: 9}))
-	defer c.Abort()
+	defer c.CloseNow()
 	if err := c.WriteFrame(OpcodeBinary, true, nil, true); !errors.Is(err, ErrUnsupportedWindowBits) {
 		t.Fatalf("unsupported outgoing window = %v", err)
 	}

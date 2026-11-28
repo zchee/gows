@@ -443,7 +443,7 @@ func TestDialCompressionNegotiation(t *testing.T) {
 					return clientConn, nil
 				},
 			}
-			conn, hs, err := d.Dial(t.Context(), "ws://example.invalid/")
+			conn, hs, err := d.DialNetConn(t.Context(), "ws://example.invalid/")
 			if tt.wantErr != nil {
 				if conn != nil {
 					t.Fatalf("Dial conn = %v, want nil", conn)
@@ -527,7 +527,7 @@ func TestDialWindowBitsOffer(t *testing.T) {
 					return clientConn, nil
 				},
 			}
-			conn, _, err := d.Dial(t.Context(), "ws://example.invalid/")
+			conn, _, err := d.DialNetConn(t.Context(), "ws://example.invalid/")
 			if err != nil {
 				t.Fatalf("Dial: unexpected error %v", err)
 			}
@@ -560,7 +560,7 @@ func TestDialInvalidWindowBits(t *testing.T) {
 					return nil, nil
 				},
 			}
-			_, _, err := d.Dial(t.Context(), "ws://example.invalid/")
+			_, _, err := d.DialNetConn(t.Context(), "ws://example.invalid/")
 			if !errors.Is(err, ErrInvalidWindowBits) {
 				t.Fatalf("Dial err = %v, want %v", err, ErrInvalidWindowBits)
 			}
@@ -678,7 +678,7 @@ func TestCompressionEchoRoundTrip(t *testing.T) {
 				t.Fatalf("%s: echo mismatch: op=%v len(got)=%d len(want)=%d", name, op, len(got), len(tt.p))
 			}
 		}
-		_ = cli.Close(CloseNormalClosure, "bye")
+		_ = cli.Close(t.Context(), CloseNormalClosure, "bye")
 		<-done
 	}
 
@@ -919,7 +919,7 @@ func TestCompressionPooledReuseNoStateLeak(t *testing.T) {
 				break
 			}
 		}
-		_ = cli.Close(CloseNormalClosure, "")
+		_ = cli.Close(t.Context(), CloseNormalClosure, "")
 		<-done
 		return retErr
 	}
@@ -1286,7 +1286,7 @@ func TestDialClientMaxWindowBitsMinOfOfferAndResponse(t *testing.T) {
 			return clientConn, nil
 		},
 	}
-	conn, hs, err := d.Dial(t.Context(), "ws://example.invalid/")
+	conn, hs, err := d.DialNetConn(t.Context(), "ws://example.invalid/")
 	if err != nil {
 		t.Fatalf("Dial: %v", err)
 	}
@@ -1487,7 +1487,7 @@ func TestContextTakeoverWindowContinuityBothDirections(t *testing.T) {
 			t.Fatalf("echo mismatch: got %d bytes, want %d", len(got), len(payload))
 		}
 	}
-	_ = cli.Close(CloseNormalClosure, "bye")
+	_ = cli.Close(t.Context(), CloseNormalClosure, "bye")
 	<-done
 
 	// Wire-level shrink check, both directions: compress the same payload
@@ -1619,7 +1619,7 @@ func TestContextTakeoverInteropWithNoContextPeer(t *testing.T) {
 			t.Fatalf("echo mismatch: got %d bytes, want %d", len(got), len(payload))
 		}
 	}
-	_ = cli.Close(CloseNormalClosure, "")
+	_ = cli.Close(t.Context(), CloseNormalClosure, "")
 	<-done
 }
 
@@ -1648,7 +1648,7 @@ func TestContextTakeoverTeardownReleasesState(t *testing.T) {
 		defer close(done)
 		cli.ReadMessage() // drains the server's Close frame so srv.Close doesn't block.
 	}()
-	if err := srv.Close(CloseNormalClosure, ""); err != nil {
+	if err := srv.Close(t.Context(), CloseNormalClosure, ""); err != nil {
 		t.Fatalf("srv.Close: %v", err)
 	}
 	<-done
@@ -1925,7 +1925,7 @@ func TestUpgraderDialerContextTakeoverIntegration(t *testing.T) {
 			return cliConn, nil
 		},
 	}
-	conn, clientHS, err := d.Dial(t.Context(), "ws://example.invalid/")
+	conn, clientHS, err := d.DialNetConn(t.Context(), "ws://example.invalid/")
 	if err != nil {
 		t.Fatalf("Dial: %v", err)
 	}
@@ -1963,7 +1963,7 @@ func TestUpgraderDialerContextTakeoverIntegration(t *testing.T) {
 			t.Fatalf("echo mismatch: got %d bytes, want %d", len(got), len(payload))
 		}
 	}
-	_ = cli.Close(CloseNormalClosure, "")
+	_ = cli.Close(t.Context(), CloseNormalClosure, "")
 	<-done
 }
 
@@ -2237,9 +2237,6 @@ func (f *failOnceConn) Write(p []byte) (int, error) {
 	return f.scriptConn.Write(p)
 }
 
-// TestOutgoingDisabledOnTakeoverEmitFailure confirms that a failed
-// WriteMessage on a context-takeover Conn sets outgoingDisabled, so a
-// subsequent WriteMessage over a healthy conn goes out uncompressed.
 func TestOutgoingDisabledOnTakeoverEmitFailure(t *testing.T) {
 	withDeflateBackend(t, DefaultDeflateBackend(), 6, deflateWindowBits)
 
@@ -2247,26 +2244,10 @@ func TestOutgoingDisabledOnTakeoverEmitFailure(t *testing.T) {
 	c := NewServerConn(fc, WithCompressionParams(CompressionParams{ServerContextTakeover: true}))
 	payload := bytes.Repeat([]byte{'z'}, defaultCompressMinSize)
 	err := c.WriteMessage(OpcodeBinary, payload)
-	if err == nil {
-		t.Fatalf("WriteMessage: want error from failOnceConn")
+	if !errors.Is(err, net.ErrClosed) || fc.out.Len() != fc.failAfter {
+		t.Fatalf("partial frame: WriteMessage = %v, bytes = %d", err, fc.out.Len())
 	}
-	if c.deflate == nil || !c.deflate.outgoingDisabled {
-		t.Fatalf("want outgoingDisabled after emit failure, got deflate=%+v", c.deflate)
-	}
-
-	// Subsequent write over the now-healthy path must go uncompressed.
-	fc.out.Reset()
-	if err := c.WriteMessage(OpcodeBinary, payload); err != nil {
-		t.Fatalf("WriteMessage after disable: %v", err)
-	}
-	h, n, err := DecodeHeader(fc.out.Bytes())
-	if err != nil {
-		t.Fatalf("DecodeHeader: %v", err)
-	}
-	if h.Rsv&RSV1 != 0 {
-		t.Fatalf("RSV1 set after outgoingDisabled, want clear")
-	}
-	if !bytes.Equal(fc.out.Bytes()[n:], payload) {
-		t.Fatalf("payload mismatch after outgoingDisabled")
+	if got := c.WriteMessage(OpcodeBinary, payload); got != err || fc.out.Len() != fc.failAfter {
+		t.Fatalf("follow-up WriteMessage = %v, bytes = %d; want same failure and no more bytes", got, fc.out.Len())
 	}
 }

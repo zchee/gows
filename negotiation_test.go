@@ -130,7 +130,7 @@ func TestDialUpgradeExplicitServerWindowRoundTrip(t *testing.T) {
 			return
 		}
 		srv := NewServerConn(server, WithBuffered(hs.Buffered), WithCompressionParams(hs.CompressionParams))
-		defer srv.Abort()
+		defer srv.CloseNow()
 		frame, err := srv.ReadFrame()
 		if err != nil {
 			done <- fmt.Errorf("server ReadFrame: %w", err)
@@ -144,7 +144,7 @@ func TestDialUpgradeExplicitServerWindowRoundTrip(t *testing.T) {
 		done <- srv.WriteFrame(OpcodeText, true, got, true)
 	})
 	d := Dialer{EnableCompression: true, ServerWindowBits: 15, NetDial: func(context.Context, string, string) (net.Conn, error) { return client, nil }}
-	raw, hs, err := d.Dial(t.Context(), "ws://example.invalid/")
+	raw, hs, err := d.DialNetConn(t.Context(), "ws://example.invalid/")
 	if err != nil {
 		t.Fatalf("Dial explicit server window: %v", err)
 	}
@@ -155,7 +155,7 @@ func TestDialUpgradeExplicitServerWindowRoundTrip(t *testing.T) {
 		t.Fatal(err)
 	}
 	cli := NewClientConn(raw, WithBuffered(hs.Buffered), WithCompressionParams(hs.CompressionParams))
-	defer cli.Abort()
+	defer cli.CloseNow()
 	if err := cli.WriteFrame(OpcodeText, true, payload, true); err != nil {
 		t.Fatalf("client WriteFrame: %v", err)
 	}
@@ -248,7 +248,7 @@ func TestDialRejectsUnsolicitedExtensions(t *testing.T) {
 				done <- err
 			}()
 			d := Dialer{EnableCompression: tt.enable, NetDial: func(context.Context, string, string) (net.Conn, error) { return client, nil }}
-			conn, hs, err := d.Dial(t.Context(), "ws://example.invalid/")
+			conn, hs, err := d.DialNetConn(t.Context(), "ws://example.invalid/")
 			if conn != nil {
 				_ = conn.Close()
 			}

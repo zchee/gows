@@ -57,7 +57,7 @@ func TestReadFrameBufferedCompressedPrefixes(t *testing.T) {
 		if _, err := c.ReadFrame(); !errors.Is(err, io.EOF) {
 			t.Fatalf("prefix %d EOF: %v", prefix, err)
 		}
-		if err := c.Abort(); err != nil {
+		if err := c.CloseNow(); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -92,7 +92,7 @@ func TestUpgradeBufferedFrameHandoff(t *testing.T) {
 		t.Fatalf("buffered = %x, want %x", r.hs.Buffered, wire)
 	}
 	c := NewServerConn(server, WithBuffered(r.hs.Buffered))
-	defer c.Abort()
+	defer c.CloseNow()
 	clear(r.hs.Buffered)
 	f, err := c.ReadFrame()
 	if err != nil || string(f.Payload) != "pipelined" {
@@ -107,7 +107,7 @@ func TestFrameDeadlineInterruption(t *testing.T) {
 			nc, peer := net.Pipe()
 			defer peer.Close()
 			c := NewClientConn(nc)
-			defer c.Abort()
+			defer c.CloseNow()
 			done := make(chan error, 1)
 			if tt.write {
 				go func() { done <- c.WriteFrame(OpcodeBinary, true, []byte("unfinished"), false) }()
@@ -151,35 +151,31 @@ func (c *frameCountingConn) Write(p []byte) (int, error) {
 }
 func (c *frameCountingConn) Close() error { c.closes.Add(1); return c.Conn.Close() }
 
-func TestAbortConcurrentFrameIO(t *testing.T) {
+func TestCloseNowBlockedFrameIO(t *testing.T) {
 	nc, peer := net.Pipe()
 	defer peer.Close()
 	counted := &frameCountingConn{Conn: nc, reads: make(chan struct{}), writes: make(chan struct{})}
 	c := NewClientConn(counted, WithCompressionParams(CompressionParams{ServerContextTakeover: true, ClientContextTakeover: true}))
-	readDone, writeDone := make(chan error, 1), make(chan error, 1)
-	go func() { _, err := c.ReadFrame(); readDone <- err }()
-	go func() { writeDone <- c.WriteFrame(OpcodeBinary, false, []byte("compressed pending"), true) }()
-	<-counted.reads
-	<-counted.writes
-	var wg sync.WaitGroup
-	for range 16 {
-		wg.Go(func() {
-			if err := c.Abort(); err != nil {
-				t.Errorf("Abort: %v", err)
-			}
-		})
+	readDone := asyncResult(func() error { _, err := c.ReadFrame(); return err })
+	writeDone := asyncResult(func() error { return c.WriteFrame(OpcodeBinary, false, []byte("compressed pending"), true) })
+	awaitResult(t, "transport read", counted.reads)
+	awaitResult(t, "transport write", counted.writes)
+	// Leave the rest of the frame unread so the write cannot finish.
+	if _, err := io.ReadFull(peer, make([]byte, 1)); err != nil {
+		t.Fatal(err)
 	}
-	wg.Wait()
-	if err := <-readDone; err == nil {
-		t.Fatal("interrupted read succeeded")
+	deadline := time.Now().Add(time.Second)
+	if err := within(t, "CloseNow", time.Until(deadline), asyncResult(c.CloseNow)); err != nil {
+		t.Fatal(err)
 	}
-	if err := <-writeDone; err == nil {
-		t.Fatal("interrupted write succeeded")
+	if err := within(t, "ReadFrame", time.Until(deadline), readDone); err != io.ErrClosedPipe {
+		t.Fatalf("interrupted read = %v, want %v", err, io.ErrClosedPipe)
 	}
-	if counted.closes.Load() != 1 {
-		t.Fatalf("transport closed %d times", counted.closes.Load())
+	wantClosed(t, "interrupted WriteFrame", within(t, "WriteFrame", time.Until(deadline), writeDone))
+	if n := counted.closes.Load(); n != 1 {
+		t.Fatalf("transport closed %d times, want 1", n)
 	}
-	if c.rbuf != nil || c.msgBuf != nil || c.inflateBuf != nil || c.frameDecode.buf != nil || c.frameWrite.lease.w != nil || c.deflate != nil || c.wslice.b != nil {
-		t.Fatal("Abort retained buffers or codec state")
+	if c.rbuf != nil || c.msgBuf != nil || c.inflateBuf != nil || c.frameDecode.buf != nil || c.frameWrite.lease.w != nil || c.deflate != nil || c.wslice.b != nil || c.wpay != nil || c.wstage != nil {
+		t.Fatal("interrupted frame I/O retained buffers or codec state")
 	}
 }

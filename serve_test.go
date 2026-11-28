@@ -21,6 +21,7 @@ import (
 	"net"
 	"slices"
 	"testing"
+	"time"
 )
 
 // serveBufferedEcho drives Serve with a handler that echoes every message back
@@ -69,7 +70,7 @@ func TestServeEchoRoundTrip(t *testing.T) {
 		}
 	}
 
-	_ = cli.Close(CloseNormalClosure, "bye")
+	_ = cli.Close(t.Context(), CloseNormalClosure, "bye")
 	if err := <-done; !errors.As(err, new(*CloseError)) {
 		t.Fatalf("Serve returned %v, want *CloseError", err)
 	}
@@ -265,8 +266,10 @@ func TestServeHandlerErrorLeavesConnUsable(t *testing.T) {
 
 	wantErr := errors.New("handler stop")
 	in := append(clientFrame(true, OpcodeText, []byte("first")), clientFrame(true, OpcodeText, []byte("second"))...)
-	sc := &scriptConn{in: in}
-	c := NewServerConn(sc)
+	server, peer := net.Pipe()
+	defer server.Close()
+	defer peer.Close()
+	c := NewServerConn(server, WithBuffered(in), WithCloseTimeout(200*time.Millisecond))
 
 	if err := c.Serve(func(Opcode, []byte) error { return wantErr }); !errors.Is(err, wantErr) {
 		t.Fatalf("Serve returned %v, want %v", err, wantErr)
@@ -277,10 +280,19 @@ func TestServeHandlerErrorLeavesConnUsable(t *testing.T) {
 	if _, p, err := c.ReadMessage(); err != nil || string(p) != "second" {
 		t.Fatalf("ReadMessage after the handler error = (%q, %v), want (\"second\", nil)", p, err)
 	}
-	if err := c.Close(ClosePolicyViolation, "refused"); err != nil {
-		t.Fatalf("Close after the handler error = %v, want nil", err)
+	if err := peer.SetReadDeadline(time.Now().Add(3 * time.Second)); err != nil {
+		t.Fatal(err)
 	}
-	frames := parseFrames(t, sc.out.Bytes())
+	closed := make(chan error, 1)
+	go func() { closed <- c.Close(t.Context(), ClosePolicyViolation, "refused") }()
+	wire, err := io.ReadAll(peer)
+	if err != nil {
+		t.Fatalf("read outgoing Close: %v", err)
+	}
+	if err := awaitResult(t, "Close after the handler error", closed); !errors.Is(err, ErrCloseTimeout) {
+		t.Fatalf("Close after the handler error = %v, want ErrCloseTimeout", err)
+	}
+	frames := parseFrames(t, wire)
 	if len(frames) != 1 || frames[0].h.Opcode != OpcodeClose {
 		t.Fatalf("wire frames = %+v, want exactly one Close frame", frames)
 	}
@@ -442,7 +454,7 @@ func TestServeConcurrentWriteAndControl(t *testing.T) {
 	<-serveDone
 	<-writerDone
 	<-peerDone
-	_ = srv.Close(CloseNormalClosure, "")
+	_ = srv.Close(t.Context(), CloseNormalClosure, "")
 }
 
 // --- buffered write semantics ----------------------------------------------

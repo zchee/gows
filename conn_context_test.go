@@ -248,7 +248,7 @@ func TestWriteMessageContextEndsWhileBlocked(t *testing.T) {
 			}
 			wantClosed(t, "later WriteMessage", c.WriteMessage(OpcodeText, []byte("late")))
 			// The write side does not own the read buffers; Close releases them.
-			if err := c.Close(CloseNormalClosure, ""); err != nil {
+			if err := c.Close(t.Context(), CloseNormalClosure, ""); err != nil {
 				t.Fatalf("Close = %v, want nil", err)
 			}
 			if c.rbuf != nil {
@@ -518,12 +518,12 @@ func TestReadMessageContextKeepsEarlierReadError(t *testing.T) {
 			end: func(t *testing.T, c *Conn) error {
 				ended, cancel := context.WithCancel(t.Context())
 				cancel()
-				if err := c.CloseContext(ended, CloseNormalClosure, ""); !errors.Is(err, context.Canceled) {
-					t.Fatalf("CloseContext = %v, want an error matching context.Canceled", err)
+				if err := c.Close(ended, CloseNormalClosure, ""); !errors.Is(err, context.Canceled) {
+					t.Fatalf("Close = %v, want an error matching context.Canceled", err)
 				}
 				_, _, err := c.ReadMessage()
 				if !errors.Is(err, net.ErrClosed) {
-					t.Fatalf("ReadMessage after CloseContext = %v, want an error matching net.ErrClosed", err)
+					t.Fatalf("ReadMessage after Close = %v, want an error matching net.ErrClosed", err)
 				}
 				return err
 			},
