@@ -284,6 +284,17 @@ func TestWriteErrorNotRetained(t *testing.T) {
 			c.deflate.outgoing = rejectCompression{c.deflate.outgoing, boom}
 			return c.WriteMessage(OpcodeBinary, make([]byte, defaultCompressMinSize))
 		}, want: boom, compress: true},
+		"frame-mode precedence": {call: func(*Conn) error {
+			fc := NewServerConn(&failWriteConn{Conn: &scriptConn{}, err: boom})
+			defer fc.teardown()
+			e := fc.WriteFrame(OpcodeText, true, nil, false)
+			requireWriteFailure(t, e, boom)
+			err := fc.WriteMessage(OpcodeText, nil)
+			if got := fc.WriteFrame(OpcodeText, true, nil, false); got != e {
+				t.Fatalf("retained frame error = %v, want %v", got, e)
+			}
+			return err
+		}, want: ErrConnMode},
 	}
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {

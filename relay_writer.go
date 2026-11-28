@@ -35,7 +35,12 @@ type frameWriteState struct {
 // opening fragment. Controls can interleave, must be final and uncompressed,
 // and are validated before emission. A Close stops later data writes, but still
 // permits the application's control completion. Usage errors do not write or
-// poison the writer. The first call permanently selects frame mode.
+// poison the writer. Unless interrupted by a local close, a transport failure
+// (including a Ping or Pong after Close) or a compression failure on any
+// fragment -- including the opening frame, unlike message mode, because the
+// compressor's window may have advanced -- starts closing the transport and is
+// returned by the failing call and every later WriteFrame, matching both its
+// cause and [net.ErrClosed]. The first call permanently selects frame mode.
 func (c *Conn) WriteFrame(op Opcode, fin bool, payload []byte, compress bool) error {
 	if err := c.selectMode(connModeFrame); err != nil {
 		return err
@@ -135,9 +140,6 @@ func (c *Conn) releaseFrameCompressor() {
 }
 
 func (c *Conn) failFrameWrite(err error) error {
-	c.werr = err
 	c.releaseFrameCompressor()
-	// No later writes may repair a partially emitted frame or compressor context.
-	c.closeTransport()
-	return err
+	return c.retainWriteError(err)
 }
